@@ -1,12 +1,19 @@
 # Teensy-ConvolutionSDR
 
 Software Defined Radio with the Teensy 3.6, the Teensy Audio board and any IQ-Quadrature Sampling Detector
+
 This radio uses the Fast convolution approach to filter and process the radio signals with the floating point microprocessor Teensy 3.6
 
 Hardware needed:
 - Teensy 3.6
 - Teensy Audio board
-- QSD
+- QSD = quadrature sampling detector and a local oscillator that can be tuned by I2C (eg. Si5351, Si570, Si514 . . .)
+- one encoder for frequency tuning
+- one pot for filter bandwidth
+- five pushbuttons
+- TFT display ILI9341-based
+- antenna for longwave/mediumwave/shortwave
+- 5V power supply
 
 Software: 
 - Install Arduino
