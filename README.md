@@ -11,7 +11,7 @@ Hardware needed:
 Software: 
 - Install Arduino
 - Install Teensyduino
-- Install a newer version of the ARM CMSIS DSP library and set it to use floating point
+- Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE)
 - Listen to the radio ;-)
 
 Specifications at the moment:
