@@ -8,7 +8,7 @@ Hardware needed:
 - Teensy 3.6
 - Teensy Audio board
 - QSD = quadrature sampling detector and a local oscillator that can be tuned by I2C (eg. Si5351, Si570, Si514 . . .)
-[should run with Softrock, Elektor SDR, Fifi SDR and many others]
+[should run with Softrock, Elektor SDR (https://www.elektor.de/elektor-sdr-reloaded-150515-91), Fifi SDR and many others]
 - one encoder for frequency tuning
 - one pot for filter bandwidth
 - five pushbuttons
