@@ -11,7 +11,7 @@ Hardware needed:
 Software: 
 - Install Arduino
 - Install Teensyduino
-- Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE)
+- Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE: https://forum.pjrc.com/threads/40551-How-to-be-sure-I-m-using-the-FPU-in-T3-5-3-6?p=126193&viewfull=1#post126193)
 - Listen to the radio ;-)
 
 Specifications at the moment:
