@@ -4,6 +4,8 @@ Software Defined Radio with the Teensy 3.6, the Teensy Audio board and any IQ-Qu
 
 This radio uses the Fast convolution approach to filter and process the radio signals with the floating point microprocessor Teensy 3.6
 
+Reception of longwave, medium wave and shortwave signals from about 12kHz to 30Mhz
+
 [![Teensy Convolution SDR video](http://img.youtube.com/vi/VdJXrZoBHjU/0.jpg)](http://www.youtube.com/watch?v=VdJXrZoBHjU)
 
 Hardware needed:
