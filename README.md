@@ -14,8 +14,8 @@ Hardware needed:
 - QSD = quadrature sampling detector and a local oscillator that can be tuned by I2C (eg. Si5351, Si570, Si514 . . .)
 [should run with Softrock, Elektor SDR (https://www.elektor.de/elektor-sdr-reloaded-150515-91), Fifi SDR and many others]
 - one encoder for frequency tuning
-- one pot for filter bandwidth
-- five pushbuttons
+- one encoder for filter bandwidth
+- six pushbuttons (two of them could be encoder pushbuttons)
 - TFT display ILI9341-based
 - antenna for longwave/mediumwave/shortwave
 - 5V power supply
@@ -23,6 +23,7 @@ Hardware needed:
 Software: 
 - Install Arduino
 - Install Teensyduino
+- Install the si5351 library by NT7S (if your QSD has the Si5351 as the local oscillator): https://github.com/etherkit/Si5351Arduino/tree/master/src
 - Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE: https://forum.pjrc.com/threads/40551-How-to-be-sure-I-m-using-the-FPU-in-T3-5-3-6?p=126193&viewfull=1#post126193)
 - Listen to the radio ;-)
 
