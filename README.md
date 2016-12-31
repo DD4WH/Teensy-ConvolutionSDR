@@ -31,8 +31,8 @@ Specifications at the moment:
 * Teensy 3.6 with audio board working in floating point
 * reception from about 12kHz to 30Mhz
 * FFT and inverse FFT with 1024 points using the new CMSIS DSP lib complex FFT function
-* filtering with 1025 tap FIR filter (in decimation-by-8) --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
-* filter coefficients are calculated by the Teensy itself and the filter bandwidth can be chosen arbitrarily by the user
+* filtering with 513 tap FIR filter (equivalent to 4104 tap filtering because of decimation-by-8) --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
+* filter coefficients are calculated by the Teensy itself and the filter bandwidth can be chosen arbitrarily by the user in 100Hz-steps (100Hz to 11kHz audio bandwidth)
 * demodulation of AM (nine different algorithms implemented), SAM (real synchronous AM !), LSB, USB, pseudo-Stereo-USB, pseuso-Stereo-LSB (more to come . . .)
 * display up to 192kHz of frequency spectrum
 * Zoom into the spectrum for greater frequency resolution detail: built in with Frank Bösings code for sample rate change on-the-fly
