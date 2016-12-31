@@ -30,13 +30,13 @@ Software:
 Specifications at the moment:
 * Teensy 3.6 with audio board working in floating point
 * reception from about 12kHz to 30Mhz
-* FFT and inverse FFT with 4096 points using the new CMSIS DSP lib complex FFT function
-* filtering with 2049 tap FIR filter --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
+* FFT and inverse FFT with 1024 points using the new CMSIS DSP lib complex FFT function
+* filtering with 1025 tap FIR filter (in decimation-by-8) --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
 * filter coefficients are calculated by the Teensy itself and the filter bandwidth can be chosen arbitrarily by the user
 * demodulation of AM (nine different algorithms implemented), SAM (real synchronous AM !), LSB, USB, pseudo-Stereo-USB, pseuso-Stereo-LSB (more to come . . .)
-* display up to 96kHz of frequency spectrum
+* display up to 192kHz of frequency spectrum
 * Zoom into the spectrum for greater frequency resolution detail: built in with Frank Bösings code for sample rate change on-the-fly
 * superb audio quality (of course not like FM quality, but very good compared to other commercially available shortwave receivers)
-* needs about 50% of the processor ressources at 96ksps sample rate
+* needs about 80% of the processor ressources at 192ksps sample rate and SAM demodulation (much lower with USB/LSB and AM)
 
 
