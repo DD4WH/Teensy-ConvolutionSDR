@@ -24,7 +24,7 @@ Software:
 - Install Arduino
 - Install Teensyduino
 - Install the si5351 library by NT7S (if your QSD has the Si5351 as the local oscillator): https://github.com/etherkit/Si5351Arduino/tree/master/src
-- Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE: https://forum.pjrc.com/threads/40551-How-to-be-sure-I-m-using-the-FPU-in-T3-5-3-6?p=126193&viewfull=1#post126193)
+- Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE: https://forum.pjrc.com/threads/40590-Teensy-Convolution-SDR-(Software-Defined-Radio)?p=129081&viewfull=1#post129081
 - Listen to the radio ;-)
 
 Specifications at the moment:
