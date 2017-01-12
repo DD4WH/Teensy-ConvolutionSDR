@@ -35,6 +35,7 @@ Specifications at the moment:
 * filter coefficients are calculated by the Teensy itself and the filter bandwidth can be chosen arbitrarily by the user in 100Hz-steps (100Hz to 11kHz audio bandwidth)
 * demodulation of AM (nine different algorithms implemented), SAM (real synchronous AM !) with user-selected sidebands and Stereo-SAM, LSB, USB, pseudo-Stereo-USB, pseuso-Stereo-LSB (more to come . . .)
 * display up to 192kHz of frequency spectrum
+* sophisticated automatic gain control (AGC) adapted from the wdsp lib by Warren Pratt
 * Zoom into the spectrum for greater frequency resolution detail: uses a Zoom FFT approach (Lyons 2011)
 * superb audio quality (of course not like FM quality, but very good compared to other commercially available shortwave receivers)
 * needs about 80% of the processor ressources at 192ksps sample rate and SAM demodulation (much lower with USB/LSB and AM)
