@@ -15,7 +15,8 @@ Hardware needed:
 [should run with Softrock, Elektor SDR (https://www.elektor.de/elektor-sdr-reloaded-150515-91), Fifi SDR and many others]
 - one encoder for frequency tuning
 - one encoder for filter bandwidth
-- six pushbuttons (two of them could be encoder pushbuttons)
+- one encoder for volume and analog gain
+- eight pushbuttons (three of them could be encoder pushbuttons)
 - TFT display ILI9341-based
 - antenna for longwave/mediumwave/shortwave
 - 5V power supply
@@ -37,6 +38,7 @@ Specifications at the moment:
 * display up to 192kHz of frequency spectrum
 * sophisticated automatic gain control (AGC) adapted from the wdsp lib by Warren Pratt
 * Zoom into the spectrum for greater frequency resolution detail: uses a Zoom FFT approach (Lyons 2011)
+* also plays MP3 and M4A files from the SD card (with the excellent lib by Frank Bösing)
 * superb audio quality (of course not like FM quality, but very good compared to other commercially available shortwave receivers)
 * needs about 80% of the processor ressources at 192ksps sample rate and SAM demodulation (much lower with USB/LSB and AM)
 
