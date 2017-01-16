@@ -38,8 +38,8 @@ Specifications at the moment:
 * display up to 192kHz of frequency spectrum
 * sophisticated automatic gain control (AGC) adapted from the wdsp lib by Warren Pratt
 * Zoom into the spectrum for greater frequency resolution detail: uses a Zoom FFT approach (Lyons 2011)
-* also plays MP3 and M4A files from the SD card (with the excellent lib by Frank Bösing)
 * superb audio quality (of course not like FM quality, but very good compared to other commercially available shortwave receivers)
+* also plays MP3 and M4A files from the SD card in best HiFi stereo quality (with the excellent lib by Frank Bösing)
 * needs about 80% of the processor ressources at 192ksps sample rate and SAM demodulation (much lower with USB/LSB and AM)
 
 
