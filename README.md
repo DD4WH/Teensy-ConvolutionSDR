@@ -41,5 +41,8 @@ Specifications at the moment:
 * superb audio quality (of course not like FM quality, but very good compared to other commercially available shortwave receivers)
 * also plays MP3 and M4A files from the SD card in best HiFi stereo quality (with the excellent lib by Frank Bösing)
 * needs about 80% of the processor ressources at 192ksps sample rate and SAM demodulation (much lower with USB/LSB and AM)
+* automatic IQ amplitude and phase imbalance correction: this corrects imbalances that are caused by the hardware and results in > 55dBc mirror rejection
+* supports 100ksps sample rate which could potentially eliminate spurs present with other sample rates
+* dynamic frequency indicator figures and graticules on spectrum display x-axis
 
 
