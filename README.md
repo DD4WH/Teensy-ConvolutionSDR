@@ -44,5 +44,7 @@ Specifications at the moment:
 * automatic IQ amplitude and phase imbalance correction: this corrects imbalances that are caused by the hardware and results in > 55dBc mirror rejection
 * supports 100ksps sample rate which could potentially eliminate spurs present with other sample rates
 * dynamic frequency indicator figures and graticules on spectrum display x-axis
+* menu system to adjust many variables
+* save and load settings to/from EEPROM
 
 
