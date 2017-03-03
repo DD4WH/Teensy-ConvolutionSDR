@@ -47,5 +47,8 @@ Specifications at the moment:
 * menu system to adjust many variables
 * save and load settings to/from EEPROM
 * demodulation of wide FM broadcast signals (at the moment only MONO is supported): possible at 192ksps sample rate in order to pass through the WFM signal, which has 180kHz bandwidth for MONO and 246kHz for STEREO. The audio quality is superb at 192ksps and still acceptable (but no longer HiFi due to narrow-bandwidth-related distortion) at 96ksps sample rate. The reception of VHF signals is possible by undersampling reception with the QSD at 5th harmonic (receive 95.4MHz at 19.08MHz with LO running at 4 x 19.08MHz = 76.32MHz). Undersampling reception at the 5th harmonic involves an attenuation of the signals by 14dB, so for better sensitivity a preamp is recommended for undersampling reception in the range of 88 - 150MHz. But even without a preamp the reception is quite good if you are near enough to strong FM broadcast transmitters. Is STEREO reception possible???
+* automatic test for the "twinpeak syndrome" - a fault in the mirror rejection that occurs sometimes at startup. This is now reliably detected by the automatic IQ phase correction algorithm and the codec restarted to cure the problem
+* AGC now has an optical indicator for the AGC threshold and many more AGC parameters can be adjusted
+ 
 
 
