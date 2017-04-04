@@ -46,13 +46,14 @@ Specifications at the moment:
 * dynamic frequency indicator figures and graticules on spectrum display x-axis
 * menu system to adjust many variables
 * save and load settings to/from EEPROM
-* demodulation of wide FM broadcast signals (at the moment only MONO is supported): possible at 192ksps sample rate in order to pass through the WFM signal, which has 180kHz bandwidth for MONO and 246kHz for STEREO. The audio quality is superb at 192ksps and still acceptable (but no longer HiFi due to narrow-bandwidth-related distortion) at 96ksps sample rate. The reception of VHF signals is possible by undersampling reception with the QSD at 5th harmonic (receive 95.4MHz at 19.08MHz with LO running at 4 x 19.08MHz = 76.32MHz). Undersampling reception at the 5th harmonic involves an attenuation of the signals by 14dB, so for better sensitivity a preamp is recommended for undersampling reception in the range of 88 - 150MHz. But even without a preamp the reception is quite good if you are near enough to strong FM broadcast transmitters. Is STEREO reception possible???
+* demodulation of wide FM broadcast signals: possible at 192ksps sample rate in order to pass through the WFM signal, which has 180kHz bandwidth for MONO and 246kHz for STEREO. The audio quality is superb at 192ksps and still acceptable (but no longer HiFi due to narrow-bandwidth-related distortion) at 96ksps sample rate. The reception of VHF signals is possible by undersampling reception with the QSD at 5th harmonic (receive 95.4MHz at 19.08MHz with LO running at 4 x 19.08MHz = 76.32MHz). Undersampling reception at the 5th harmonic involves an attenuation of the signals by 14dB, so for better sensitivity a preamp is recommended for undersampling reception in the range of 88 - 150MHz. But even without a preamp the reception is quite good if you are near enough to strong FM broadcast transmitters. Is STEREO reception possible??? --> EDIT: yes, implemented!
 * automatic test for the "twinpeak syndrome" - a fault in the mirror rejection that occurs sometimes at startup. This is now reliably detected by the automatic IQ phase correction algorithm and the codec restarted to cure the problem
 * AGC now has an optical indicator for the AGC threshold and many more AGC parameters can be adjusted
 * Codec gain has now its own automatic AGC
 * Spectrum display now also has an "AGC" that prevents empty screen for small signals
 * now spectrum display also working in wide FM reception (well, kind of . . . )
 * spectrum display zoom now allows zoom factors up to 4096! --> this allows to differentiate between different carrier frequencies which is helpful in identifying AM medium wave stations (which pretend to transmit on the same frequency, but in fact have differing frequencies, sometimes several Hz, sometimes only several milli-Hz). The frequency resolution is in the sub-Hz-region with this zoom factor ;-) Disadvantage is the very long time delay for refreshing the display (frequency resolution is always inversely related to time resolution in DSP . . .)
+* STEREO FM wideband reception is now implemented
 
  
 
