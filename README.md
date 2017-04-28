@@ -8,6 +8,8 @@ Reception of longwave, medium wave and shortwave signals from about 12kHz to 30M
 
 [![Teensy Convolution SDR video](http://img.youtube.com/vi/VdJXrZoBHjU/0.jpg)](http://www.youtube.com/watch?v=VdJXrZoBHjU)
 
+[![Teensy Convolution SDR video](http://img.youtube.com/vi/hCFvDHAo2mg/0.jpg)](https://www.youtube.com/watch?v=hCFvDHAo2mg)
+
 [![Teensy Convolution SDR video](http://img.youtube.com/vi/qXAM5OmVnHE/0.jpg)](https://www.youtube.com/watch?v=qXAM5OmVnHE)
 
 Hardware needed:
