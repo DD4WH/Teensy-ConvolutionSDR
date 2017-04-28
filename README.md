@@ -52,7 +52,7 @@ Specifications at the moment:
 * Codec gain has now its own automatic AGC
 * Spectrum display now also has an "AGC" that prevents empty screen for small signals
 * now spectrum display also working in wide FM reception (well, kind of . . . )
-* spectrum display zoom now allows zoom factors up to 4096! --> this allows to differentiate between different carrier frequencies which is helpful in identifying AM medium wave stations (which pretend to transmit on the same frequency, but in fact have differing frequencies, sometimes several Hz, sometimes only several milli-Hz). The frequency resolution is in the sub-Hz-region with this zoom factor ;-) Disadvantage is the very long time delay for refreshing the display (frequency resolution is always inversely related to time resolution in DSP . . .)
+* spectrum display zoom now allows zoom factors up to 4096! --> this allows to differentiate between different carrier frequencies which is helpful in identifying AM medium wave stations (which pretend to transmit on the same frequency, but in fact have differing frequencies, sometimes several Hz, sometimes only several milli-Hz). The frequency resolution is smaller than 0.1 Hz with this zoom factor ;-) Disadvantage is the very long time delay for refreshing the display (frequency resolution is always inversely related to time resolution in DSP . . .)
 * STEREO FM wideband reception is now implemented (undersampling mode has been changed to 3 times undersampling instead of 5 times undersampling, which means a 6dB higher signal strength)
 
  
