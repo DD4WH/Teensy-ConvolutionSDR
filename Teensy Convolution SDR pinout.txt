@@ -1,0 +1,62 @@
+Teensy Convolution SDR pinout				
+				
+	Teensy name	DEVICE	PIN NAME	FUNCTION SDR
+0		filter encoder button 	button 6	
+1		filter encoder		
+2		filter encoder		
+3		display	Backlight	
+4		encoder 3		
+5		encoder 3		
+6		audioshield	MEMCS	
+7		display/audioshield	TFT_MOSI/MOSI	
+8		encoder 3 button	button 8	
+9		audioshield	BCLK	
+10		audioshield	SDCS	
+11		audioshield	MCLK	
+12		display/audioshield	TFT_MISO/MISO	
+13		audioshield	Rx	
+14		display/audioshield	TFT_SCLK/SCLK	
+15			Volume	
+16		tune encoder		
+17		tune encoder		
+18		audioshield/Si5351	SDA	
+19		audioshield/Si5351	SCL	
+20		display	TFT_DC	
+21		display	TFT_CS	
+22		audioshield	Tx	
+23		audioshield	LRCLK	
+24		attenuator PE4306 latch enable	ATT_LE	
+25		attenuator PE4306 data	ATT_DATA	
+26		LP Filter Band 5		
+27		LP Filter Band 3		
+28		attenuator PE4306 clock	ATT_CLOCK	
+29		LP Filter Band 4		
+30		LP Filter Band 2		
+31		LP Filter Band 1		
+32		display	TFT_RST	
+33		push button	button 1	
+34		push button	button 2	
+35		push button	button 3	
+36		push button	button 4	
+37		push button	button 7	
+38		tune encoder button	button 5	
+39		audio amp enable	not yet used	
+UNTERSEITE				
+40				
+41				
+42				
+43				
+44				
+45				
+46				
+47				
+48				
+49				
+50				
+51				
+52				
+53				
+54				
+55				
+56				
+57				
