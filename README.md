@@ -60,6 +60,8 @@ Specifications at the moment:
 * STEREO FM wideband reception is now implemented (undersampling mode has been changed to 3 times undersampling instead of 5 times undersampling, which means a 6dB higher signal strength)
 * Automatic notch filter and
 * Noise reduction implemented as variable-leak LMS algorithms, both taken from the excellent WDSP library by Warren Pratt, thank you Warren! 
+* complex FIR filter coefficients implemented --> 
+* RX filters now available as freely adjustable bandpasses: passband tuning available!
 
  
 
