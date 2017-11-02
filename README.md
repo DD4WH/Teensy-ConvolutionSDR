@@ -25,11 +25,14 @@ Hardware needed:
 - antenna for longwave/mediumwave/shortwave
 - 5V power supply
 
-Software: 
+Software setup: 
 - Install Arduino
 - Install Teensyduino
-- Install the si5351 library by NT7S (if your QSD has the Si5351 as the local oscillator): https://github.com/etherkit/Si5351Arduino/tree/master/src
+- Unzip and copy the following libraries into your Arduino folder (/Program Files/Arduino/hardware/teensy/avr/libraries):
+Si5351: https://github.com/etherkit/Si5351Arduino
+Arduino-Teensy-Codec-lib: https://github.com/FrankBoesing/Arduino-Teensy-Codec-lib
 - Install a newer version of the ARM CMSIS DSP library and set it to use floating point (explained HERE: https://forum.pjrc.com/threads/40590-Teensy-Convolution-SDR-(Software-Defined-Radio)?p=129081&viewfull=1#post129081
+- download Teensy_Convolution_SDR.ino from this github page and compile it
 - Listen to the radio ;-)
 
 Specifications at the moment:
