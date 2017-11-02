@@ -35,8 +35,8 @@ Software:
 Specifications at the moment:
 * Teensy 3.6 with audio board working in floating point
 * reception from about 12kHz to 30Mhz
-* FFT and inverse FFT with 1024 points using the new CMSIS DSP lib complex FFT function
-* filtering with 513 tap FIR filter (equivalent to 4104 tap filtering because of decimation-by-8) --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
+* FFT and inverse FFT with 512 points using the new CMSIS DSP lib complex FFT function
+* filtering with 257 tap FIR filter (equivalent to 2056 tap filtering because of decimation-by-8) --> comparably steep filters are normally available in commercial receivers from 2000$ upwards ;-)
 * filter coefficients are calculated by the Teensy itself and the filter bandwidth can be chosen arbitrarily by the user in 100Hz-steps (100Hz to 11kHz audio bandwidth)
 * demodulation of AM (nine different algorithms implemented), SAM (real synchronous AM !) with user-selected sidebands and Stereo-SAM, LSB, USB, pseudo-Stereo-USB, pseuso-Stereo-LSB (more to come . . .)
 * display up to 192kHz of frequency spectrum
@@ -62,6 +62,7 @@ Specifications at the moment:
 * Noise reduction implemented as variable-leak LMS algorithms, both taken from the excellent WDSP library by Warren Pratt, thank you Warren! 
 * complex FIR filter coefficients implemented --> 
 * RX filters now available as freely adjustable bandpasses: passband tuning available!
+* supports newest Arduino and Teensyduino versions 1.8.5 and 1.40
 
  
 
