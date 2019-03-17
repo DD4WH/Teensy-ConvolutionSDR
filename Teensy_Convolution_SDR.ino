@@ -147,6 +147,8 @@
 
  ************************************************************************************************************************************/
 
+//#define DEBUG
+
 #include <Audio.h>
 #include <Time.h>
 #include <TimeLib.h>
@@ -2963,7 +2965,8 @@ void loop() {
           if (twinpeaks_tested == 2)
           {
             twinpeaks_counter++;
-            Serial.print("twinpeaks counter = "); Serial.println(twinpeaks_counter);
+#ifdef DEBUG            Serial.print("twinpeaks counter = "); Serial.println(twinpeaks_counter);
+#endif
             if (twinpeaks_counter == 1)
             {
               tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_RED);
@@ -2992,7 +2995,9 @@ void loop() {
           {
             twinpeaks_tested = 0;
             twinpeaks_counter = 0;
-            Serial.println("twinpeaks_counter ready to test IQ balance !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
+#ifdef DEBUG
+          Serial.println("twinpeaks_counter ready to test IQ balance !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
+#endif
           }
           for (i = 0; i < n_para; i++)
           {
@@ -3039,11 +3044,15 @@ void loop() {
             // twinpeak_tested = 0 --> go and test the IQ phase
             // twinpeak_tested = 1 --> tested, verified, go and have a nice day!
           {
+#ifdef DEBUG
             Serial.println("HERE");
+#endif
             // Moseley & Slump (2006) eq. (33)
             // this gives us the phase error between I & Q in radians
             float32_t phase_IQ = asinf(teta1 / teta3);
+#ifdef DEBUG
             Serial.print("asinf = "); Serial.println(phase_IQ);
+#endif
             if ((phase_IQ > 0.15 || phase_IQ < -0.15) && codec_restarts < 5)
               // threshold lowered, so we can be really sure to have IQ phase balance OK
               // threshold of 22.5 degrees phase shift == PI / 8 == 0.3926990817
@@ -3051,7 +3060,9 @@ void loop() {
               // if it is that bad, adjust this threshold to maybe PI / 7 or PI / 6
             {
               reset_codec();
+#ifdef DEBUG
               Serial.println("CODEC RESET");
+#endif
               twinpeaks_tested = 2;
               codec_restarts++;
               // TODO: we should set a maximum number of codec resets
@@ -3060,7 +3071,9 @@ void loop() {
               if (codec_restarts >= 4)
               {
                 // PRINT OUT WARNING MESSAGE
+#ifdef DEBUG
                 Serial.println("Tried four times to reset your codec, but still IQ balance is very bad - hardware error ???");
+#endif
                 twinpeaks_tested = 3;
                 tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_RED);
                 tft.setCursor(pos_x_time + 55, pos_y_time + 22 + 14);
@@ -3072,7 +3085,9 @@ void loop() {
             {
               twinpeaks_tested = 3;
               twinpeaks_counter = 0;
+#ifdef DEBUG
               Serial.println("IQ phase balance is OK, so enjoy radio reception !");
+#endif
               tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_NAVY);
               tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_MAROON);
               tft.setCursor(spectrum_x + 256 + 6, pos_y_time + 22);
@@ -3181,6 +3196,7 @@ void loop() {
             if (I_sum != 0.0)
             {
               if (Q_sum / I_sum < 0) {
+#ifdef DEBUG
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
@@ -3190,6 +3206,7 @@ void loop() {
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
+#endif
                 K_est = K_est_old;
               }
               else
@@ -3203,8 +3220,9 @@ void loop() {
               }
             }
             else K_est = K_est_old;
+#ifdef DEBUG
             Serial.print("New 1 / K_est: "); Serial.println(100.0 / K_est);
-
+#endif
             // 3.)
             // phase estimation
             IQ_sum = 0.0;
@@ -3219,10 +3237,13 @@ void loop() {
             if (P_est > -1.0 && P_est < 1.0) P_est_mult = 1.0 / (sqrtf(1.0 - P_est * P_est));
             else P_est_mult = 1.0;
             // dirty fix !!!
-
+#ifdef DEBUG
             Serial.print("1 / sqrt(1 - P_est^2): "); Serial.println(P_est_mult * 100.0);
+#endif
             if (P_est > -1.0 && P_est < 1.0) {
+#ifdef DEBUG
               Serial.print("New: Phasenfehler in Grad: "); Serial.println(- asinf(P_est) * 100.0);
+#endif
             }
 
             // 4.)
@@ -3318,6 +3339,7 @@ void loop() {
         arm_mean_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS, &sample_mean);
         arm_max_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS, &sample_max, &max_index);
         arm_min_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS, &sample_min, &min_index);
+#ifdef DEBUG
         Serial.print("VOR DECIMATION: ");
         Serial.print("Sample min: "); Serial.println(sample_min);
         Serial.print("Sample max: "); Serial.println(sample_max);
@@ -3327,6 +3349,7 @@ void loop() {
         //    Serial.print("FFT_length: "); Serial.println(FFT_length);
         //    Serial.print("N_BLOCKS: "); Serial.println(N_BLOCKS);
         //Serial.println(BUFFER_SIZE * N_BLOCKS / 8);
+#endif
       }
 
       // SPECTRUM_ZOOM_2 and larger here after frequency conversion!
@@ -3385,6 +3408,7 @@ void loop() {
         arm_mean_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_mean);
         arm_max_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_max, &max_index);
         arm_min_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_min, &min_index);
+#ifdef DEBUG
         Serial.print("NACH DECIMATION: ");
         Serial.print("Sample min: "); Serial.println(sample_min);
         Serial.print("Sample max: "); Serial.println(sample_max);
@@ -3394,6 +3418,7 @@ void loop() {
         //    Serial.print("FFT_length: "); Serial.println(FFT_length);
         //    Serial.print("N_BLOCKS: "); Serial.println(N_BLOCKS);
         //Serial.println(BUFFER_SIZE * N_BLOCKS / 8);
+#endif
       }
 
       /**********************************************************************************
@@ -4242,7 +4267,7 @@ void loop() {
               }
             }
 
-#if 0
+#ifdef DEBUG
             // for debugging
             for (int bindx = 0; bindx < NR_FFT_L / 2; bindx++)
             {
@@ -4284,7 +4309,7 @@ void loop() {
             // NR_G is always positive, however often 0.0
 
             // for debugging
-#if 0
+#ifdef DEBUG
             for (int bindx = 0; bindx < NR_FFT_L / 2; bindx++)
             {
               Serial.print((NR_Gts[bindx][0]), 6);
@@ -4313,7 +4338,7 @@ void loop() {
             //          NR_G_bin_m_1 = NR_Gts[NR_FFT_L / 2 - 1][0];
 
             // for debugging
-#if 0
+#ifdef DEBUG
             for (int bindx = 0; bindx < NR_FFT_L / 2; bindx++)
             {
               Serial.print((NR_G[bindx]), 6);
@@ -4333,7 +4358,7 @@ void loop() {
             }
 
             // DEBUG
-#if 0
+#ifdef DEBUG
             for (int bindx = 20; bindx < 21; bindx++)
             {
               Serial.println("************************************************");
@@ -4507,7 +4532,11 @@ void loop() {
           Q_out_L.playBuffer(); // play it !  two of these is about 4 usec
           Q_out_R.playBuffer(); // play it !
           uAfter = (uint16_t)usec;
-          if((uAfter-uB4)>20)  { Serial.println(uAfter-uB4); omitOutputFlag = true; }
+          if((uAfter-uB4)>20)  { 
+#ifdef DEBUG
+            Serial.println(uAfter-uB4); 
+#endif
+            omitOutputFlag = true; }
         }       // Over 16 blocks
       }
 
@@ -4557,6 +4586,7 @@ void loop() {
           tft.setTextColor(ILI9341_RED);
           tft.print("100%");
         }
+#ifdef DEBUG
         Serial.print (mean);
         Serial.print (" microsec for ");
         Serial.print (N_BLOCKS);
@@ -4564,6 +4594,7 @@ void loop() {
         Serial.println();
         Serial.print (" n_clear    ");
         Serial.println(n_clear);
+#endif
         idx_t = 0;
         sum = 0;
         tft.setTextColor(ILI9341_WHITE);
@@ -4627,12 +4658,16 @@ void loop() {
   {
     if (trackext[track] == 1)
     {
+#ifdef DEBUG
       Serial.println("MP3" );
+#endif
       playFileMP3(playthis);
     }
     else if (trackext[track] == 2)
     {
+#ifdef DEBUG
       Serial.println("aac");
+#endif
       playFileAAC(playthis);
     }
     if (trackchange == true)
@@ -8397,8 +8432,10 @@ void encoders () {
     {
       //          if(encoder2_change < 0) SAMPLE_RATE--;
       //            else SAMPLE_RATE++;
+#ifdef DEBUG
       Serial.println(encoder2_change);
       Serial.println((float)encoder2_change / 4.0);
+#endif
       if(encoder2_change < -1) 
       {
            SAMPLE_RATE -= 1;
@@ -9253,7 +9290,9 @@ void playFileAAC(const char *filename)
   }
 }
 void nexttrack() {
+#ifdef DEBUG
   Serial.println("Next track!");
+#endif
   trackchange = false; // we are doing a track change here, so the auto trackchange will not skip another one.
   playMp3.stop();
   playAac.stop();
@@ -9265,7 +9304,9 @@ void nexttrack() {
 }
 
 void prevtrack() {
+#ifdef DEBUG
   Serial.println("Previous track! ");
+#endif
   trackchange = false; // we are doing a track change here, so the auto trackchange will not skip another one.
   playMp3.stop();
   playAac.stop();
@@ -9284,7 +9325,9 @@ void pausetrack() {
 
 
 void randomtrack() {
+#ifdef DEBUG
   Serial.println("Random track!");
+#endif
   trackchange = false; // we are doing a track change here, so the auto trackchange will not skip another one.
   if (trackext[track] == 1) playMp3.stop();
   if (trackext[track] == 2) playAac.stop();
@@ -9308,6 +9351,7 @@ void printTrack () {
 void show_load() {
   if (five_sec.check() == 1)
   {
+#ifdef DEBUG
     Serial.print("Proc = ");
     Serial.print(AudioProcessorUsage());
     Serial.print(" (");
@@ -9317,6 +9361,7 @@ void show_load() {
     Serial.print(" (");
     Serial.print(AudioMemoryUsageMax());
     Serial.println(")");
+#endif
     AudioProcessorUsageMaxReset();
     AudioMemoryUsageMaxReset();
   }
@@ -10422,8 +10467,9 @@ void set_dec_int_filters()
   LP_F_help = filter_BW_highest;
   
   if (LP_F_help > 10000) LP_F_help = 10000;
+#ifdef DEBUG
             Serial.print("Alias frequ for decimation/interpolation");Serial.println((LP_F_help));
-
+#endif
   calc_FIR_coeffs (FIR_dec1_coeffs, n_dec1_taps, (float32_t)(LP_F_help), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate));
   calc_FIR_coeffs (FIR_dec2_coeffs, n_dec2_taps, (float32_t)(LP_F_help), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
 
