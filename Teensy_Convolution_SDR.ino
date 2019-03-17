@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_02_08
+   (c) Frank DD4WH 2019_03_17
    
    "TEENSY CONVOLUTION SDR"
 
@@ -122,8 +122,8 @@
    Audio queue optimized by Pete El Supremo 2016_10_27, thanks Pete!
    An important hint on the implementation came from Alberto I2PHD, thanks for that!
    Thanks to Brian, bmillier for helping with codec restart code for the SGTL 5000 codec in the Teensy audio board!
-   Thanks a lot to Michael DL2FW - without you the spectral noise reduction would not have been possible!
-   Bob Larkin, W7PUA, found a significant bug in the spectrum display FFT windowing, thanks a lot, Bob!
+   Thanks a lot to Michael DL2FW - without you the spectral noise reduction would not have been possible! Also you contributed the state-of-the-art Noise Blanker
+   Bob Larkin, W7PUA, found a significant bug in the spectrum display FFT windowing and added lots of other very useful things, thanks a lot, Bob!
    and of course a great Thank You to Paul Stoffregen @ pjrc.com for providing the Teensy platform and its excellent audio library !
 
    Audio processing in float32_t with the NEW ARM CMSIS lib, --> https://forum.pjrc.com/threads/40590-Teensy-Convolution-SDR-(Software-Defined-Radio)?p=129081&viewfull=1#post129081
@@ -2431,7 +2431,7 @@ void loop() {
       arm_fir_f32 (&FIR_WFM_Q, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 //      const float32_t WFM_scaling_factor = 0.009; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
-      const float32_t WFM_scaling_factor = 0.009; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+      const float32_t WFM_scaling_factor = 0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
       // 0.025 leads to distortion, 0.001 is much too low, 0.1 is quite good???
       //    arm_scale_f32(float_buffer_L, WFM_scaling_factor, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
       //    arm_scale_f32(float_buffer_R, WFM_scaling_factor, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
@@ -2575,13 +2575,19 @@ void loop() {
         arm_biquad_cascade_df1_f32 (&biquad_WFM_38k, float_buffer_L, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
         // float_buffer_R --> 38k pilot
 
+        // make 38k pilot tone a rectangle in order to have it of equal size independent of signal strength
+        // thanks Martin Oßmann for this hint!
+        for (i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+        {
+            if(float_buffer_R[i] > 0) float_buffer_R[i] = 0.002; 
+              else float_buffer_R[i] = -0.002; // factor 0.002 * 1000 (=stereo_factor) = 2 ! multiplication because L-R is DSB signal  
+        }
+
         // 4. L-R = multiply audio with 38k carrier in order to produce audio L - R
         for (i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
         {
           float_buffer_L[i] = stereo_factor * float_buffer_R[i] * FFT_buffer[i];
-          //            iFFT_buffer[i] = stereo_factor * float_buffer_R[i] * FFT_buffer[i];
         }
-        //     arm_biquad_cascade_df1_f32 (&biquad_WFM, iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
         // float_buffer_L --> L-R
 
         // 6. Right channel:
@@ -2599,14 +2605,12 @@ void loop() {
         // float_buffer_R --> LEFT CHANNEL
 
         // Right channel: lowpass filter with 15kHz Fstop & deemphasis
-        //     rawFM_old_R = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, 192000, rawFM_old_R);
         rawFM_old_R = deemphasis_wfm_ff (iFFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, SR[SAMPLE_RATE].rate, rawFM_old_R);
         arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
 
         // FFT_buffer --> RIGHT CHANNEL PERFECT AUDIO
 
         // Left channel: lowpass filter with 15kHz Fstop & deemphasis
-        //     rawFM_old_L = deemphasis_wfm_ff (float_buffer_R, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 192000, rawFM_old_L);
         rawFM_old_L = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, SR[SAMPLE_RATE].rate, rawFM_old_L);
         arm_biquad_cascade_df1_f32 (&biquad_WFM_R, FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
@@ -2668,8 +2672,8 @@ void loop() {
         Decode baseband RDS signal
       */
 
-      arm_scale_f32(float_buffer_L, 3.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-      arm_scale_f32(iFFT_buffer, 3.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+//      arm_scale_f32(float_buffer_L, 3.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+//      arm_scale_f32(iFFT_buffer, 3.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
       for (i = 0; i < WFM_BLOCKS; i++)
       {
@@ -6539,7 +6543,7 @@ void FrequencyBarText()
   if (band[bands].mode == DEMOD_WFM)
   { // undersampling mode with 3x undersampling
     // grat *= 5.0;
-    freq_calc = 3.0 * freq_calc + 0.75 * SR[SAMPLE_RATE].rate;;
+    freq_calc = 3.0 * freq_calc + 0.75 * SR[SAMPLE_RATE].rate;
   }
 
   if (spectrum_zoom == 0)        //
