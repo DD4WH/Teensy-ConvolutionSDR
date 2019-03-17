@@ -63,6 +63,7 @@ Specifications at the moment:
 * complex FIR filter coefficients implemented --> 
 * RX filters now available as freely adjustable bandpasses: passband tuning available!
 * supports newest Arduino and Teensyduino versions 1.8.5 and 1.40
+* state-of-the-art noise blanker by Michael DL2FW integrated
 
  
 
