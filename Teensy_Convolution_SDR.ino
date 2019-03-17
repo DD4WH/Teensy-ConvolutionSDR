@@ -148,6 +148,7 @@
  ************************************************************************************************************************************/
 
 //#define DEBUG
+#define USE_LOG10FAST
 
 #include <Audio.h>
 #include <Time.h>
@@ -5077,7 +5078,11 @@ void AGC()
       agc_action = 1;
     }
     //      Serial.println(volts * inv_out_target);
-    mult = (out_target - slope_constant * min (0.0, log10f(inv_max_input * volts))) / volts;
+#ifdef USE_LOG10FAST
+mult = (out_target - slope_constant * min (0.0, log10f_fast(inv_max_input * volts))) / volts;
+#else
+mult = (out_target - slope_constant * min (0.0, log10f(inv_max_input * volts))) / volts;
+#endif
     //    Serial.println(mult * 1000);
     //      Serial.println(volts * 1000);
     iFFT_buffer[FFT_length + 2 * i + 0] = out_sample[0] * mult;
@@ -5757,13 +5762,21 @@ void Zoom_FFT_exe (uint32_t blockSize)
     for (int16_t x=0; x<256; x++)
     {
       // pixelnew[x] = DISPLAY_OFFSET_PIXELS + (int16_t)(spectrum_display_scale*10.0*log10f(FFT_spec[x])); <PUA>
+#ifdef USE_LOG10FAST
+      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+#else
       pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+#endif
       if(pixelnew[x] > 220)   pixelnew[x]=220;
     }
 #else    
     for (int16_t x = 0; x < 256; x++)
     {
+#ifdef USE_LOG10FAST      
+      help = 10.0 * log10f_fast(FFT_spec[x] + 1.0) * spectrum_display_scale;
+#else
       help = 10.0 * log10f(FFT_spec[x] + 1.0) * spectrum_display_scale;
+#endif
       help = help + display_offset;
       if (help < min_spec) min_spec = help;
       if (help < 1) help = 1.0;
@@ -5897,7 +5910,11 @@ static unsigned long long  fr=277000000ULL;   // in 1/100 Hz
   for (x = 0; x < 256; x++)
      {
        FFT_spec_old[x] = FFT_spec[x];    //<< ANYBODY NEED?
+#ifdef USE_LOG10FAST
+       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+#else
        pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+#endif
        // Here -6 is about the bottom of the display and +74 is the top.  It can go 10 higher and still display.
        if (pixelnew[x] < -6)
           pixelnew[x] = -6;
@@ -5977,7 +5994,11 @@ void calc_256_magn()
     // insert display offset, AGC etc. here
 //    spec_help = 10.0 * log10f(spec_help + 1.0);
 //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
+#ifdef USE_LOG10FAST
+    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+#else
     pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+#endif
   }
 } // end calc_256_magn
 #endif
@@ -6775,8 +6796,13 @@ void displayLevel(uint16_t adcLevel, uint16_t dacLevel)
   tft.fillRect(DAC_BAR+1, YTOP_LEVEL_DISP+5, 60, 3, ILI9341_BLACK);
 
   // log10(32768)=4.515.  To occupy 60 pixels, mult by 13.2877
+#ifdef USE_LOG10FAST
   adcPixels = (uint16_t)(13.2877 * log10f((float32_t)adcLevel));
   dacPixels = (uint16_t)(13.2877 * log10f((float32_t)dacLevel));
+#else
+  adcPixels = (uint16_t)(13.2877 * log10f((float32_t)adcLevel));
+  dacPixels = (uint16_t)(13.2877 * log10f((float32_t)dacLevel));
+#endif
 //  adcPixels = (uint16_t)(0.9 * (float32_t)adcPixels_old + 0.1 * (float32_t)adcPixels);
 //  dacPixels = (uint16_t)(0.9 * (float32_t)dacPixels_old + 0.1 * (float32_t)dacPixels);
   
@@ -9467,15 +9493,62 @@ void Calculatedbm()
 #ifdef USE_W7PUA
   if (sum_db > 0.0)
   {
-    dbm = dbm_calibration + bands[band].gainCorrection + (float32_t)RF_attenuation +
+#ifdef USE_LOG10FAST
+    switch(display_dbm)
+    {
+        case DISPLAY_S_METER_DBM:
+        dbm = dbm_calibration + bands[band].gainCorrection + (float32_t)RF_attenuation +
+                slope*log10f_fast(sum_db) + cons - (float32_t)bands[band].RFgain * 1.5;
+        dbmhz = 0;
+        break;
+        case DISPLAY_S_METER_DBMHZ:
+        dbmhz = dbm - 10.0*log10f_fast((float32_t)(((int)Ubin - (int)Lbin)*bin_BW));
+        dbm = 0;
+        break;
+    }
+#else
+    switch(display_dbm)
+    {
+        case DISPLAY_S_METER_DBM:
+        dbm = dbm_calibration + bands[band].gainCorrection + (float32_t)RF_attenuation +
             slope*log10f(sum_db) + cons - (float32_t)bands[band].RFgain * 1.5;
-    dbmhz = dbm - 10.0*log10f((float32_t)(((int)Ubin - (int)Lbin)*bin_BW));
+            dbmhz = 0;
+        break;
+        case DISPLAY_S_METER_DBMHZ:
+        dbmhz = dbm - 10.0*log10f((float32_t)(((int)Ubin - (int)Lbin)*bin_BW));
+        dbm = 0;
+        break;
+    }
+#endif
   }
 #else
   if (sum_db > 0)
   {
-    dbm = dbm_calibration + (float32_t)RF_attenuation + slope * log10f (sum_db) + cons - (float32_t)bands[band].RFgain * 1.5;
-    dbmhz = (float32_t)RF_attenuation +  - (float32_t)bands[band].RFgain * 1.5 + slope * log10f (sum_db) -  10 * log10f ((float32_t)(((int)Ubin - (int)Lbin) * bin_BW)) + cons;
+#ifdef USE_LOG10FAST
+    switch(display_dbm)
+    {
+        case DISPLAY_S_METER_DBM:
+        dbm = dbm_calibration + (float32_t)RF_attenuation + slope * log10f_fast (sum_db) + cons - (float32_t)bands[band].RFgain * 1.5;
+        dbmhz = 0;
+        break;
+        case DISPLAY_S_METER_DBMHZ:
+        dbmhz = (float32_t)RF_attenuation +  - (float32_t)bands[band].RFgain * 1.5 + slope * log10f_fast (sum_db) -  10 * log10f_fast ((float32_t)(((int)Ubin - (int)Lbin) * bin_BW)) + cons;
+        dbm = 0;
+        break;
+    }
+#else
+    switch(display_dbm)
+    {
+        case DISPLAY_S_METER_DBM:
+        dbm = dbm_calibration + (float32_t)RF_attenuation + slope * log10f (sum_db) + cons - (float32_t)bands[band].RFgain * 1.5;
+        dbmhz = 0;
+        break;
+        case DISPLAY_S_METER_DBMHZ:
+        dbmhz = (float32_t)RF_attenuation +  - (float32_t)bands[band].RFgain * 1.5 + slope * log10f (sum_db) -  10 * log10f ((float32_t)(((int)Ubin - (int)Lbin) * bin_BW)) + cons;
+        dbm = 0;
+        break;
+    }
+#endif
   }
 #endif  
   else
@@ -11133,4 +11206,32 @@ void Init_LMS_NR ()
     arm_lms_norm_init_f32(&LMS_Norm_instance, calc_taps, &LMS_NormCoeff_f32[0], &LMS_StateF32[0], mu_calc, 256);
 
 }
+
+/**
+ * Fast algorithm for log10
+ *
+ * This is a fast approximation to log2()
+ * Y = C[0]*F*F*F + C[1]*F*F + C[2]*F + C[3] + E;
+ * log10f is exactly log2(x)/log2(10.0f)
+ * Math_log10f_fast(x) =(log2f_approx(x)*0.3010299956639812f)
+ *
+ * @param X number want log10 for
+ * @return log10(x)
+ */
+float32_t log10f_fast(float32_t X) {
+    float Y, F;
+    int E;
+    F = frexpf(fabsf(X), &E);
+    Y = 1.23149591368684f;
+    Y *= F;
+    Y += -4.11852516267426f;
+    Y *= F;
+    Y += 6.02197014179219f;
+    Y *= F;
+    Y += -3.13396450166353f;
+    Y += E;
+    return(Y * 0.3010299956639812f);
+}
+
+
 
