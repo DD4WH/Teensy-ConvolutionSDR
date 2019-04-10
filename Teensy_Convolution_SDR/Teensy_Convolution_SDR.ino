@@ -596,6 +596,8 @@ uint8_t twinpeaks_tested = 2; // initial value --> 2 !!
 //float32_t asin_sum = 0.0;
 //uint16_t asin_N = 0;
 uint8_t write_analog_gain = 0;
+boolean gEEPROM_current = false;  //mdr
+
 
 #define BUFFER_SIZE 128
 
@@ -1892,6 +1894,8 @@ void setup() {
    ****************************************************************************************/
   // if loading the software for the very first time, comment out the "EEPROM_LOAD" --> then save settings in the menu --> load software with EEPROM_LOAD uncommented
   EEPROM_LOAD();
+  gEEPROM_current=true; //mdr
+  
   // Enable the audio shield. select input. and enable output
   sgtl5000_1.enable();
   sgtl5000_1.inputSelect(myInput);
@@ -1951,6 +1955,7 @@ void setup() {
      set filter bandwidth
   ****************************************************************************************/
   setup_mode(bands[band].mode);
+  Serial.print("1957 in setup before calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
 
   // this routine does all the magic of calculating the FIR coeffs (Bessel-Kaiser window)
   //    calc_FIR_coeffs (FIR_Coef, 513, (float32_t)LP_F_help, LP_Astop, 0, 0.0, (float)SR[SAMPLE_RATE].rate / DF);
@@ -1968,6 +1973,7 @@ void setup() {
   /****************************************************************************************
      init complex FFTs
   ****************************************************************************************/
+  Serial.print("1975 in setup after calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
   switch (FFT_length)
   {
     case 1024:
@@ -2278,7 +2284,6 @@ void setup() {
   delay(100);
   Q_in_L.begin();
   Q_in_R.begin();
-
 } // END SETUP
 
 
@@ -11232,6 +11237,3 @@ float32_t log10f_fast(float32_t X) {
     Y += E;
     return(Y * 0.3010299956639812f);
 }
-
-
-
