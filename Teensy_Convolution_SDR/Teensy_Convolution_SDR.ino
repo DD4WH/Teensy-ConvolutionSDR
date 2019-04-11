@@ -5234,7 +5234,7 @@ void calc_cplx_FIR_coeffs (float * coeffs_I, float * coeffs_Q, int numCoeffs, fl
   float32_t nFs = PI * (nFH + nFL); //2 PI times required frequency shift (FHiCut+FLoCut)/2
   float32_t fCenter = 0.5 * (float32_t)(numCoeffs - 1); //floating point center index of FIR filter
 
-  for (i = 0; i < FFT_length; i++) //zero pad entire coefficient buffer to FFT size
+  for (i = 0; i < numCoeffs; i++) //zero pad entire coefficient buffer to FFT size
   {
     coeffs_I[i] = 0.0;
     coeffs_Q[i] = 0.0;
