@@ -1955,7 +1955,7 @@ void setup() {
      set filter bandwidth
   ****************************************************************************************/
   setup_mode(bands[band].mode);
-  Serial.print("1957 in setup before calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
+  Serial.print("line 1957 in setup before calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
 
   // this routine does all the magic of calculating the FIR coeffs (Bessel-Kaiser window)
   //    calc_FIR_coeffs (FIR_Coef, 513, (float32_t)LP_F_help, LP_Astop, 0, 0.0, (float)SR[SAMPLE_RATE].rate / DF);
@@ -1973,7 +1973,7 @@ void setup() {
   /****************************************************************************************
      init complex FFTs
   ****************************************************************************************/
-  Serial.print("1975 in setup after calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
+  Serial.print("line 1975 in setup after calc_cplx_FIR_coeffs (...    gEEPROM_current = ");Serial.println(gEEPROM_current);
   switch (FFT_length)
   {
     case 1024:
