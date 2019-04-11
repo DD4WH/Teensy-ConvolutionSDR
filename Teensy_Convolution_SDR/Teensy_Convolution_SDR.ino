@@ -1822,7 +1822,7 @@ static float32_t* mag_coeffs[11] =
 
 void setup() {
   Serial.begin(115200);
-  while(!Serial && millis()<3000) //wait for lesser of Serial or 3 seconds
+  while(!Serial && millis()<1500) //  < 900 skips 1st messages
     ;
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
