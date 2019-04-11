@@ -6,7 +6,7 @@ This radio uses the Fast convolution approach to filter and process the radio si
 
 Reception of longwave, medium wave and shortwave signals from about 12kHz to 30Mhz, additionally undersampling reception of FM broadcast signals 88 - 108MHz in HiFi quality and STEREO
 
-[![Teensy Convolution SDR](https://user-images.githubusercontent.com/14326464/55977162-65877b80-5c8e-11e9-97f7-866eaebdb601.jpg)]
+![Teensy Convolution SDR](https://user-images.githubusercontent.com/14326464/55977162-65877b80-5c8e-11e9-97f7-866eaebdb601.jpg)
 
 [![Teensy Convolution SDR video](http://img.youtube.com/vi/VdJXrZoBHjU/0.jpg)](http://www.youtube.com/watch?v=VdJXrZoBHjU)
 
