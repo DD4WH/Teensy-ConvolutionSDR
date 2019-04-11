@@ -167,7 +167,7 @@
 #include <Bounce.h>
 #include <play_sd_mp3.h> //mp3 decoder by Frank B
 #include <play_sd_aac.h> // AAC decoder by Frank B
-#include <util/crc16.h> //mdrhere
+#include <util/crc16.h> //eeprom save by MikeR
 
 //#include "rtty.h"
 //#include "cw_decoder.h"
@@ -598,7 +598,7 @@ uint8_t twinpeaks_tested = 2; // initial value --> 2 !!
 //float32_t asin_sum = 0.0;
 //uint16_t asin_N = 0;
 uint8_t write_analog_gain = 0;
-boolean gEEPROM_current = false;  //mdrhere does the data in EEPROM match the current structure contents
+boolean gEEPROM_current = false;  //MikeR, does the data in EEPROM match the current structure contents
 
 #define BUFFER_SIZE 128
 
@@ -1822,7 +1822,8 @@ static float32_t* mag_coeffs[11] =
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
+  while(!Serial && millis()<3000) //wait for lesser of Serial or 3 seconds
+    ;
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
@@ -1954,7 +1955,6 @@ void setup() {
      set filter bandwidth
   ****************************************************************************************/
   setup_mode(bands[band].mode);
-  Serial.print("1957 in setup after load ok ");Serial.println(gEEPROM_current);
 
   // this routine does all the magic of calculating the FIR coeffs (Bessel-Kaiser window)
   //    calc_FIR_coeffs (FIR_Coef, 513, (float32_t)LP_F_help, LP_Astop, 0, 0.0, (float)SR[SAMPLE_RATE].rate / DF);
@@ -1972,7 +1972,6 @@ void setup() {
   /****************************************************************************************
      init complex FFTs
   ****************************************************************************************/
-  Serial.print("1975 in setup after load ");Serial.println(gEEPROM_current);
   switch (FFT_length)
   {
     case 1024:
@@ -2283,7 +2282,7 @@ void setup() {
   delay(100);
   Q_in_L.begin();
   Q_in_R.begin();
-  if(gEEPROM_current==false){  //mdrhere 
+  if(gEEPROM_current==false){  //MikeR, first time use or changes to config_t struct.  Not used for changes after setup, but could be?
     EEPROM_SAVE();
     gEEPROM_current=true; //future proof, but not used after this
   }
@@ -5238,7 +5237,7 @@ void calc_cplx_FIR_coeffs (float * coeffs_I, float * coeffs_Q, int numCoeffs, fl
   float32_t nFs = PI * (nFH + nFL); //2 PI times required frequency shift (FHiCut+FLoCut)/2
   float32_t fCenter = 0.5 * (float32_t)(numCoeffs - 1); //floating point center index of FIR filter
 
-  for (i = 0; i < FFT_length; i++) //zero pad entire coefficient buffer to FFT size
+  for (i = 0; i < numCoeffs; i++) //zero pad entire coefficient buffer to FFT size
   {
     coeffs_I[i] = 0.0;
     coeffs_Q[i] = 0.0;
@@ -9708,10 +9707,10 @@ void Display_dbm()
   }
 }
 
-#define CONFIG_VERSION "mr1"  //mdrhere ID of the E settings block, change if structure changes
-#define CONFIG_START 0       //where to start the EEPROM data
+#define CONFIG_VERSION "mr1"  //MikeR,  ID of the config_t settings struct, change if structure changes
+#define CONFIG_START 0       //where to save data in EEPROM, could save multiple versions at different locations
 
-struct config_t{    //added two members to end
+struct config_t{    //MikeR, added two members to end
   unsigned long long calibration_factor;
   long calibration_constant;
   unsigned long freq[NUM_BANDS];
@@ -9747,7 +9746,7 @@ struct config_t{    //added two members to end
   float32_t NR_beta;
   char version_of_settings[4];  // validation string
   uint16_t crc;   // added when saving
-};  //mdrhere
+};   
 
 void EEPROM_LOAD() {
     config_t E;
@@ -9804,7 +9803,7 @@ void EEPROM_LOAD() {
     }
 } // end void eeProm LOAD
 
-boolean loadFromEEPROM(struct config_t *ls){   //mdrhere
+boolean loadFromEEPROM(struct config_t *ls){   //MikeR, 
   char this_version[]=CONFIG_VERSION;
   unsigned char thechar=0;
   uint8_t thecrc=0;
@@ -9818,7 +9817,7 @@ boolean loadFromEEPROM(struct config_t *ls){   //mdrhere
     thecrc=_crc_ibutton_update(thecrc, thechar);
   }
   if(thecrc==0){ // have valid data
-    //printConfig_t(ts_ptr);
+    //printConfig_t(ts_ptr);  //for testing
     Serial.printf("Found EEPROM version %s", ts_ptr->version_of_settings);  //line continued after version
     if (ts.version_of_settings[3] == this_version[3] &&    // If the latest version
         ts.version_of_settings[2] == this_version[2] &&
@@ -9839,7 +9838,7 @@ boolean loadFromEEPROM(struct config_t *ls){   //mdrhere
   }
 }
 
-void printConfig_t(struct config_t *c){ //print some of the values for testing
+void printConfig_t(struct config_t *c){   //MikeR, print some of the values for testing
   Serial.printf("%llu", c->calibration_factor);
   Serial.println(c->calibration_constant);
   Serial.println(c->band);
@@ -9850,6 +9849,10 @@ void printConfig_t(struct config_t *c){ //print some of the values for testing
   Serial.println(c->omegaN);
   Serial.println(c->zeta_help);
   Serial.println(c->rate);
+}
+
+void testcrc(){ //MikeR, call this after a save to screw up EEPROM and cause default data on next startup
+  EEPROM.write(CONFIG_START + 12, 1);
 }
 
 void EEPROM_SAVE() {
@@ -9902,12 +9905,12 @@ void EEPROM_SAVE() {
   char theversion[]=CONFIG_VERSION;
   for (int i = 0; i < 4; i++)
     E.version_of_settings[i] = theversion[i];
-  E.crc=0; //will be overwritten
+  E.crc=0; //will be overwritten by saveInEEPROM()
   //printConfig_t(&E);  //for debugging
   saveInEEPROM(&E);
 } // end void eeProm SAVE
 
-boolean saveInEEPROM(struct config_t *pd){
+boolean saveInEEPROM(struct config_t *pd){  //MikeR, save with verification, crc and minimal writes
   int byteswritten=0;
   uint8_t thecrc=0;
   boolean errors=false;
@@ -9915,7 +9918,7 @@ boolean saveInEEPROM(struct config_t *pd){
   unsigned int t;
   for (t=0; t<(sizeof(config_t)-2); t++){ // writes to EEPROM
     thecrc=_crc_ibutton_update(thecrc,*((unsigned char*)pd + t) );
-    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ){ //only if changed
+    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ){ //only save if changed to prolong EEPROM life
       EEPROM.write(CONFIG_START + t, *((unsigned char*)pd + t));
       // and verifies the data
       if (EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t))
