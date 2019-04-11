@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_03_17
+   (c) Frank DD4WH 2019_04_11
    
    "TEENSY CONVOLUTION SDR"
 
@@ -94,6 +94,8 @@
    - ZoomFFT repaired and now fully functional for all magnifications (up to 2048x), additional IIR filters added, also added higher refresh rate!
    - incorporated many good ideas by Bob Larkin, thanks!
    - experimental new sample rates up to 353ksps . . . https://forum.pjrc.com/threads/42336-Reset-audio-board-codec-SGTL5000-in-realtime-processing/page3?highlight=sample+rate
+   - add possibility to use PCB hardware by DO7JBH https://github.com/do7jbh/SSR-2
+   - bugfix array out-of-bound, thanks bicycleguy for pointing me to this bug!
    
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -147,7 +149,12 @@
 
  ************************************************************************************************************************************/
 
+/*  If you use the hardware made by Dante DO7JBH, uncomment the next line */
+//#define HARDWARE_DO7JBH
+
 //#define DEBUG
+
+// use faster log calculations
 #define USE_LOG10FAST
 
 #include <Audio.h>
@@ -180,9 +187,13 @@ time_t getTeensy3Time()
 // Joris PCB uses a 27MHz crystal and CLOCK 2 output
 // Elektor SDR PCB uses a 25MHz crystal and the CLOCK 1 output
 //#define Si_5351_clock  SI5351_CLK1
-//#define Si_5351_crystal 25000000
+#ifdef HARDWARE_DO7JBH
+    #define Si_5351_crystal 25000000
+#else
+    #define Si_5351_crystal 27000000
+#endif
+
 #define Si_5351_clock  SI5351_CLK2
-#define Si_5351_crystal 27000000
 
 // flag to indicate to use the changes introduced by Bob Larkin, W7PUA
 #define USE_W7PUA
@@ -191,10 +202,53 @@ time_t getTeensy3Time()
 #define AM_SPACING_EU  1
 
 unsigned long long calibration_factor = 1000000000 ;// 10002285;
-long calibration_constant = -8000; // this is for the Joris PCB !
+long calibration_constant = 1000000; // this is for the Joris PCB !
 //long calibration_constant = 108000; // this is for the Elektor PCB !
 unsigned long long hilfsf;
 
+#ifdef HARDWARE_DO7JBH
+// Optical Encoder connections
+Encoder tune      (16, 17);
+Encoder filter    (4, 5);
+Encoder encoder3  (1, 2); //(26, 28);
+
+Si5351 si5351;
+#define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
+
+#define BACKLIGHT_PIN   0  // unfortunately connected to 3V3 in DO7JBHs PCB 
+#define TFT_DC          20
+#define TFT_CS          21
+#define TFT_RST         35  // 255 = unused. connect to 3.3V
+#define TFT_MOSI        7
+#define TFT_SCLK        14
+#define TFT_MISO        12
+// pins for digital attenuator board PE4306
+//#define ATT_LE          24
+//#define ATT_DATA        25
+//#define ATT_CLOCK       28
+// dummy definitions for Dantes hardware
+#define ATT_LE          40
+#define ATT_DATA        41
+#define ATT_CLOCK       42
+// prop shield LC used for audio speaker amp
+//#define AUDIO_AMP_ENABLE 39
+
+ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+
+// push-buttons
+#define   BUTTON_1_PIN      A22 // encoder2 button = button3SW
+#define   BUTTON_2_PIN      37 // BAND+ = button2SW
+#define   BUTTON_3_PIN      30 // ???
+#define   BUTTON_4_PIN      36 //
+#define   BUTTON_5_PIN      38 // this is the pushbutton pin of the tune encoder
+//#define   BUTTON_6_PIN       0 // this is the pushbutton pin of the filter encoder
+#define   BUTTON_6_PIN      8 // this is the pushbutton pin of the filter encoder
+#define   BUTTON_7_PIN      39 // this is the menu button pin
+#define   BUTTON_8_PIN      33  //27 // this is the pushbutton pin of encoder 3
+
+const int8_t On_set    = 25; // hold switched on
+
+#else
 // Optical Encoder connections
 Encoder tune      (16, 17);
 Encoder filter    (1, 2);
@@ -229,6 +283,9 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MIS
 #define   BUTTON_7_PIN      37 // this is the menu button pin
 #define   BUTTON_8_PIN       8  //27 // this is the pushbutton pin of encoder 3
 
+#endif
+
+
 
 Bounce button1 = Bounce(BUTTON_1_PIN, 50); //
 Bounce button2 = Bounce(BUTTON_2_PIN, 50); //
@@ -246,11 +303,22 @@ Metro ms_500 = Metro(500); // Set up a Metro
 Metro encoder_check = Metro(100); // Set up a Metro
 //Metro dbm_check = Metro(25);
 uint8_t wait_flag = 0;
+
+#ifdef HARDWARE_DO7JBH
+const uint8_t Band1 = 26; // band selection pins for LPF relays, used with 2N7000: HIGH means LPF is activated
+const uint8_t Band2 = 27; // always use only one LPF with HIGH, all others have to be LOW
+// not used
+const uint8_t Band3 = 30;
+const uint8_t Band4 = 29; // 29: > 5.4MHz
+const uint8_t Band5 = 26; // LW
+#else
 const uint8_t Band1 = 31; // band selection pins for LPF relays, used with 2N7000: HIGH means LPF is activated
 const uint8_t Band2 = 30; // always use only one LPF with HIGH, all others have to be LOW
 const uint8_t Band3 = 27;
 const uint8_t Band4 = 29; // 29: > 5.4MHz
 const uint8_t Band5 = 26; // LW
+#endif
+
 
 // this audio comes from the codec by I2S2
 AudioInputI2S            i2s_in;
@@ -346,15 +414,16 @@ int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
 #define SAMPLE_RATE_88K               8
 #define SAMPLE_RATE_96K               9
 #define SAMPLE_RATE_100K              10
+#define SAMPLE_RATE_101K              11
 #define SAMPLE_RATE_176K              12
-#define SAMPLE_RATE_192K              12
-#define SAMPLE_RATE_234K              13
-#define SAMPLE_RATE_281K              14
-#define SAMPLE_RATE_353K              15
-#define SAMPLE_RATE_MAX               14
+#define SAMPLE_RATE_192K              13
+#define SAMPLE_RATE_234K              14
+#define SAMPLE_RATE_281K              15
+#define SAMPLE_RATE_353K              16
+#define SAMPLE_RATE_MAX               15
 
 //uint8_t sr =                     SAMPLE_RATE_96K;
-uint8_t SAMPLE_RATE =            SAMPLE_RATE_96K;
+uint8_t SAMPLE_RATE =            SAMPLE_RATE_100K;
 
 typedef struct SR_Descriptor
 {
@@ -368,7 +437,7 @@ typedef struct SR_Descriptor
   const float32_t x_factor;
   const uint8_t x_offset;
 } SR_Desc;
-const SR_Descriptor SR [16] =
+const SR_Descriptor SR [17] =
 { // x_factor, x_offset and f1 to f4 are NOT USED ANYMORE !!!
   //   SR_n , rate, text, f1, f2, f3, f4, x_factor = pixels per f1 kHz in spectrum display
   {  SAMPLE_RATE_8K, 8000,  "  8k", " 1", " 2", " 3", " 4", 64.0, 11}, // not OK
@@ -381,7 +450,8 @@ const SR_Descriptor SR [16] =
   {  SAMPLE_RATE_50K, 50223,  " 50k", "10", "10", "20", "30", 53.33, 11}, // NOT OK
   {  SAMPLE_RATE_88K, 88200,  " 88k", "20", "20", "40", "60", 58.05, 6}, // OK
   {  SAMPLE_RATE_96K, 96000,  " 96k", "20", "20", "40", "60", 53.33, 12}, // OK
-  {  SAMPLE_RATE_100K, 100466,  "100k", "20", "20", "40", "60", 53.33, 12}, // NOT OK
+  {  SAMPLE_RATE_100K, 100000,  "100k", "20", "20", "40", "60", 53.33, 12}, // NOT OK
+  {  SAMPLE_RATE_101K, 100466,  "101k", "20", "20", "40", "60", 53.33, 12}, // NOT OK
   {  SAMPLE_RATE_176K, 176400,  "176k", "40", "40", "80", "120", 58.05, 6}, // OK
   {  SAMPLE_RATE_192K, 192000,  "192k", "40", "40", "80", "120", 53.33, 12}, // not OK
   {  SAMPLE_RATE_234K, 234375,  "234k", "40", "40", "80", "120", 53.33, 12}, // NOT OK
@@ -838,10 +908,19 @@ float32_t FIR_int2_coeffs[32];
 // constants for display
 //////////////////////////////////////
 //int spectrum_y = 120; // upper edge
-int spectrum_y = 115; // upper edge
-int spectrum_x = 10;
-int spectrum_height = 96;
-int spectrum_pos_centre_f = 64;
+//#define USE_WATERFALL
+int spectrum_y =              115; // upper edge
+const int spectrum_x =              10;
+const int spectrum_height =         96;
+int spectrum_pos_centre_f =         64;
+//const int spectrum_height =         56; // height of spectrum display
+const int spectrum_WF_height=       96; // height of spectrum plus waterfall
+const int BW_indicator_y =          spectrum_y + spectrum_WF_height + 5;
+const int WATERFALL_TOP =           spectrum_y + spectrum_height + 4;
+const int WATERFALL_BOTTOM =        spectrum_y + spectrum_WF_height + 4;  
+//const int MAX_PIXEL     240
+//uint8_t waterfall[40][255];
+
 int16_t pos_x_smeter = 11; //5
 int16_t pos_y_smeter = (spectrum_y - 12); //94
 int16_t s_w = 10;
@@ -885,7 +964,12 @@ float32_t m_AverageMagdbm = -73.0;
 float32_t m_AttackAvedbmhz = -103.0;
 float32_t m_DecayAvedbmhz = -103.0;
 float32_t m_AverageMagdbmhz = -103.0;
-float32_t dbm_calibration = 22.0; // was 22 without the BFR93 preamp
+
+#ifdef HARDWARE_DO7JBH
+float32_t dbm_calibration = 3.0; // 
+#else
+float32_t dbm_calibration = 22.0; // 
+#endif
 
 // ALPHA = 1 - e^(-T/Tau), T = 0.02s (because dbm routine is called every 20ms!)
 // Tau     ALPHA
@@ -902,8 +986,6 @@ int16_t pos_y_dbm = pos_y_smeter - 7;
 #define DISPLAY_S_METER_DBMHZ     1
 uint8_t display_dbm = DISPLAY_S_METER_DBM;
 uint8_t dbm_state = 0;
-
-
 
 
 #define TUNE_STEP_MIN   0
@@ -1034,7 +1116,7 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_AGC_HANG_ENABLE              54
 #define MENU_AGC_HANG_TIME                55
 #define MENU_AGC_HANG_THRESH              56
-#define first_menu2                       17
+#define first_menu2                       19
 #define last_menu2                        53
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
@@ -1127,7 +1209,8 @@ int eeprom_adress = 1900;
 uint8_t iFFT_flip = 0;
 
 // AGC
-#define MAX_SAMPLE_RATE     (12000.0)
+//#define MAX_SAMPLE_RATE     (12000.0)
+#define MAX_SAMPLE_RATE     (24000.0)
 #define MAX_N_TAU           (8)
 #define MAX_TAU_ATTACK      (0.01)
 #define RB_SIZE       (int) (MAX_SAMPLE_RATE * MAX_N_TAU * MAX_TAU_ATTACK + 1)
@@ -1816,8 +1899,133 @@ static float32_t* mag_coeffs[11] =
   }
 };
 
+const uint16_t gradient[] = {
+  0x0
+  , 0x1
+  , 0x2
+  , 0x3
+  , 0x4
+  , 0x5
+  , 0x6
+  , 0x7
+  , 0x8
+  , 0x9
+  , 0x10
+  , 0x1F
+  , 0x11F
+  , 0x19F
+  , 0x23F
+  , 0x2BF
+  , 0x33F
+  , 0x3BF
+  , 0x43F
+  , 0x4BF
+  , 0x53F
+  , 0x5BF
+  , 0x63F
+  , 0x6BF
+  , 0x73F
+  , 0x7FE
+  , 0x7FA
+  , 0x7F5
+  , 0x7F0
+  , 0x7EB
+  , 0x7E6
+  , 0x7E2
+  , 0x17E0
+  , 0x3FE0
+  , 0x67E0
+  , 0x8FE0
+  , 0xB7E0
+  , 0xD7E0
+  , 0xFFE0
+  , 0xFFC0
+  , 0xFF80
+  , 0xFF20
+  , 0xFEE0
+  , 0xFE80
+  , 0xFE40
+  , 0xFDE0
+  , 0xFDA0
+  , 0xFD40
+  , 0xFD00
+  , 0xFCA0
+  , 0xFC60
+  , 0xFC00
+  , 0xFBC0
+  , 0xFB60
+  , 0xFB20
+  , 0xFAC0
+  , 0xFA80
+  , 0xFA20
+  , 0xF9E0
+  , 0xF980
+  , 0xF940
+  , 0xF8E0
+  , 0xF8A0
+  , 0xF840
+  , 0xF800
+  , 0xF802
+  , 0xF804
+  , 0xF806
+  , 0xF808
+  , 0xF80A
+  , 0xF80C
+  , 0xF80E
+  , 0xF810
+  , 0xF812
+  , 0xF814
+  , 0xF816
+  , 0xF818
+  , 0xF81A
+  , 0xF81C
+  , 0xF81E
+  , 0xF81E
+  , 0xF81E
+  , 0xF81E
+  , 0xF83E
+  , 0xF83E
+  , 0xF83E
+  , 0xF83E
+  , 0xF85E
+  , 0xF85E
+  , 0xF85E
+  , 0xF85E
+  , 0xF87E
+  , 0xF87E
+  , 0xF83E
+  , 0xF83E
+  , 0xF83E
+  , 0xF83E
+  , 0xF85E
+  , 0xF85E
+  , 0xF85E
+  , 0xF85E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF87E
+  , 0xF88F
+  , 0xF88F
+  , 0xF88F
+};
+
 
 void setup() {
+#ifdef HARDWARE_DO7JBH
+  pinMode(On_set, OUTPUT);     
+  digitalWrite (On_set, HIGH);      // Hold switch on
+#endif
+  
   Serial.begin(115200);
   delay(100);
 
@@ -1839,7 +2047,7 @@ void setup() {
   {
     // print a message
       Serial.println("Unable to access the SD card");
-      delay(5000);
+      delay(500);
   }
   //Starting to index the SD card for MP3/AAC.
   root = SD.open("/");
@@ -1926,12 +2134,14 @@ void setup() {
   pinMode(BUTTON_8_PIN, INPUT_PULLUP);
   pinMode(Band1, OUTPUT);  // LPF switches
   pinMode(Band2, OUTPUT);  //
+#ifndef HARDWARE_DO7JBH
   pinMode(Band3, OUTPUT);  //
   pinMode(Band4, OUTPUT);  //
   pinMode(Band5, OUTPUT);  //
   pinMode(ATT_LE, OUTPUT);
   pinMode(ATT_CLOCK, OUTPUT);
   pinMode(ATT_DATA, OUTPUT);
+#endif
   //  pinMode(AUDIO_AMP_ENABLE, OUTPUT);
   //  digitalWrite(AUDIO_AMP_ENABLE, HIGH);
 
@@ -2966,7 +3176,8 @@ void loop() {
           if (twinpeaks_tested == 2)
           {
             twinpeaks_counter++;
-#ifdef DEBUG            Serial.print("twinpeaks counter = "); Serial.println(twinpeaks_counter);
+#ifdef DEBUG
+          Serial.print("twinpeaks counter = "); Serial.println(twinpeaks_counter);
 #endif
             if (twinpeaks_counter == 1)
             {
@@ -3399,7 +3610,7 @@ void loop() {
           just for checking: plotting min/max and mean of the samples
        ***********************************************************************************************/
       //    if (flagg == 1)
-      if (0)
+#ifdef DEBUG
       {
         flagg = 0;
         float32_t sample_min = 0.0;
@@ -3409,7 +3620,7 @@ void loop() {
         arm_mean_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_mean);
         arm_max_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_max, &max_index);
         arm_min_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_min, &min_index);
-#ifdef DEBUG
+
         Serial.print("NACH DECIMATION: ");
         Serial.print("Sample min: "); Serial.println(sample_min);
         Serial.print("Sample max: "); Serial.println(sample_max);
@@ -3419,9 +3630,9 @@ void loop() {
         //    Serial.print("FFT_length: "); Serial.println(FFT_length);
         //    Serial.print("N_BLOCKS: "); Serial.println(N_BLOCKS);
         //Serial.println(BUFFER_SIZE * N_BLOCKS / 8);
-#endif
-      }
 
+      }
+#endif
       /**********************************************************************************
           Digital convolution
        **********************************************************************************/
@@ -5229,7 +5440,8 @@ void calc_cplx_FIR_coeffs (float * coeffs_I, float * coeffs_Q, int numCoeffs, fl
   float32_t nFs = PI * (nFH + nFL); //2 PI times required frequency shift (FHiCut+FLoCut)/2
   float32_t fCenter = 0.5 * (float32_t)(numCoeffs - 1); //floating point center index of FIR filter
 
-  for (i = 0; i < FFT_length; i++) //zero pad entire coefficient buffer to FFT size
+//  for (i = 0; i < FFT_length; i++) // WRONG! causes overflow, because coeffs_I is of length [FFT_length / 2 + 1]
+  for (i = 0; i < numCoeffs; i++) //zero pad entire coefficient buffer
   {
     coeffs_I[i] = 0.0;
     coeffs_Q[i] = 0.0;
@@ -5455,10 +5667,10 @@ void setI2SFreq(int freq) {
     uint16_t div;
   } tmclk;
 
-  const int numfreqs = 19;
+  const int numfreqs = 20;
 //  const int samplefreqs[numfreqs] = { 8000, 11025, 16000, 22050, 32000, 44100, (int)44117.64706 , 48000, 88200, (int)44117.64706 * 2, 96000, 100000, 176400, (int)44117.64706 * 4, 192000};
   const int samplefreqs[numfreqs] = { 8000, 11025, 16000, 22050, 32000, 44100, (int)44117.64706 , 48000, 50223, 88200, (int)44117.64706 * 2, 
-                                      96000, 100466, 176400, (int)44117.64706 * 4, 192000, 234375, 281000, 352800};
+                                      96000, 100000, 100466, 176400, (int)44117.64706 * 4, 192000, 234375, 281000, 352800};
 /*
 #if (F_PLL==16000000)
   const tmclk clkArr[numfreqs] = {{16, 125}, {148, 839}, {32, 125}, {145, 411}, {64, 125}, {151, 214}, {12, 17}, {96, 125}, {151, 107}, {24, 17}, {192, 125}, {1, 1}, {127, 45}, {48, 17}, {255, 83} };
@@ -5486,7 +5698,7 @@ void setI2SFreq(int freq) {
                                 //{ 8000, 11025, 16000, 22050, 32000, 44100, (int)44117.64706 , 48000, 
   const tmclk clkArr[numfreqs] = {{46, 4043}, {49, 3125}, {73, 3208}, {98, 3125}, {183, 4021}, {196, 3125}, {16, 255}, {128, 1875}, 
                                 // 50223, 88200, (int)44117.64706 * 2, 96000, 100466, 176400, (int)44117.64706 * 4, 192000, 234375, 281000, 352800};
-                                  {1, 14}, {107, 853}, {32, 255}, {219, 1604}, {1, 7}, {214, 853}, {64, 255}, {219, 802}, {1, 3}, {2,5} , {1,2} };
+                                  {1, 14}, {107, 853}, {32, 255}, {219, 1604}, {224, 1575}, {1, 7}, {214, 853}, {64, 255}, {219, 802}, {1, 3}, {2,5} , {1,2} };
 #endif
   
   
@@ -5508,7 +5720,8 @@ void init_filter_mask()
   // in order to produce a FFT_length point input buffer for the FFT
   // copy coefficients into real values of first part of buffer, rest is zero
 #if 1
-  for (i = 0; i < m_NumTaps + 1; i++)
+//  for (i = 0; i < m_NumTaps + 1; i++) // buffer overflow !!!???
+  for (i = 0; i < m_NumTaps; i++)
   {
     // try out a window function to eliminate ringing of the filter at the stop frequency
     //             sd.FFT_Samples[i] = (float32_t)((0.53836 - (0.46164 * arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN-1)))) * sd.FFT_Samples[i]);
@@ -5715,12 +5928,13 @@ void Zoom_FFT_exe (uint32_t blockSize)
     // and the same across different magnify modes . . .
     float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
 
-    float32_t onem_LPFcoeff = 1.0 - LPFcoeff;
 //    onem_LPFcoeff *= (float32_t)(1 << spectrum_zoom) / N_BLOCKS / BUFFER_SIZE;
 //    LPFcoeff += onem_LPFcoeff;
 //    if (spectrum_zoom > 10) LPFcoeff = 0.90;
     if (LPFcoeff > 1.0) LPFcoeff = 1.0;
     if (LPFcoeff < 0.001) LPFcoeff = 0.001;
+    float32_t onem_LPFcoeff = 1.0 - LPFcoeff;
+    
     //      if(spectrum_zoom >= 7) LPFcoeff = 1.0; // FIXME
     // save old pixels for lowpass filter
     for (i = 0; i < 256; i++)
@@ -5754,7 +5968,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
     //
     for (int16_t x = 0; x < 256; x++)
     {
-      FFT_spec[x] = LPFcoeff * FFT_spec[x] + (1.0 - LPFcoeff) * FFT_spec_old[x];
+      FFT_spec[x] = LPFcoeff * FFT_spec[x] + onem_LPFcoeff * FFT_spec_old[x];
       FFT_spec_old[x] = FFT_spec[x];
     }
     float32_t min_spec = 10000.0;
@@ -6073,10 +6287,14 @@ void show_spectrum()
   //   pos_y_smeter = (spectrum_y - 12);    //  94
   //   s_w = 10;
   //=========================
+  float wtf;
   int16_t y_old, y_new, y1_new, y1_old;
   int16_t y1_old_minus = 0;
   int16_t y1_new_minus = 0;
-  leave_WFM++;
+  static uint16_t p = WATERFALL_TOP, cnt = WATERFALL_BOTTOM;  
+  static uint8_t first_time_full = 0;
+  static int WF_cnt = 0;
+      leave_WFM++;
   if (leave_WFM == 2)
   {
     // clear spectrum display
@@ -6086,46 +6304,20 @@ void show_spectrum()
   }
   if (leave_WFM == 1000) leave_WFM = 1000;
 
-if(0)
-{
-  // Spectrum area top is spectrum_y=120, bottom is 210
-  // Vertical freq markers run 215 to 225
-  // Horizontal is 5 to 5+255
-  // First cut at a plot grid  <PUA>
-  tft.drawFastHLine (spectrum_x, 135, 254, ILI9341_ORANGE);
-  tft.drawFastHLine (spectrum_x, 155, 254, ILI9341_ORANGE);
-  tft.drawFastHLine (spectrum_x, 175, 254, ILI9341_ORANGE);
-  tft.drawFastHLine (spectrum_x, 195, 254, ILI9341_ORANGE);
-  tft.drawFastHLine (spectrum_x, 215, 254, ILI9341_ORANGE);
 
-  tft.drawFastVLine (spectrum_x-1,   135, 80, ILI9341_ORANGE);
-  if (spectrum_zoom != SPECTRUM_ZOOM_1)                 //  Change the color for the center frequency
-  {
-    tft.drawFastVLine (spectrum_x+63,  135, 80, ILI9341_ORANGE);
-    tft.drawFastVLine (spectrum_x+127, 135, 80, ILI9341_GREEN);
-  }
-  else
-  {
-    tft.drawFastVLine (spectrum_x+63,  135, 80, ILI9341_GREEN);
-    tft.drawFastVLine (spectrum_x+127, 135, 80, ILI9341_ORANGE);
-  }
-  tft.drawFastVLine (spectrum_x+191, 135, 80, ILI9341_ORANGE);
-  tft.drawFastVLine (spectrum_x+255, 135, 80, ILI9341_ORANGE);
-}
-else
-{
   // Spectrum area top is spectrum_y=120, bottom is 210
   // Vertical freq markers run 215 to 225
   // Horizontal is 5 to 5+255
   // First cut at a plot grid  <PUA>
-  int h = 96;
+  int h = spectrum_height + 3;
   tft.drawFastHLine (spectrum_x-1, spectrum_y-2, 254, ILI9341_MAROON);
   tft.drawFastHLine (spectrum_x-1, spectrum_y+18, 254, ILI9341_MAROON);
   tft.drawFastHLine (spectrum_x-1, spectrum_y+38, 254, ILI9341_MAROON);
   tft.drawFastHLine (spectrum_x-1, spectrum_y+58, 254, ILI9341_MAROON);
+#ifndef USE_WATERFALL
   tft.drawFastHLine (spectrum_x-1, spectrum_y+78, 254, ILI9341_MAROON);  
   tft.drawFastHLine (spectrum_x-1, spectrum_y+h, 254, ILI9341_MAROON);
-
+#endif
   tft.drawFastVLine (spectrum_x-1,   spectrum_y, h, ILI9341_MAROON);
   if (spectrum_zoom != SPECTRUM_ZOOM_1)                 //  Change the color for the center frequency
   {
@@ -6138,8 +6330,13 @@ else
     tft.drawFastVLine (spectrum_x+127, spectrum_y, h, ILI9341_MAROON);
   }
   tft.drawFastVLine (spectrum_x+191, spectrum_y, h, ILI9341_MAROON);
-  tft.drawFastVLine (spectrum_x+255, spectrum_y, h, ILI9341_MAROON);  
-}
+  tft.drawFastVLine (spectrum_x+255, spectrum_y, h, ILI9341_MAROON); 
+
+   
+  // ScrollAreaDefinition(uint16_t TopFixedArea, uint16_t VerticalScrollingArea, uint16_t BottomFixedArea)
+  // summ must be 320
+  //   tft.ScrollAreaDefinition(WATERFALL_TOP, WATERFALL_BOTTOM - WATERFALL_TOP,20); 
+//     tft.ScrollAreaDefinition(100, 200, 20); 
         
   // Draw spectrum display
   for (int16_t x = 0; x < 254; x++)
@@ -6201,7 +6398,7 @@ else
     }
 
 
-    {
+    
       // DELETE OLD LINE/POINT
       if (y1_old - y1_old_minus > 1)
       { // plot line upwards
@@ -6233,8 +6430,55 @@ else
       y1_new_minus = y1_new;
       y1_old_minus = y1_old;
 
-    }
+
+    // WATERFALL
+      //wtf = abs(avg);
+      //uint8_t value = map(20*log10f(wtf), 0,116 , 1, 117);
+      //wtf = gradient[y_new];       
+      //tft.drawPixel(x + spectrum_x, WATERFALL_BOTTOM, wtf); 
+      //waterfall[WF_cnt][x] = y_new;
+    
   } // End for(...) Draw 254 spectral points
+
+ /*
+  if (cnt ==  WATERFALL_TOP)
+    cnt = WATERFALL_BOTTOM;
+
+  if( first_time_full)
+  {   //Serial.println("setScroll");
+      tft.setScroll(cnt--); 
+      if (p == WATERFALL_TOP) 
+      {
+          p = WATERFALL_BOTTOM;
+      }
+      p = p - 1;
+  }
+  else 
+  {
+      p = p + 1;    
+  }
+  if (p == WATERFALL_BOTTOM - 1)
+  {
+      //Serial.println ("first_time_full!");
+      first_time_full = 1; 
+  } */
+
+/*
+  // Waterfall without hardware scrolling (because TFT does not allow horizontal scrolling)
+  for(int i = 0; i < 40; i++)
+
+  {
+      for (int j = 0; j < 254; j++)
+      {
+        wtf = gradient[waterfall[i][j]];       
+        tft.drawPixel(j + spectrum_x, i + WATERFALL_TOP, wtf); 
+      }
+      
+  }
+
+  WF_cnt++;
+  if(WF_cnt > 40) WF_cnt = 0;
+*/    
 //  showSpectrumCorners();
 } // End show_spectrum()
 #else
@@ -6252,6 +6496,8 @@ void show_spectrum()
     show_bandwidth();
   }
   if (leave_WFM == 1000) leave_WFM = 1000;
+
+
 
 #if 0
   // Spectrum area top is spectrum_y=120, bottom is 210
@@ -6402,7 +6648,7 @@ void show_bandwidth ()
   char string[10];
   //  int pos_y = spectrum_y + spectrum_height+2;        // + 2;     // 212      Move down below base line?  <PUA>
 #ifdef USE_W7PUA
-  int pos_y = 216;
+  int pos_y = BW_indicator_y;
 #else
   int pos_y = spectrum_y + spectrum_height + 2;
 #endif
@@ -6458,7 +6704,7 @@ void show_bandwidth ()
 
 void prepare_spectrum_display()
 {
-  uint16_t base_y = spectrum_y + spectrum_height + 4;
+  uint16_t base_y = spectrum_y + spectrum_WF_height + 4;
   //    uint16_t b_x = spectrum_x + SR[SAMPLE_RATE].x_offset;
   //    float32_t x_f = SR[SAMPLE_RATE].x_factor;
 
@@ -6593,7 +6839,7 @@ void FrequencyBarText()
   tft.setFont(Arial_8);
   // clear print area for frequency text
   //    tft.fillRect(0, spectrum_y + spectrum_height + pos_grat_y, 320, 8, ILI9341_BLACK);
-  tft.fillRect(0, spectrum_y + spectrum_height + 5, 320, 240 - spectrum_y - spectrum_height - 5, ILI9341_BLACK);
+  tft.fillRect(0, spectrum_y + spectrum_WF_height + 5, 320, 240 - spectrum_y - spectrum_height - 5, ILI9341_BLACK);
 
   freq_calc = (float)(bands[band].freq / SI5351_FREQ_MULT);      // get current frequency in Hz
   if (band[bands].mode == DEMOD_WFM)
@@ -6664,7 +6910,7 @@ void FrequencyBarText()
 
     i = centerIdx2pos[centerIdx + 2] - ((strlen(txt) - 4) * 4); // calculate position of center frequency text
 
-    tft.setCursor(spectrum_x + i, spectrum_y + spectrum_height + pos_grat_y);
+    tft.setCursor(spectrum_x + i, spectrum_y + spectrum_WF_height + pos_grat_y);
     tft.print(txt);
 
     /**************************************************************************************************
@@ -6699,7 +6945,7 @@ void FrequencyBarText()
           c = &txt[strlen(txt) - 5]; // point at 5th character from the end
         }
 
-        tft.setCursor(spectrum_x + pos_help, spectrum_y + spectrum_height + pos_grat_y);
+        tft.setCursor(spectrum_x + pos_help, spectrum_y + spectrum_WF_height + pos_grat_y);
         tft.print(txt);
         // insert draw vertical bar HERE:
 
@@ -6715,7 +6961,7 @@ void FrequencyBarText()
   tft.setFont(Arial_10);
 
   //**************************************************************************
-  uint16_t base_y = spectrum_y + spectrum_height + 4;
+  uint16_t base_y = spectrum_y + spectrum_WF_height + 4;
 
   //    float32_t pixel_per_khz = (1<<spectrum_zoom) * 256.0 / SR[SAMPLE_RATE].rate * 1000.0;
 
@@ -6797,8 +7043,8 @@ void displayLevel(uint16_t adcLevel, uint16_t dacLevel)
 
   // log10(32768)=4.515.  To occupy 60 pixels, mult by 13.2877
 #ifdef USE_LOG10FAST
-  adcPixels = (uint16_t)(13.2877 * log10f((float32_t)adcLevel));
-  dacPixels = (uint16_t)(13.2877 * log10f((float32_t)dacLevel));
+  adcPixels = (uint16_t)(13.2877 * log10f_fast((float32_t)adcLevel));
+  dacPixels = (uint16_t)(13.2877 * log10f_fast((float32_t)dacLevel));
 #else
   adcPixels = (uint16_t)(13.2877 * log10f((float32_t)adcLevel));
   dacPixels = (uint16_t)(13.2877 * log10f((float32_t)dacLevel));
@@ -7146,6 +7392,30 @@ void setfreq () {
   }
   FrequencyBarText();
 
+#ifdef HARDWARE_DO7JBH
+  //***************************************************************************
+// Bandpass Filter switch
+// Bnd2 Bnd1  Frequency Range
+// 0  0     700khz  1.6MHz
+// 0  1     1.6Mhz  4.16MHz
+// 1  0     4.16MHz 11MHz
+// 1    1     11MHz   29MHz
+//***************************************************************************
+
+   if ((bands[band].freq + IF_FREQ) < 1600000)  { 
+     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);  
+     } // end if
+   if (((bands[band].freq + IF_FREQ) > 1600000) && ((bands[band].freq + IF_FREQ) < 4160000)) {
+      digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);  
+     } // end if
+   if (((bands[band].freq + IF_FREQ) > 4160000) && ((bands[band].freq + IF_FREQ) < 11000000)) {
+      digitalWrite (Band1, LOW); digitalWrite (Band2, HIGH);  
+     } // end if
+   if ((bands[band].freq + IF_FREQ) > 11000000) { 
+      digitalWrite (Band1, HIGH); digitalWrite (Band2, HIGH);  
+    } // end if   
+
+#else
   // LPF switching follows here
   // Five filter banks there:
   // longwave LPF 295kHz, mediumwave I LPF 955kHz, mediumwave II LPF 2MHz, tropical bands LPF 5.4MHz, others LPF LPF 30MHz
@@ -7186,8 +7456,10 @@ void setfreq () {
   if ((bands[band].freq - IF_FREQ * SI5351_FREQ_MULT) < 300000 * SI5351_FREQ_MULT) {
     digitalWrite (Band5, HIGH);//Serial.println ("Band5");
     digitalWrite (Band2, LOW); digitalWrite (Band3, LOW); digitalWrite (Band4, LOW); digitalWrite (Band1, LOW);
-  } // end if
-}
+  }
+#endif
+
+} // end setfreq
 
 void buttons() {
   button1.update(); // BAND --
@@ -7528,7 +7800,7 @@ void buttons() {
       else NB_test = 0;
       show_menu();
     }
-    else if (++Menu2 > last_menu2) Menu2 = first_menu2;
+    //else if (++Menu2 > last_menu2) Menu2 = first_menu2;
     which_menu = 2;
     //               Serial.println("MENU2 BUTTON pressed");
     show_menu();
@@ -7600,10 +7872,16 @@ void show_menu()
         //                tft.print(IQ_phase_correction_factor);
         break;
       case MENU_CALIBRATION_FACTOR:
-        tft.print(1 << spectrum_zoom);
+        tft.setFont(Arial_8);
+        tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+        sprintf(menu_string, "%9d", calibration_factor / 1000);
+        tft.print(menu_string);
         break;
       case MENU_CALIBRATION_CONSTANT:
-        tft.print(1 << spectrum_zoom);
+        tft.setFont(Arial_8);
+        tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+        sprintf(menu_string, "%9d", calibration_constant);
+        tft.print(menu_string);
         break;
       case MENU_LPF_SPECTRUM:
         tft.setFont(Arial_11);
@@ -8590,6 +8868,15 @@ void encoders () {
       //          Serial.print("IQ Phase corr factor"); Serial.println(IQ_phase_correction_factor * 1000000);
 
     } // END IQadjust
+    else if (Menu_pointer == MENU_CALIBRATION_FACTOR)
+    {
+      calibration_factor += encoder2_change * 100.0;
+    } // END CALIBRATION_FACTOR
+    else if (Menu_pointer == MENU_CALIBRATION_CONSTANT)
+    {
+      calibration_constant += encoder2_change;
+    //  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
+    } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_TIME_SET) {
       helpmin = minute(); helphour = hour();
       helpmin = helpmin + encoder2_change / 4;
