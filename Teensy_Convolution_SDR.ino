@@ -181,7 +181,7 @@
 #include <play_sd_aac.h> // AAC decoder by Frank B
 //#include "rtty.h"
 //#include "cw_decoder.h"
-#include <util/crc16.h> //eeprom save by MikeR
+
 
 time_t getTeensy3Time()
 {
@@ -207,9 +207,10 @@ time_t getTeensy3Time()
 #define AM_SPACING_EU  1
 
 unsigned long long calibration_factor = 1000000000 ;// 10002285;
-long calibration_constant = 1000000; // this is for the Joris PCB !
+long calibration_constant = 0; 
+// this is for the Joris PCB !
 //long calibration_constant = 108000; // this is for the Elektor PCB !
-unsigned long long hilfsf;
+unsigned long long hilfsf = 1000000000;
 
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
@@ -507,25 +508,27 @@ uint8_t autotune_wait = 10;
 #define BAND_MW     2
 #define BAND_160M   3
 #define BAND_80M    4
-#define BAND_60M    5
-#define BAND_49M    6
-#define BAND_40M    7
-#define BAND_41M    8
-#define BAND_31M    9
-#define BAND_30M   10
-#define BAND_25M   11
-#define BAND_22M   12
-#define BAND_20M   13
-#define BAND_19M   14
-#define BAND_16M   15
-#define BAND_17M   16
-#define BAND_15M   17
-#define BAND_12M   18
-#define BAND_10M   19
+#define BAND_75M    5
+#define BAND_60M    6
+#define BAND_49M    7
+#define BAND_40M    8
+#define BAND_41M    9
+#define BAND_31M   10
+#define BAND_30M   11
+#define BAND_25M   12
+#define BAND_22M   13
+#define BAND_20M   14
+#define BAND_19M   15
+#define BAND_16M   16
+#define BAND_17M   17
+#define BAND_15M   18
+#define BAND_12M   19
+#define BAND_10M   20
+#define BAND_UKW   21
 
 #define FIRST_BAND   BAND_VLF
-#define LAST_BAND    BAND_10M
-#define NUM_BANDS    20
+#define LAST_BAND    BAND_UKW
+#define NUM_BANDS    22
 #define STARTUP_BAND BAND_80M
 
 //Added band limits and band type, gain correction on a band basis    <PUA>
@@ -542,19 +545,21 @@ struct band {
   int FLoCut;
   int RFgain;
   uint8_t band_type;
-  float32_t gainCorrection;
+  float32_t gainCorrection; // is hardware dependent and has to be calibrated ONCE and hardcoded in the table below
 };
 // For use in structure band
 #define BROADCAST_BAND 0
 #define HAM_BAND 1
 #define MISC_BAND 2
+#define WFM_BAND 3
 
 struct band bands[NUM_BANDS] = {
      7750000,    1200000,   14000000, "VLF", DEMOD_SAM, 3600, -3600, 0, MISC_BAND,      6.0,
     22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,
    100000000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,
    185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,
-   380000000,  350000000,  400000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,
+   370000000,  350000000,  380000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,
+   399500000,  390000000,  400000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,
    485000000,  475000000,  510000000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,
    607000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,
    710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,
@@ -569,7 +574,8 @@ struct band bands[NUM_BANDS] = {
   1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600, -3600, 5, HAM_BAND,       6.0,
   2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600, -3600, 5, HAM_BAND,       6.0,
   2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600, -3600, 6, HAM_BAND,       6.0,
-  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600, -3600, 6, HAM_BAND,       0.0
+  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600, -3600, 6, HAM_BAND,       0.0,
+  3500800000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0
 };
 
 // 
@@ -671,8 +677,6 @@ uint8_t twinpeaks_tested = 2; // initial value --> 2 !!
 //float32_t asin_sum = 0.0;
 //uint16_t asin_N = 0;
 uint8_t write_analog_gain = 0;
-
-boolean gEEPROM_current = false;  //MikeR, does the data in EEPROM match the current structure contents
 
 #define BUFFER_SIZE 128
 
@@ -925,6 +929,9 @@ const int spectrum_WF_height=       96; // height of spectrum plus waterfall
 const int BW_indicator_y =          spectrum_y + spectrum_WF_height + 5;
 const int WATERFALL_TOP =           spectrum_y + spectrum_height + 4;
 const int WATERFALL_BOTTOM =        spectrum_y + spectrum_WF_height + 4;  
+const int BAND_INDICATOR_X =        277;
+const int BAND_INDICATOR_Y =        212;
+
 //const int MAX_PIXEL     240
 //uint8_t waterfall[40][255];
 
@@ -2034,10 +2041,7 @@ void setup() {
 #endif
   
   Serial.begin(115200);
-  //delay(100);
-
-  while(!Serial && millis()<1500) //  < 900 skips 1st messages
-    ;
+  delay(100);
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
@@ -2498,12 +2502,6 @@ void setup() {
   delay(100);
   Q_in_L.begin();
   Q_in_R.begin();
-
-  if(gEEPROM_current==false) //MikeR, first time use or changes to config_t struct.  Not used for changes after setup, but could be?
-  {    
-      EEPROM_SAVE();
-      gEEPROM_current=true; //future proof, but not used after this
-  }
 
 } // END SETUP
 
@@ -5317,9 +5315,9 @@ void AGC()
     }
     //      Serial.println(volts * inv_out_target);
 #ifdef USE_LOG10FAST
-mult = (out_target - slope_constant * min (0.0, log10f_fast(inv_max_input * volts))) / volts;
+    mult = (out_target - slope_constant * min (0.0, log10f_fast(inv_max_input * volts))) / volts;
 #else
-mult = (out_target - slope_constant * min (0.0, log10f(inv_max_input * volts))) / volts;
+    mult = (out_target - slope_constant * min (0.0, log10f(inv_max_input * volts))) / volts;
 #endif
     //    Serial.println(mult * 1000);
     //      Serial.println(volts * 1000);
@@ -7042,7 +7040,8 @@ void showFreqBand(void)
         tft.setTextColor(ILI9341_GREEN);
      }
   tft.setFont(Arial_12);
-  tft.setCursor(287, 212);
+//  tft.setCursor(277, 212);
+  tft.setCursor(BAND_INDICATOR_X, BAND_INDICATOR_Y); // 277,212
   tft.print(bands[band].name);
   }
 
@@ -7582,7 +7581,10 @@ void buttons() {
       prepare_spectrum_display();
       if (twinpeaks_tested == 3 && twinpeaks_counter >= 200) write_analog_gain = 1;
       show_analog_gain();
-      if (band[bands].mode == DEMOD_WFM) show_spectrum_flag = 0;
+      if (band[bands].mode == DEMOD_WFM)
+      {
+          show_spectrum_flag = 0;
+      }
       if (band[bands].mode == 0) show_spectrum_flag = 1;
 #ifdef USE_W7PUA
       if (band[bands].mode == DEMOD_SAM  ||  band[bands].mode == DEMOD_SAM_STEREO)
@@ -8902,11 +8904,12 @@ void encoders () {
     } // END IQadjust
     else if (Menu_pointer == MENU_CALIBRATION_FACTOR)
     {
-      calibration_factor += encoder2_change * 100.0;
+      calibration_factor += encoder2_change * 25;
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_CALIBRATION_CONSTANT)
     {
-      calibration_constant += encoder2_change;
+      calibration_constant += encoder2_change * 25;
+      si5351.set_correction(calibration_constant, SI5351_PLL_INPUT_XO);
     //  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_TIME_SET) {
@@ -10018,156 +10021,138 @@ void Display_dbm()
   }
 }
 
-#define CONFIG_VERSION "mr1"  //MikeR,  ID of the config_t settings struct, change if structure changes
-#define CONFIG_START 0       //where to save data in EEPROM, could save multiple versions at different locations
 
-struct config_t{    //MikeR, added two members to end
-  unsigned long long calibration_factor;
-  long calibration_constant;
-  unsigned long freq[NUM_BANDS];
-  int mode[NUM_BANDS];
-  int bwu[NUM_BANDS];
-  int bwl[NUM_BANDS];
-  int rfg[NUM_BANDS];
-  int band;
-  float32_t LPFcoeff;
-  int audio_volume;
-  int8_t AGC_mode;
-  float32_t pll_fmax;
-  float32_t omegaN;
-  int zeta_help;
-  uint8_t rate;
-  float32_t bass;
-  float32_t treble;
-  int agc_thresh;
-  int agc_decay;
-  int agc_slope;
-  uint8_t auto_IQ_correction;
-  float32_t midbass;
-  float32_t mid;
-  float32_t midtreble;
-  int8_t RF_attenuation;
-  uint8_t show_spectrum_flag;
-  float32_t stereo_factor;
-  float32_t spectrum_display_scale;
-  int32_t spectrum_zoom;
-  uint8_t NR_use_X;
-  float32_t NR_PSI;
-  float32_t NR_alpha;
-  float32_t NR_beta;
-  char version_of_settings[4];  // validation string
-  uint16_t crc;   // added when saving
-};   
+  struct config_t {
+    unsigned long long calibration_factor;
+    long calibration_constant;
+    unsigned long long freq[NUM_BANDS];
+    int mode[NUM_BANDS];
+    int bwu[NUM_BANDS];
+    int bwl[NUM_BANDS];
+    int rfg[NUM_BANDS];
+    int band;
+    float32_t LPFcoeff;
+    int audio_volume;
+    int8_t AGC_mode;
+    float32_t pll_fmax;
+    float32_t omegaN;
+    int zeta_help;
+    uint8_t rate;
+    float32_t bass;
+    float32_t treble;
+    int agc_thresh;
+    int agc_decay;
+    int agc_slope;
+    uint8_t auto_IQ_correction;
+    float32_t midbass;
+    float32_t mid;
+    float32_t midtreble;
+    int8_t RF_attenuation;
+    uint8_t show_spectrum_flag;
+    float32_t stereo_factor;
+    float32_t spectrum_display_scale;
+    int32_t spectrum_zoom;
+    uint8_t NR_use_X;
+//    uint8_t NR_L_frames;
+//    uint8_t NR_N_frames;
+    float32_t NR_PSI;
+    float32_t NR_alpha;
+    float32_t NR_beta;
+    float32_t offsetDisplayDB;
+    uint16_t currentScale;
+  } E;
 
 void EEPROM_LOAD() {
-    config_t E;
-    if(loadFromEEPROM(&E)==true){
-      gEEPROM_current=true;
-    //printConfig_t(&E);  //for debugging
-      calibration_factor = E.calibration_factor;
-      calibration_constant = E.calibration_constant;
-      for (int i = 0; i < (NUM_BANDS); i++)
-        bands[i].freq = E.freq[i];
-      for (int i = 0; i < (NUM_BANDS); i++)
-        bands[i].mode = E.mode[i];
-      for (int i = 0; i < (NUM_BANDS); i++)
-        bands[i].FHiCut = E.bwu[i];
-      for (int i = 0; i < (NUM_BANDS); i++)
-        bands[i].FLoCut = E.bwl[i];
-      for (int i = 0; i < (NUM_BANDS); i++)
-        bands[i].RFgain = E.rfg[i];
-      band = E.band;
-      //I_help = E.I_ampl;
-      //Q_in_I_help = E.Q_in_I;
-      //I_in_Q_help = E.I_in_Q;
-      //Window_FFT = E.Window_FFT;
-      LPF_spectrum = E.LPFcoeff;
-      audio_volume = E.audio_volume;
-      AGC_mode = E.AGC_mode;
-      pll_fmax = E.pll_fmax;
-      omegaN = E.omegaN;
-      zeta_help = E.zeta_help;
-      zeta = (float32_t) zeta_help / 100.0;
-      SAMPLE_RATE = E.rate;
-      bass = E.bass;
-      treble = E.treble;
-      agc_thresh = E.agc_thresh;
-      agc_decay = E.agc_decay;
-      agc_slope = E.agc_slope;
-      auto_IQ_correction = E.auto_IQ_correction;
-      midbass = E.midbass;
-      mid = E.mid;
-      midtreble = E.midtreble;
-      RF_attenuation = E.RF_attenuation;
-      show_spectrum_flag = E.show_spectrum_flag;
-      stereo_factor = E.stereo_factor;
-      spectrum_display_scale = E.spectrum_display_scale;
-      spectrum_zoom = E.spectrum_zoom;
-      NR_use_X = E.NR_use_X;
-    //  NR_L_frames = E.NR_L_frames;
-    //  NR_N_frames = E.NR_N_frames;
-      NR_PSI = E.NR_PSI;
-      NR_alpha = E.NR_alpha;
-      NR_beta = E.NR_beta;
-    }else{
-      gEEPROM_current=false;
-    }
+  eeprom_read_block(&E, 0, sizeof(E));
+  calibration_factor = E.calibration_factor;
+  calibration_constant = E.calibration_constant;
+  for (int i = 0; i < (NUM_BANDS); i++)
+    bands[i].freq = E.freq[i];
+  for (int i = 0; i < (NUM_BANDS); i++)
+    bands[i].mode = E.mode[i];
+  for (int i = 0; i < (NUM_BANDS); i++)
+    bands[i].FHiCut = E.bwu[i];
+  for (int i = 0; i < (NUM_BANDS); i++)
+    bands[i].FLoCut = E.bwl[i];
+  for (int i = 0; i < (NUM_BANDS); i++)
+    bands[i].RFgain = E.rfg[i];
+  band = E.band;
+  //I_help = E.I_ampl;
+  //Q_in_I_help = E.Q_in_I;
+  //I_in_Q_help = E.I_in_Q;
+  //Window_FFT = E.Window_FFT;
+  LPF_spectrum = E.LPFcoeff;
+  audio_volume = E.audio_volume;
+  AGC_mode = E.AGC_mode;
+  pll_fmax = E.pll_fmax;
+  omegaN = E.omegaN;
+  zeta_help = E.zeta_help;
+  zeta = (float32_t) zeta_help / 100.0;
+  SAMPLE_RATE = E.rate;
+  bass = E.bass;
+  treble = E.treble;
+  agc_thresh = E.agc_thresh;
+  agc_decay = E.agc_decay;
+  agc_slope = E.agc_slope;
+  auto_IQ_correction = E.auto_IQ_correction;
+  midbass = E.midbass;
+  mid = E.mid;
+  midtreble = E.midtreble;
+  RF_attenuation = E.RF_attenuation;
+  show_spectrum_flag = E.show_spectrum_flag;
+  stereo_factor = E.stereo_factor;
+  spectrum_display_scale = E.spectrum_display_scale;
+  spectrum_zoom = E.spectrum_zoom;
+  NR_use_X = E.NR_use_X;
+//  NR_L_frames = E.NR_L_frames;
+//  NR_N_frames = E.NR_N_frames;
+  NR_PSI = E.NR_PSI;
+  NR_alpha = E.NR_alpha;
+  NR_beta = E.NR_beta;
+  offsetDisplayDB = E.offsetDisplayDB;
+  currentScale = E.currentScale;
 } // end void eeProm LOAD
 
-boolean loadFromEEPROM(struct config_t *ls){   //MikeR, 
-  char this_version[]=CONFIG_VERSION;
-  unsigned char thechar=0;
-  uint8_t thecrc=0;
-  config_t ts, *ts_ptr;  //temp struct and ptr to hold the data
-  ts_ptr=&ts;
-  
-  // To make sure there are settings, and they are YOURS! Load the settings and do the crc check first
-  for (unsigned int t=0; t<(sizeof(config_t)-1); t++){
-    thechar = EEPROM.read(CONFIG_START + t);
-    *((char*)ts_ptr + t) = thechar;
-    thecrc=_crc_ibutton_update(thecrc, thechar);
-  }
-  if(thecrc==0){ // have valid data
-    //printConfig_t(ts_ptr);  //for testing
-    Serial.printf("Found EEPROM version %s", ts_ptr->version_of_settings);  //line continued after version
-    if (ts.version_of_settings[3] == this_version[3] &&    // If the latest version
-        ts.version_of_settings[2] == this_version[2] &&
-        ts.version_of_settings[1] == this_version[1] &&
-        ts.version_of_settings[0] == this_version[0] ){
-      for(int i=0;i<(int)sizeof(config_t);i++){   //copy data to location passed in
-        *((unsigned char*)ls+i)=*((unsigned char*)ts_ptr+i);
-      }
-      Serial.println(", loaded");
-      return true;
-    }else{// settings are old version
-      Serial.printf(", not loaded, current version is %s\n", this_version);
-      return false;
-    }
-  }else{
-    Serial.println("Bad CRC, settings not loaded");
-    return false; 
-  }
-}
-
-void printConfig_t(struct config_t *c){   //MikeR, print some of the values for testing
-  Serial.printf("%llu", c->calibration_factor);
-  Serial.println(c->calibration_constant);
-  Serial.println(c->band);
-  Serial.println(c->LPFcoeff);
-  Serial.println(c->audio_volume);
-  Serial.println(c->AGC_mode);
-  Serial.println(c->pll_fmax);
-  Serial.println(c->omegaN);
-  Serial.println(c->zeta_help);
-  Serial.println(c->rate);
-}
-
-void testcrc(){ //MikeR, call this after a save to screw up EEPROM and cause default data on next startup
-  EEPROM.write(CONFIG_START + 12, 1);
-}
-
 void EEPROM_SAVE() {
-  config_t E;
+/*
+  struct config_t {
+    unsigned long long calibration_factor;
+    long calibration_constant;
+    unsigned long long freq[NUM_BANDS];
+    int mode[NUM_BANDS];
+    int bwu[NUM_BANDS];
+    int bwl[NUM_BANDS];
+    int rfg[NUM_BANDS];
+    int band;
+    float32_t LPFcoeff;
+    int audio_volume;
+    int8_t AGC_mode;
+    float32_t pll_fmax;
+    float32_t omegaN;
+    int zeta_help;
+    uint8_t rate;
+    float32_t bass;
+    float32_t treble;
+    int agc_thresh;
+    int agc_decay;
+    int agc_slope;
+    uint8_t auto_IQ_correction;
+    float32_t midbass;
+    float32_t mid;
+    float32_t midtreble;
+    int8_t RF_attenuation;
+    uint8_t show_spectrum_flag;
+    float32_t stereo_factor;
+    float32_t spectrum_display_scale;
+    int32_t spectrum_zoom;
+    uint8_t NR_use_X;
+//    uint8_t NR_L_frames;
+//    uint8_t NR_N_frames;
+    float32_t NR_PSI;
+    float32_t NR_alpha;
+    float32_t NR_beta;
+  } E;
+*/
   E.calibration_factor = calibration_factor;
   E.band = band;
   E.calibration_constant = calibration_constant;
@@ -10213,46 +10198,11 @@ void EEPROM_SAVE() {
   E.NR_PSI = NR_PSI;
   E.NR_alpha = NR_alpha;
   E.NR_beta = NR_beta;
-  char theversion[]=CONFIG_VERSION;
-  for (int i = 0; i < 4; i++)
-    E.version_of_settings[i] = theversion[i];
-  E.crc=0; //will be overwritten by saveInEEPROM()
-  //printConfig_t(&E);  //for debugging
-  saveInEEPROM(&E);
+  E.offsetDisplayDB = offsetDisplayDB;
+  E.currentScale = currentScale;
+
+  eeprom_write_block (&E, 0, sizeof(E));
 } // end void eeProm SAVE
-
-boolean saveInEEPROM(struct config_t *pd){  //MikeR, save with verification, crc and minimal writes
-  int byteswritten=0;
-  uint8_t thecrc=0;
-  boolean errors=false;
-
-  unsigned int t;
-  for (t=0; t<(sizeof(config_t)-2); t++){ // writes to EEPROM
-    thecrc=_crc_ibutton_update(thecrc,*((unsigned char*)pd + t) );
-    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ){ //only save if changed to prolong EEPROM life
-      EEPROM.write(CONFIG_START + t, *((unsigned char*)pd + t));
-      // and verifies the data
-      if (EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t))
-      {
-        errors=true;//error writing (or reading) exit
-        break;
-      }else{
-        //Serial.print("EEPROM ");Serial.println(t);
-        byteswritten+=1;  //for debuggin
-      }
-    }
-  }
-  EEPROM.write(CONFIG_START + t, thecrc);   //write the crc to the end of the data
-  if (EEPROM.read(CONFIG_START + t) != thecrc)  //and check it
-    errors=true;
-  if(errors==true){
-    Serial.println(" error writing to EEPROM");
-  }else{
-    Serial.printf("%d bytes saved to EEPROM version %s \n", byteswritten, CONFIG_VERSION);  //note: only changed written
-  }
-  return errors;    
-}
-
 
 /*
   void set_freq_conv2(float32_t NCO_FREQ) {
