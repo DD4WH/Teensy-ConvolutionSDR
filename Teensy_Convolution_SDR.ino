@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_04_11
+   (c) Frank DD4WH 2019_04_13
    
    "TEENSY CONVOLUTION SDR"
 
@@ -151,7 +151,7 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Dante DO7JBH, uncomment the next line */
-#define HARDWARE_DO7JBH
+//#define HARDWARE_DO7JBH
 
 //#define DEBUG
 
