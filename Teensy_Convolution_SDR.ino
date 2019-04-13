@@ -430,6 +430,7 @@ int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
 
 //uint8_t sr =                     SAMPLE_RATE_96K;
 uint8_t SAMPLE_RATE =            SAMPLE_RATE_100K;
+uint8_t LAST_SAMPLE_RATE =       SAMPLE_RATE_100K;
 
 typedef struct SR_Descriptor
 {
@@ -7510,7 +7511,8 @@ void buttons() {
       prevtrack();
     }
     else
-    {
+    { 
+      int last_band = band;
       if (--band < FIRST_BAND) band = LAST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
       AudioNoInterrupts();
@@ -7524,14 +7526,24 @@ void buttons() {
       show_menu();
       prepare_spectrum_display();
       leave_WFM = 0;
-      //if(band[bands].mode == DEMOD_WFM) show_spectrum_flag = 0;
-      /*                sgtl5000_1.disable();
-                      delay(20);
-                      sgtl5000_1.enable();
-        //                sgtl5000_1.setADCStereo();
-                      sgtl5000_1.volume((float32_t)audio_volume / 100);
-                      delay(20);
-      */
+      if(bands[band].mode == DEMOD_WFM) 
+      { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
+          show_spectrum_flag = 0;
+          LAST_SAMPLE_RATE = SAMPLE_RATE;
+          SAMPLE_RATE = SAMPLE_RATE_234K;
+          setI2SFreq(SAMPLE_RATE);
+          set_samplerate();
+      }
+      else 
+      {
+        if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
+        { // switch from WFM to any other mode
+            show_spectrum_flag = 1;
+            SAMPLE_RATE = LAST_SAMPLE_RATE;
+            setI2SFreq(SAMPLE_RATE);
+            set_samplerate();
+        }
+      }
       delay(1);
       sgtl5000_1.dacVolume(1.0);
       AudioInterrupts();
@@ -7543,7 +7555,7 @@ void buttons() {
       pausetrack();
     }
     else
-    {
+    { int last_band = band;
       if (++band > LAST_BAND) band = FIRST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
       AudioNoInterrupts();
@@ -7557,7 +7569,24 @@ void buttons() {
       show_menu();
       prepare_spectrum_display();
       leave_WFM = 0;
-      //if(band[bands].mode == DEMOD_WFM) show_spectrum_flag = 0;
+      if(bands[band].mode == DEMOD_WFM) 
+      { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
+          show_spectrum_flag = 0;
+          LAST_SAMPLE_RATE = SAMPLE_RATE;
+          SAMPLE_RATE = SAMPLE_RATE_234K;
+          setI2SFreq(SAMPLE_RATE);
+          set_samplerate();
+      }
+      else 
+      {
+        if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
+        { // switch from WFM to any other mode
+            show_spectrum_flag = 1;
+            SAMPLE_RATE = LAST_SAMPLE_RATE;
+            setI2SFreq(SAMPLE_RATE);
+            set_samplerate();
+        }
+      }
       sgtl5000_1.dacVolume(1.0);
       delay(1);
       AudioInterrupts();
@@ -7569,7 +7598,7 @@ void buttons() {
       nexttrack();
     }
     else
-    {
+    { int old_mode = bands[band].mode; 
       if (++band[bands].mode > DEMOD_MAX) band[bands].mode = DEMOD_MIN; // cycle thru demod modes
       AudioNoInterrupts();
       sgtl5000_1.dacVolume(0.0);
@@ -7581,11 +7610,26 @@ void buttons() {
       prepare_spectrum_display();
       if (twinpeaks_tested == 3 && twinpeaks_counter >= 200) write_analog_gain = 1;
       show_analog_gain();
-      if (band[bands].mode == DEMOD_WFM)
-      {
+
+      if(bands[band].mode == DEMOD_WFM) 
+      { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
           show_spectrum_flag = 0;
+          LAST_SAMPLE_RATE = SAMPLE_RATE;
+          SAMPLE_RATE = SAMPLE_RATE_234K;
+          setI2SFreq(SAMPLE_RATE);
+          set_samplerate();
       }
-      if (band[bands].mode == 0) show_spectrum_flag = 1;
+      else 
+      {
+        if (old_mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
+        { // switch from WFM to any other mode
+            show_spectrum_flag = 1;
+            SAMPLE_RATE = LAST_SAMPLE_RATE;
+            setI2SFreq(SAMPLE_RATE);
+            set_samplerate();
+        }
+      }
+
 #ifdef USE_W7PUA
       if (band[bands].mode == DEMOD_SAM  ||  band[bands].mode == DEMOD_SAM_STEREO)
          //Serial.println(" ");
@@ -8647,6 +8691,68 @@ void setup_mode(int MO) {
 } // end void setup_mode
 
 
+void set_samplerate ()
+{
+        AudioNoInterrupts();
+      if (SAMPLE_RATE > SAMPLE_RATE_MAX) SAMPLE_RATE = SAMPLE_RATE_MAX;
+      if (SAMPLE_RATE < SAMPLE_RATE_MIN) SAMPLE_RATE = SAMPLE_RATE_MIN;
+      setI2SFreq (SR[SAMPLE_RATE].rate);
+      delay(500);
+      IF_FREQ = SR[SAMPLE_RATE].rate / 4;
+      // if in WFM mode, reset the start frequency in order to have nice 25kHz steps
+      if (bands[band].mode == DEMOD_WFM)
+      {
+//          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
+//          bands[band].freq = (unsigned long long)(prec_help); 
+          dt = 1.0 / (float32_t)SR[SAMPLE_RATE].rate;
+          deemp_alpha = dt / (50e-6 + dt);
+          onem_deemp_alpha = 1.0 - deemp_alpha;
+          // IIR lowpass filter for wideband FM at 15k
+          set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
+          for (i = 0; i < 5; i++)
+          { // fill coefficients into the right file
+            biquad_WFM_coeffs[i] = coefficient_set[i];
+            biquad_WFM_coeffs[i + 10] = coefficient_set[i];
+          }
+          set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
+          for (i = 0; i < 5; i++)
+          { // fill coefficients into the right file
+            biquad_WFM_coeffs[i + 5] = coefficient_set[i];
+            biquad_WFM_coeffs[i + 15] = coefficient_set[i];
+          }
+          
+          // high Q IIR bandpass filter for wideband FM at 19k
+          set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
+          for (i = 0; i < 5; i++)
+          { // fill coefficients into the right file
+            biquad_WFM_19k_coeffs[i] = coefficient_set[i];
+          }
+          
+          // high Q IIR bandpass filter for wideband FM at 38k
+          set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
+          for (i = 0; i < 5; i++)
+          { // fill coefficients into the right file
+            biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+          }
+      }
+      // this sets the frequency, but without knowing the IF!
+      setfreq();
+      prepare_spectrum_display(); // show new frequency scale
+      //          LP_Fpass_old = 0; // cheat the filter_bandwidth function ;-)
+      // before calculating the filter, we have to assure, that the filter bandwidth is not larger than
+      // sample rate / 19.0
+      // TODO: change bands[band].bandwidthU and L !!!
+
+      //if(LP_F_help > SR[SAMPLE_RATE].rate / 19.0) LP_F_help = SR[SAMPLE_RATE].rate / 19.0;
+      control_filter_f(); // check, if filter bandwidth is within bounds
+      filter_bandwidth(); // calculate new FIR & IIR coefficients according to the new sample rate
+      show_bandwidth();
+      set_SAM_PLL();
+
+      // NEW: this code is now in set_dec_int_filters() and is called by filter_bandwidth()
+      AudioInterrupts();
+}
+
 void encoders () {
   static long encoder_pos = 0, last_encoder_pos = 0;
   long encoder_change;
@@ -8784,84 +8890,7 @@ void encoders () {
       }
       
       wait_flag = 1;
-      AudioNoInterrupts();
-      if (SAMPLE_RATE > SAMPLE_RATE_MAX) SAMPLE_RATE = SAMPLE_RATE_MAX;
-      if (SAMPLE_RATE < SAMPLE_RATE_MIN) SAMPLE_RATE = SAMPLE_RATE_MIN;
-      setI2SFreq (SR[SAMPLE_RATE].rate);
-      delay(500);
-      IF_FREQ = SR[SAMPLE_RATE].rate / 4;
-      // if in WFM mode, reset the start frequency in order to have nice 25kHz steps
-      if (bands[band].mode == DEMOD_WFM)
-      {
-//          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
-//          bands[band].freq = (unsigned long long)(prec_help); 
-          dt = 1.0 / (float32_t)SR[SAMPLE_RATE].rate;
-          deemp_alpha = dt / (50e-6 + dt);
-          onem_deemp_alpha = 1.0 - deemp_alpha;
-          // IIR lowpass filter for wideband FM at 15k
-          set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-          for (i = 0; i < 5; i++)
-          { // fill coefficients into the right file
-            biquad_WFM_coeffs[i] = coefficient_set[i];
-            biquad_WFM_coeffs[i + 10] = coefficient_set[i];
-          }
-          set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-          for (i = 0; i < 5; i++)
-          { // fill coefficients into the right file
-            biquad_WFM_coeffs[i + 5] = coefficient_set[i];
-            biquad_WFM_coeffs[i + 15] = coefficient_set[i];
-          }
-          
-          // high Q IIR bandpass filter for wideband FM at 19k
-          set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-          for (i = 0; i < 5; i++)
-          { // fill coefficients into the right file
-            biquad_WFM_19k_coeffs[i] = coefficient_set[i];
-          }
-          
-          // high Q IIR bandpass filter for wideband FM at 38k
-          set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-          for (i = 0; i < 5; i++)
-          { // fill coefficients into the right file
-            biquad_WFM_38k_coeffs[i] = coefficient_set[i];
-          }
-      }
-      // this sets the frequency, but without knowing the IF!
-      setfreq();
-      prepare_spectrum_display(); // show new frequency scale
-      //          LP_Fpass_old = 0; // cheat the filter_bandwidth function ;-)
-      // before calculating the filter, we have to assure, that the filter bandwidth is not larger than
-      // sample rate / 19.0
-      // TODO: change bands[band].bandwidthU and L !!!
-
-      //if(LP_F_help > SR[SAMPLE_RATE].rate / 19.0) LP_F_help = SR[SAMPLE_RATE].rate / 19.0;
-      control_filter_f(); // check, if filter bandwidth is within bounds
-      filter_bandwidth(); // calculate new FIR & IIR coefficients according to the new sample rate
-      show_bandwidth();
-      set_SAM_PLL();
-
-      // NEW: this code is now in set_dec_int_filters() and is called by filter_bandwidth()
-      /****************************************************************************************
-         Recalculate decimation and interpolation FIR filters
-      ****************************************************************************************/
-      /*          // Decimation filter 1, M1 = 4
-        //          calc_FIR_coeffs (FIR_dec1_coeffs, 50, (float32_t)SR[SAMPLE_RATE].rate / 19.0, 80, 0, 0.0, SR[SAMPLE_RATE].rate);
-                // Decimation filter 2, M2 = 2
-        //          calc_FIR_coeffs (FIR_dec2_coeffs, 88, (float32_t)SR[SAMPLE_RATE].rate / 19.0, 80, 0, 0.0, SR[SAMPLE_RATE].rate / 4);
-
-          calc_FIR_coeffs (FIR_dec1_coeffs, n_dec1_taps, (float32_t)(n_desired_BW * 1000.0 * (float32_t)SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate));
-          calc_FIR_coeffs (FIR_dec2_coeffs, n_dec2_taps, (float32_t)(n_desired_BW * 1000.0 * (float32_t)SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
-
-                // Interpolation filter 1, L1 = 2
-        //          calc_FIR_coeffs (FIR_int1_coeffs, 16, (float32_t)(n_desired_BW * 1000.0 * SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
-                calc_FIR_coeffs (FIR_int1_coeffs, 48, (float32_t)(n_desired_BW * 1000.0 * (float32_t)SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
-                // Interpolation filter 2, L2 = 4
-        //          calc_FIR_coeffs (FIR_int2_coeffs, 16, (float32_t)(n_desired_BW * 1000.0 * SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
-                calc_FIR_coeffs (FIR_int2_coeffs, 32, (float32_t)(n_desired_BW * 1000.0 * (float32_t)SR[SAMPLE_RATE].rate / 96000.0), n_att, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
-        //          bin_BW = 0.0001220703125 * SR[SAMPLE_RATE].rate;
-                bin_BW = 1.0/(DF * FFT_length) * (float32_t)SR[SAMPLE_RATE].rate;
-      */
-      AudioInterrupts();
+      set_samplerate ();
     }
     else if (Menu_pointer == MENU_LPF_SPECTRUM)
     {
