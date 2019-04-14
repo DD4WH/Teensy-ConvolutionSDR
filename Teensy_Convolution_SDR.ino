@@ -146,7 +146,7 @@
 
  ************************************************************************************************************************************/
 
-/*  If you use the hardware made by Dante DO7JBH, uncomment the next line */
+/*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
 //#define HARDWARE_DO7JBH
 
 //#define DEBUG
@@ -7544,6 +7544,7 @@ void buttons() {
           SAMPLE_RATE = SAMPLE_RATE_234K;
           setI2SFreq(SAMPLE_RATE);
           set_samplerate();
+          show_frequency(bands[current_band].freq, 1);
       }
       else 
       {
@@ -7588,6 +7589,7 @@ void buttons() {
           SAMPLE_RATE = SAMPLE_RATE_234K;
           setI2SFreq(SAMPLE_RATE);
           set_samplerate();
+          show_frequency(bands[current_band].freq, 1);
       }
       else 
       {
@@ -7631,6 +7633,7 @@ void buttons() {
           SAMPLE_RATE = SAMPLE_RATE_234K;
           setI2SFreq(SAMPLE_RATE);
           set_samplerate();
+          show_frequency(bands[current_band].freq, 1);
       }
       else 
       {
