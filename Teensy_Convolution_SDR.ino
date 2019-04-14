@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_04_13
+   (c) Frank DD4WH 2019_04_14
    
    "TEENSY CONVOLUTION SDR"
 
@@ -26,12 +26,6 @@
 
    Part of the evolution of this project has been documented here:
    https://forum.pjrc.com/threads/40188-Fast-Convolution-filtering-in-floating-point-with-Teensy-3-6/page2
-
-  ATTENTION:
-  
-  if loading the software for the very first time, 
-  comment out the "EEPROM_LOAD" in setup --> then compile and upload 
-  --> save settings in the menu --> load software with EEPROM_LOAD uncommented
 
 
    HISTORY OF IMPLEMENTED FEATURES
@@ -97,7 +91,8 @@
    - add possibility to use PCB hardware by DO7JBH https://github.com/do7jbh/SSR-2
    - bugfix array out-of-bound, thanks bicycleguy for pointing me to this bug!
    - atan2f approximation: https://www.mikrocontroller.net/topic/atan2-funktion-mit-lookup-table-fuer-arm
-   - bugfix 
+   - bugfix band vs. bands --> cleanup and changed int band to int current_band
+   - integrated automatic crc check on eePROM load and save (by Mike / bicycleguy, thanks!) - no more need to uncomment/comment during first time use of the software
    
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -152,7 +147,7 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Dante DO7JBH, uncomment the next line */
-#define HARDWARE_DO7JBH
+//#define HARDWARE_DO7JBH
 
 //#define DEBUG
 
@@ -182,7 +177,7 @@
 #include <play_sd_aac.h> // AAC decoder by Frank B
 //#include "rtty.h"
 //#include "cw_decoder.h"
-
+#include <util/crc16.h> //mdrhere
 
 time_t getTeensy3Time()
 {
@@ -567,16 +562,16 @@ struct band bands[NUM_BANDS] = {
    710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,
    735000000,  720000000,  745000000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,
    960000000,  940000000,  990000000, "31M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,
-  1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, -100, -2700, 0, HAM_BAND,       4.0,
+  1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       4.0,
   1180000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,
   1367000000, 1357000000, 1387000000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, 7.0,
-  1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,  -100, 0, HAM_BAND,       7.0,
+  1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       7.0,
   1514500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,
   1770000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,
-  1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600, -3600, 5, HAM_BAND,       6.0,
-  2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600, -3600, 5, HAM_BAND,       6.0,
-  2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600, -3600, 6, HAM_BAND,       6.0,
-  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600, -3600, 6, HAM_BAND,       0.0,
+  1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,
+  2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,
+  2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,
+  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,
   3500800000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0
 };
 
@@ -679,6 +674,8 @@ uint8_t twinpeaks_tested = 2; // initial value --> 2 !!
 //float32_t asin_sum = 0.0;
 //uint16_t asin_N = 0;
 uint8_t write_analog_gain = 0;
+
+boolean gEEPROM_current = false;  //mdrhere does the data in EEPROM match the current structure contents
 
 #define BUFFER_SIZE 128
 
@@ -1282,7 +1279,7 @@ float32_t hang_level;
 float32_t hang_backmult;
 float32_t onemhang_backmult;
 float32_t hang_decay_mult;
-int agc_thresh = -10;
+int agc_thresh = 30;
 int agc_slope = 100;
 int agc_decay = 100;
 uint8_t agc_action = 0;
@@ -2114,7 +2111,7 @@ void setup() {
   /****************************************************************************************
       load saved settings from EEPROM
    ****************************************************************************************/
-  // if loading the software for the very first time, comment out the "EEPROM_LOAD" --> then save settings in the menu --> load software with EEPROM_LOAD uncommented
+  // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
   EEPROM_LOAD();
   // Enable the audio shield. select input. and enable output
   sgtl5000_1.enable();
@@ -2176,8 +2173,7 @@ void setup() {
   /****************************************************************************************
      set filter bandwidth
   ****************************************************************************************/
-  setup_mode(bands[current_band].mode);
-
+  //setup_mode(bands[current_band].mode);
   // this routine does all the magic of calculating the FIR coeffs (Bessel-Kaiser window)
   //    calc_FIR_coeffs (FIR_Coef, 513, (float32_t)LP_F_help, LP_Astop, 0, 0.0, (float)SR[SAMPLE_RATE].rate / DF);
   calc_cplx_FIR_coeffs (FIR_Coef_I, FIR_Coef_Q, m_NumTaps, (float32_t)bands[current_band].FLoCut, (float32_t)bands[current_band].FHiCut, (float)SR[SAMPLE_RATE].rate / DF);
@@ -2484,7 +2480,12 @@ void setup() {
   si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
   setfreq();
   delay(100);
-  show_frequency(bands[current_band].freq, 1);
+  //show_frequency(bands[current_band].freq, 1);
+
+  /****************************************************************************************
+      Initialize band settings, set frequency, show frequency etc.
+   ****************************************************************************************/
+  set_band();
 
   /****************************************************************************************
       Initialize spectral noise reduction variables
@@ -2497,6 +2498,14 @@ void setup() {
     showSpectrumCorners();
     offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
 #endif
+
+  /****************************************************************************************
+     eePROM check by Mike bicycleguy
+  ****************************************************************************************/
+  if(gEEPROM_current==false){  //mdrhere 
+    EEPROM_SAVE();
+    gEEPROM_current=true; //future proof, but not used after this
+  }
 
   /****************************************************************************************
      begin to queue the audio from the audio library
@@ -7567,7 +7576,7 @@ void buttons() {
       freq_flag[1] = 0;
       set_band();
       set_tunestep();
-      control_filter_f();
+      //control_filter_f();
       filter_bandwidth();
       show_menu();
       prepare_spectrum_display();
@@ -8636,7 +8645,7 @@ void show_tunestep() {
 
 void set_band () {
   //         show_band(bands[current_band].name); // show new band
-  old_demod_mode = -99; // used in setup_mode, so that LoCut and HiCut are not changed!
+  old_demod_mode = -99; // used in setup_mode and when changing bands, so that LoCut and HiCut are not changed!
   setup_mode(bands[current_band].mode);
   sgtl5000_1.lineInLevel(bands[current_band].RFgain, bands[current_band].RFgain);
   //         setup_RX(bands[current_band].mode, bands[current_band].bandwidthU, bands[current_band].bandwidthL);  // set up the audio chain for new mode
@@ -8658,7 +8667,7 @@ void setup_mode(int MO) {
   // USB -> LSB -> AM -> SAM -> SAM Stereo -> IQ -> WFM -> 
   int temp;
 
-  if(old_demod_mode != -99) // first time when radio is switched on
+  if(old_demod_mode != -99) // first time when radio is switched on and when changing bands
   {
      if (MO == DEMOD_LSB) // switch from USB to LSB
       {
@@ -10054,6 +10063,8 @@ void Display_dbm()
   }
 }
 
+#define CONFIG_VERSION "mr1"  //mdrhere ID of the E settings block, change if structure changes
+#define CONFIG_START 0       //where to start the EEPROM data
 
   struct config_t {
     unsigned long long calibration_factor;
@@ -10093,8 +10104,67 @@ void Display_dbm()
     float32_t NR_beta;
     float32_t offsetDisplayDB;
     uint16_t currentScale;
+    char version_of_settings[4];  // validation string
+    uint16_t crc;   // added when saving
   } E;
 
+void EEPROM_LOAD() { //mdrhere
+    config_t E;
+    if(loadFromEEPROM(&E)==true){
+      gEEPROM_current=true;
+    //printConfig_t(&E);  //for debugging
+      calibration_factor = E.calibration_factor;
+      calibration_constant = E.calibration_constant;
+      for (int i = 0; i < (NUM_BANDS); i++)
+        bands[i].freq = E.freq[i];
+      for (int i = 0; i < (NUM_BANDS); i++)
+        bands[i].mode = E.mode[i];
+      for (int i = 0; i < (NUM_BANDS); i++)
+        bands[i].FHiCut = E.bwu[i];
+      for (int i = 0; i < (NUM_BANDS); i++)
+        bands[i].FLoCut = E.bwl[i];
+      for (int i = 0; i < (NUM_BANDS); i++)
+        bands[i].RFgain = E.rfg[i];
+      current_band = E.current_band;
+      //I_help = E.I_ampl;
+      //Q_in_I_help = E.Q_in_I;
+      //I_in_Q_help = E.I_in_Q;
+      //Window_FFT = E.Window_FFT;
+      LPF_spectrum = E.LPFcoeff;
+      audio_volume = E.audio_volume;
+      AGC_mode = E.AGC_mode;
+      pll_fmax = E.pll_fmax;
+      omegaN = E.omegaN;
+      zeta_help = E.zeta_help;
+      zeta = (float32_t) zeta_help / 100.0;
+      SAMPLE_RATE = E.rate;
+      bass = E.bass;
+      treble = E.treble;
+      agc_thresh = E.agc_thresh;
+      agc_decay = E.agc_decay;
+      agc_slope = E.agc_slope;
+      auto_IQ_correction = E.auto_IQ_correction;
+      midbass = E.midbass;
+      mid = E.mid;
+      midtreble = E.midtreble;
+      RF_attenuation = E.RF_attenuation;
+      show_spectrum_flag = E.show_spectrum_flag;
+      stereo_factor = E.stereo_factor;
+      spectrum_display_scale = E.spectrum_display_scale;
+      spectrum_zoom = E.spectrum_zoom;
+      NR_use_X = E.NR_use_X;
+    //  NR_L_frames = E.NR_L_frames;
+    //  NR_N_frames = E.NR_N_frames;
+      NR_PSI = E.NR_PSI;
+      NR_alpha = E.NR_alpha;
+      NR_beta = E.NR_beta;
+      offsetDisplayDB = E.offsetDisplayDB;
+      currentScale = E.currentScale;
+    }else{
+      gEEPROM_current=false;
+    }
+}
+/*
 void EEPROM_LOAD() {
   eeprom_read_block(&E, 0, sizeof(E));
   calibration_factor = E.calibration_factor;
@@ -10145,47 +10215,10 @@ void EEPROM_LOAD() {
   offsetDisplayDB = E.offsetDisplayDB;
   currentScale = E.currentScale;
 } // end void eeProm LOAD
+*/
 
 void EEPROM_SAVE() {
-/*
-  struct config_t {
-    unsigned long long calibration_factor;
-    long calibration_constant;
-    unsigned long long freq[NUM_BANDS];
-    int mode[NUM_BANDS];
-    int bwu[NUM_BANDS];
-    int bwl[NUM_BANDS];
-    int rfg[NUM_BANDS];
-    int band;
-    float32_t LPFcoeff;
-    int audio_volume;
-    int8_t AGC_mode;
-    float32_t pll_fmax;
-    float32_t omegaN;
-    int zeta_help;
-    uint8_t rate;
-    float32_t bass;
-    float32_t treble;
-    int agc_thresh;
-    int agc_decay;
-    int agc_slope;
-    uint8_t auto_IQ_correction;
-    float32_t midbass;
-    float32_t mid;
-    float32_t midtreble;
-    int8_t RF_attenuation;
-    uint8_t show_spectrum_flag;
-    float32_t stereo_factor;
-    float32_t spectrum_display_scale;
-    int32_t spectrum_zoom;
-    uint8_t NR_use_X;
-//    uint8_t NR_L_frames;
-//    uint8_t NR_N_frames;
-    float32_t NR_PSI;
-    float32_t NR_alpha;
-    float32_t NR_beta;
-  } E;
-*/
+  config_t E;
   E.calibration_factor = calibration_factor;
   E.current_band = current_band;
   E.calibration_constant = calibration_constant;
@@ -10234,8 +10267,94 @@ void EEPROM_SAVE() {
   E.offsetDisplayDB = offsetDisplayDB;
   E.currentScale = currentScale;
 
-  eeprom_write_block (&E, 0, sizeof(E));
+  //eeprom_write_block (&E, 0, sizeof(E));
+  char theversion[]=CONFIG_VERSION;
+  for (int i = 0; i < 4; i++)
+    E.version_of_settings[i] = theversion[i];
+  E.crc=0; //will be overwritten
+  //printConfig_t(&E);  //for debugging
+  saveInEEPROM(&E);
 } // end void eeProm SAVE
+
+boolean loadFromEEPROM(struct config_t *ls){   //mdrhere
+  char this_version[]=CONFIG_VERSION;
+  unsigned char thechar=0;
+  uint8_t thecrc=0;
+  config_t ts, *ts_ptr;  //temp struct and ptr to hold the data
+  ts_ptr=&ts;
+
+  // To make sure there are settings, and they are YOURS! Load the settings and do the crc check first
+  for (unsigned int t=0; t<(sizeof(config_t)-1); t++){
+    thechar = EEPROM.read(CONFIG_START + t);
+    *((char*)ts_ptr + t) = thechar;
+    thecrc=_crc_ibutton_update(thecrc, thechar);
+  }
+  if(thecrc==0){ // have valid data
+    //printConfig_t(ts_ptr);
+    Serial.printf("Found EEPROM version %s", ts_ptr->version_of_settings);  //line continued after version
+    if (ts.version_of_settings[3] == this_version[3] &&    // If the latest version
+        ts.version_of_settings[2] == this_version[2] &&
+        ts.version_of_settings[1] == this_version[1] &&
+        ts.version_of_settings[0] == this_version[0] ){
+      for(int i=0;i<(int)sizeof(config_t);i++){   //copy data to location passed in
+        *((unsigned char*)ls+i)=*((unsigned char*)ts_ptr+i);
+      }
+      Serial.println(", loaded");
+      return true;
+    }else{// settings are old version
+      Serial.printf(", not loaded, current version is %s\n", this_version);
+      return false;
+    }
+  }else{
+    Serial.println("Bad CRC, settings not loaded");
+    return false; 
+  }
+}
+
+boolean saveInEEPROM(struct config_t *pd){
+  int byteswritten=0;
+  uint8_t thecrc=0;
+  boolean errors=false;
+
+  unsigned int t;
+  for (t=0; t<(sizeof(config_t)-2); t++){ // writes to EEPROM
+    thecrc=_crc_ibutton_update(thecrc,*((unsigned char*)pd + t) );
+    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ){ //only if changed
+      EEPROM.write(CONFIG_START + t, *((unsigned char*)pd + t));
+      // and verifies the data
+      if (EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t))
+      {
+        errors=true;//error writing (or reading) exit
+        break;
+      }else{
+        //Serial.print("EEPROM ");Serial.println(t);
+        byteswritten+=1;  //for debuggin
+      }
+    }
+  }
+  EEPROM.write(CONFIG_START + t, thecrc);   //write the crc to the end of the data
+  if (EEPROM.read(CONFIG_START + t) != thecrc)  //and check it
+    errors=true;
+  if(errors==true){
+    Serial.println(" error writing to EEPROM");
+  }else{
+    Serial.printf("%d bytes saved to EEPROM version %s \n", byteswritten, CONFIG_VERSION);  //note: only changed written
+  }
+  return errors;    
+}
+
+void printConfig_t(struct config_t *c){ //print some of the values for testing
+  Serial.printf("%llu", c->calibration_factor);
+  Serial.println(c->calibration_constant);
+  Serial.println(c->current_band);
+  Serial.println(c->LPFcoeff);
+  Serial.println(c->audio_volume);
+  Serial.println(c->AGC_mode);
+  Serial.println(c->pll_fmax);
+  Serial.println(c->omegaN);
+  Serial.println(c->zeta_help);
+  Serial.println(c->rate);
+}
 
 /*
   void set_freq_conv2(float32_t NCO_FREQ) {
@@ -10859,6 +10978,8 @@ void control_filter_f() {
     bands[current_band].FLoCut = -(int)(sam);
   }
 
+//  if(old_demod_mode != -99)
+  {
   switch (bands[current_band].mode)
   {
     case DEMOD_SAM_LSB:
@@ -10879,6 +11000,7 @@ void control_filter_f() {
       if (bands[current_band].FLoCut > -100) bands[current_band].FLoCut = -100;
       if (bands[current_band].FHiCut < 100) bands[current_band].FHiCut = 100;
       break;
+  }
   }
 }
 
