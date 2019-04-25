@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_04_14
+   (c) Frank DD4WH 2019_04_17
    
    "TEENSY CONVOLUTION SDR"
 
@@ -29,7 +29,7 @@
 
 
    HISTORY OF IMPLEMENTED FEATURES
-   - 12kHz to 30MHz Receive PLUS 76 - 108MHz: undersampling-by-3 with slightly reduced sensitivity
+   - 12kHz to 30MHz Receive PLUS 76 - 108MHz: undersampling-by-3 with slightly reduced sensitivity (-9dB)
    - I & Q - correction in software (manual correction or automatic correction)
    - efficient frequency translation without multiplication
    - efficient spectrum display using a 256 point FFT on the first 256 samples of every 4096 sample-cycle
@@ -38,7 +38,7 @@
    - implemented nine different AM demodulation algorithms for comparison (only two could stand the test and one algorithm was finally left in the implementation)
    - real SAM - synchronous AM demodulation with phase determination by atan2f implemented from the wdsp lib
    - Stereo-SAM and sideband-selected SAM
-   - sample rate from 48k to 192k and decimation-by-8 for efficient realtime calculations
+   - sample rate from 48k to 234k and decimation-by-8 for efficient realtime calculations
    - spectrum Zoom function 1x, 2x, 4x, 512x, 1024x, 2048x, 4096x --> 4096x zoom with sub-Hz resolution
    - Automatic gain control (high end algorithm by Warren Pratt, wdsp)
    - plays MP3 and M4A (iTunes files) from SD card with the awesome lib by Frank Bösing (his old MP3 lib, not the new one)
@@ -54,11 +54,10 @@
    - display mirror rejection check ("IQtest" in red box)
    - activated integrated codec 5-band graphic equalizer
    - added digital attenuator PE4306 bit-banging SPI control [0 -31dB attenuation possible]
-   - added backlight control for TFT in the menu --> problem with audio distortion and sometimes display becomes white . . .
+   - added backlight control for TFT in the menu 
    - added analog gain display (analog codec gain AND attenuation displayed)
    - fixed major bug associated with too small "string" variables for printing, leading to annoying audio clicks
-   - STEREO FM reception implemented, simultaneously switched WFM reception from 5x undersampling to 3x undersampling --> much more sensitivity (about 6dB plus!)
-     and disabled spectrum display in WFM STEREO mode, because the digital noise of the refresh of the spectrum display does seriously distort audio
+   - STEREO FM reception implemented and disabled spectrum display in WFM STEREO mode, because the digital noise of the refresh of the spectrum display does seriously distort audio
    - manual notch filter implemented [in the frequency domain: simply deletes bins before the iFFT]
    - bandwidth adjustment of manual notch filter implemented
    - graphical display of manual notch filters in the frequency domain
@@ -72,7 +71,6 @@
    - first test of a 110kHz lowpass filter in the WFM path for FM (stereo) reception on VHF --> does work properly but causes strange effects (button swaps) because of memory constraints when assigning the FIR instances
    - changed default to 512tap FFT in order to have enough memory for MP3 playing and other things
    - updated Arduino to version 1.8.5 and Teensyduino to version 1.40 and had to change some of the code
-   - repaired FM reception and FM stereo
    - implemented spectral noise reduction in the frequency domain by implementing another FFT-iFFT-overlap-add chain on the real audio output after the main filter
    - spectral weighting algorithm Kim et al. 2002 implemented[working!]
    - spectral weighting algorithm Romanin et al. 2009 / Schmitt et al. 2002 implemented (minimum statistics)[obsolete]
@@ -147,14 +145,24 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
-//#define HARDWARE_DO7JBH
+#define HARDWARE_DO7JBH
 
+/* only for debugging */
 //#define DEBUG
 
-// use faster log calculations
+/* this prints out the ADC and DAC levels when NOT in SAM mode */
+//#define USE_ADC_DAC_display
+
+/*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
+    recommendation: leave this uncommented */
+#define USE_W7PUA
+
+/*  use faster log calculations
+    recommendation: leave this uncommented */
 #define USE_LOG10FAST
 
-// use faster atan2f calculation
+/*  use faster atan2f calculation
+    recommendation: leave this uncommented */
 #define USE_ATAN2FAST
 
 
@@ -195,9 +203,6 @@ time_t getTeensy3Time()
 #endif
 
 #define Si_5351_clock  SI5351_CLK2
-
-// flag to indicate to use the changes introduced by Bob Larkin, W7PUA
-#define USE_W7PUA
 
 // Europe uses 9 kHz AM spacing, N.A. uses 10 (AM_SPACING_EU==0).  Others???  <PUA>
 #define AM_SPACING_EU  1
@@ -2531,9 +2536,9 @@ void loop() {
       Get samples from queue buffers
    **********************************************************************************/
   // we have to ensure that we have enough audio samples: we need
-  // N_BLOCKS = 32
+  // N_BLOCKS = 16
   // decimate by 8
-  // FFT1024 point --> = 1024 / 2 / 128 = 4
+  // FFT512 point --> = 512 / 2 / 128 = 2
   // when these buffers are available, read them in, decimate and perform
   // the FFT - cmplx-mult - iFFT
   //
@@ -2541,7 +2546,7 @@ void loop() {
   // WIDE FM BROADCAST RECEPTION
   if (bands[current_band].mode == DEMOD_WFM)
   {
-    if (Q_in_L.available() > 12 && Q_in_R.available() > 12 && Menu_pointer != MENU_PLAYER)
+    if (Q_in_L.available() > 6 && Q_in_R.available() > 6 && Menu_pointer != MENU_PLAYER)
     {
       // get audio samples from the audio  buffers and convert them to float
       for (i = 0; i < WFM_BLOCKS; i++)
@@ -4753,7 +4758,7 @@ void loop() {
       arm_scale_f32(float_buffer_L, DF, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
       arm_scale_f32(float_buffer_R, DF, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
 
-#ifdef USE_W7PUA
+#ifdef USE_ADC_DAC_display
 /**********************************************************************
           CONVERT TO INTEGER AND PLAY AUDIO
  **********************************************************************/
@@ -4794,6 +4799,7 @@ void loop() {
         displayLevel(adcMaxLevel, dacMaxLevel);
         barGraphUpdate = 0;
       }
+      
 // *******************************************************************
 
 
@@ -7567,11 +7573,12 @@ void buttons() {
       pausetrack();
     }
     else
-    { int last_band = current_band;
+    { 
+      AudioNoInterrupts();
+      int last_band = current_band;
       current_band++;
       if (current_band > LAST_BAND) current_band = FIRST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
-      AudioNoInterrupts();
       sgtl5000_1.dacVolume(0.0);
       //setup_mode(bands[current_band].mode);
       freq_flag[1] = 0;
@@ -7646,7 +7653,7 @@ void buttons() {
         }
       }
 
-#ifdef USE_W7PUA
+#ifdef USE_ADC_DAC_display
       if (bands[current_band].mode == DEMOD_SAM  ||  bands[current_band].mode == DEMOD_SAM_STEREO)
          //Serial.println(" ");
          tft.fillRect(0, YTOP_LEVEL_DISP, 200, 13, ILI9341_BLACK);
