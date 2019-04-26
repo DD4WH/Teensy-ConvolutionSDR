@@ -88,9 +88,10 @@
    - experimental new sample rates up to 353ksps . . . https://forum.pjrc.com/threads/42336-Reset-audio-board-codec-SGTL5000-in-realtime-processing/page3?highlight=sample+rate
    - add possibility to use PCB hardware by DO7JBH https://github.com/do7jbh/SSR-2
    - bugfix array out-of-bound, thanks bicycleguy for pointing me to this bug!
-   - atan2f approximation: https://www.mikrocontroller.net/topic/atan2-funktion-mit-lookup-table-fuer-arm
+   - atan2f approximation: https://www.mikrocontroller.net/topic/atan2-funktion-mit-lookup-table-fuer-arm --> thanks Frank B for the hint !
    - bugfix band vs. bands --> cleanup and changed int band to int current_band
    - integrated automatic crc check on eePROM load and save (by Mike / bicycleguy, thanks!) - no more need to uncomment/comment during first time use of the software
+   -  
    
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -150,8 +151,12 @@
 /* only for debugging */
 //#define DEBUG
 
-/* this prints out the ADC and DAC levels when NOT in SAM mode */
+/* this prints out the ADC and DAC levels when NOT in SAM mode, primarily for debugging hardware */
 //#define USE_ADC_DAC_display
+
+
+/* this enables the Octave filter designed by Bob Larkin, W7PUA */
+#define USE_BOBS_FILTER
 
 /*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
     recommendation: leave this uncommented */
@@ -248,7 +253,6 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MIS
 #define   BUTTON_3_PIN      30 // ???
 #define   BUTTON_4_PIN      36 //
 #define   BUTTON_5_PIN      38 // this is the pushbutton pin of the tune encoder
-//#define   BUTTON_6_PIN       0 // this is the pushbutton pin of the filter encoder
 #define   BUTTON_6_PIN      8 // this is the pushbutton pin of the filter encoder
 #define   BUTTON_7_PIN      39 // this is the menu button pin
 #define   BUTTON_8_PIN      33  //27 // this is the pushbutton pin of encoder 3
@@ -326,6 +330,9 @@ const uint8_t Band4 = 29; // 29: > 5.4MHz
 const uint8_t Band5 = 26; // LW
 #endif
 
+#ifdef USE_BOBS_FILTER
+const uint8_t Band_3M5_7M3 =    31;
+#endif
 
 // this audio comes from the codec by I2S2
 AudioInputI2S            i2s_in;
@@ -548,6 +555,8 @@ struct band {
   int RFgain;
   uint8_t band_type;
   float32_t gainCorrection; // is hardware dependent and has to be calibrated ONCE and hardcoded in the table below
+  int AGC_thresh;
+  int16_t pixel_offset;
 };
 // For use in structure band
 #define BROADCAST_BAND 0
@@ -556,28 +565,28 @@ struct band {
 #define WFM_BAND 3
 
 struct band bands[NUM_BANDS] = {
-     7750000,    1200000,   14000000, "VLF", DEMOD_SAM, 3600, -3600, 0, MISC_BAND,      6.0,
-    22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,
-   100000000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,
-   185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,
-   370000000,  350000000,  380000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,
-   399500000,  390000000,  400000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,
-   485000000,  475000000,  510000000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,
-   607000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,
-   710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,
-   735000000,  720000000,  745000000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,
-   960000000,  940000000,  990000000, "31M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,
-  1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       4.0,
-  1180000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,
-  1367000000, 1357000000, 1387000000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, 7.0,
-  1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       7.0,
-  1514500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,
-  1770000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,
-  1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,
-  2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,
-  2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,
-  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,
-  3500800000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0
+     7750000,    1200000,   14000000, "VLF", DEMOD_SAM, 3600, -3600, 0, MISC_BAND,      6.0,     30,    2, 
+    22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,     30,    2,
+   100000000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,     30,    2,
+   185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,     30,    2,
+   370000000,  350000000,  380000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,     30,    2,
+   399500000,  390000000,  400000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
+   485000000,  475000000,  510000000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
+   607000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,     30,    2,
+   710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,     30,    2,
+   735000000,  720000000,  745000000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,     30,    2,
+   960000000,  940000000,  990000000, "31M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,     30,    2,
+  1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       4.0,     30,    2,
+  1180000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,     30,    2,
+  1367000000, 1357000000, 1387000000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, 7.0,     30,    2,
+  1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       7.0,     30,    2,
+  1514500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,     30,    2,
+  1770000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,     30,    2,
+  1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
+  2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
+  2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
+  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
+  3500800000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    2
 };
 
 // 
@@ -749,7 +758,7 @@ const uint8_t WFM_BLOCKS = 6;
 // tau = 50µsec in Europe --> alpha = 0.099
 // tau = 75µsec in the US -->
 //
-float32_t dt = 1.0 / 192000.0;
+float32_t dt = 1.0 / 234000.0;
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
 //float32_t deemp_alpha = 0.099;
@@ -1395,7 +1404,7 @@ struct dispSc displayScale[] =
   }; 
 
 float32_t offsetDisplayDB = 0.0;
-int16_t offsetPixels = 0;
+//int16_t offsetPixels = 0;
 
 #define YTOP_LEVEL_DISP 73
 // ADC Bar on left, DAC bar on right
@@ -2160,8 +2169,36 @@ void setup() {
   pinMode(ATT_CLOCK, OUTPUT);
   pinMode(ATT_DATA, OUTPUT);
 #endif
+
+#ifdef USE_BOBS_FILTER
+  pinMode(Band_3M5_7M3, OUTPUT);
+#endif
+
+// *******  Init latching relays <PUA>   ********
+/*  digitalWrite (Band1, HIGH); digitalWrite (Band2, HIGH); digitalWrite (Band3, HIGH);
+  digitalWrite (Band4, HIGH); digitalWrite (Band5, HIGH);
+  delay(2000);
+  digitalWrite (Band1, LOW); digitalWrite (Band2, LOW); digitalWrite (Band3, LOW);
+  digitalWrite (Band4, LOW); digitalWrite (Band5, LOW);
+  delay(100);
+  // For latching relays, this leaves all "bypass" in place. Will be set by set_freq()
+*/
+
+#ifdef USE_BOBS_FILTER
+// *******  Init latching relays <PUA>   ********
+  digitalWrite (Band_3M5_7M3, HIGH);
+  delay(2000);
+  digitalWrite (Band_3M5_7M3, LOW);
+//  delay(2000);
+//  digitalWrite (Band_3M5_7M3, HIGH);
+  delay(100);
+  // HIGH == enabled, LOW == bypass
+  // For latching relays, this leaves all "bypass" in place. Will be set by set_freq()
+#endif
+      
   //  pinMode(AUDIO_AMP_ENABLE, OUTPUT);
   //  digitalWrite(AUDIO_AMP_ENABLE, HIGH);
+
 
   tft.begin();
   tft.setRotation( 3 );
@@ -2501,7 +2538,7 @@ void setup() {
 
 #ifdef USE_W7PUA
     showSpectrumCorners();
-    offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+//    offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
 #endif
 
   /****************************************************************************************
@@ -5102,7 +5139,8 @@ void AGC_prep()
     agc_switch_mode = 0;
   }
   tau_decay = (float32_t)agc_decay / 1000.0;
-  max_gain = powf (10.0, (float32_t)agc_thresh / 20.0);
+//  max_gain = powf (10.0, (float32_t)agc_thresh / 20.0);
+  max_gain = powf (10.0, (float32_t)bands[current_band].AGC_thresh / 20.0);
 
   attack_buffsize = (int)ceil(sample_rate * n_tau * tau_attack);
   //Serial.println(attack_buffsize);
@@ -6019,9 +6057,11 @@ void Zoom_FFT_exe (uint32_t blockSize)
     {
       // pixelnew[x] = DISPLAY_OFFSET_PIXELS + (int16_t)(spectrum_display_scale*10.0*log10f(FFT_spec[x])); <PUA>
 #ifdef USE_LOG10FAST
-      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+//      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+      pixelnew[x] = bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
 #else
-      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+//      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+      pixelnew[x] = bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
 #endif
       if(pixelnew[x] > 220)   pixelnew[x]=220;
     }
@@ -6167,10 +6207,13 @@ static unsigned long long  fr=277000000ULL;   // in 1/100 Hz
      {
        FFT_spec_old[x] = FFT_spec[x];    //<< ANYBODY NEED?
 #ifdef USE_LOG10FAST
-       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+//       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+       pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
 #else
-       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+//       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+       pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
 #endif
+
        // Here -6 is about the bottom of the display and +74 is the top.  It can go 10 higher and still display.
        if (pixelnew[x] < -6)
           pixelnew[x] = -6;
@@ -6251,10 +6294,13 @@ void calc_256_magn()
 //    spec_help = 10.0 * log10f(spec_help + 1.0);
 //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
 #ifdef USE_LOG10FAST
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+//    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
 #else
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+//    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
 #endif
+
   }
 } // end calc_256_magn
 #endif
@@ -7424,6 +7470,10 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
 } // END VOID SHOW-FREQUENCY
 
 void setfreq () {
+// Changes to freq  18 March 2018  W7PUA <<<<<<
+  static int16_t lastFilter;
+  static int16_t currentFilter;  
+  
   // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
   //   hilfsf = (bands[current_band].freq +  IF_FREQ) * 10000000 * MASTER_CLK_MULT * SI5351_FREQ_MULT;
   hilfsf = (bands[current_band].freq +  IF_FREQ * SI5351_FREQ_MULT) * 1000000000 * MASTER_CLK_MULT; // SI5351_FREQ_MULT is 100ULL;
@@ -7445,6 +7495,98 @@ void setfreq () {
 // 1    1     11MHz   29MHz
 //***************************************************************************
 
+// this switches the four DO7JBH filters
+
+   if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 160000000)  { 
+//     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);  
+      digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);  
+      Serial.println("< 1.6MHz filter");
+     } // end if
+   if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 160000000) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 416000000)) {
+      digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);  
+      Serial.println("< 4.16MHz filter");
+     } // end if
+   if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 416000000) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 1100000000)) {
+      digitalWrite (Band1, LOW); digitalWrite (Band2, HIGH);  
+      Serial.println("< 11MHz filter");
+     } // end if
+   if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 1100000000) { 
+      digitalWrite (Band1, HIGH); digitalWrite (Band2, HIGH);  
+      Serial.println(" > 11MHz filter");
+    } // end if   
+   // for wideband FM reception, temporarily short-circuited filter for < 1600kHz in hardware by DO7JBH
+   if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 3000000000) { 
+      digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
+      Serial.println(" UKW filter");
+    } // end if
+
+#ifdef USE_BOBS_FILTER
+
+   if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 160000000)  { 
+        currentFilter = 1; 
+     } // end if
+   else if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 350000000)) {
+        currentFilter = 2; 
+     } // end if
+   else if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 730000000)) {
+        currentFilter = 3; 
+     } // end if
+   else if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 1500000000)) {
+        currentFilter = 4; 
+     } // end if
+   else if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 3000000000) { 
+        currentFilter = 5; 
+    } // end if   
+   // for wideband FM reception, temporarily short-circuited filter for < 1600kHz in hardware by DO7JBH
+   else if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 3000000000) { 
+        currentFilter = 6; 
+    } // end if  
+   else 
+        currentFilter = 99; 
+
+  Serial.print("LastFilter = "); Serial.println(lastFilter);
+  Serial.print("CurrentFilter = "); Serial.println(currentFilter);
+
+  if(currentFilter == lastFilter)
+     return;
+  lastFilter = currentFilter;
+          
+  if (currentFilter == 1) // < 1.6 MHz
+      {
+          digitalWrite (Band_3M5_7M3, LOW);
+          Serial.println("3.5MHz filter OFF");
+      }
+  else if (currentFilter == 2) // < 3.5 MHz
+      {
+          digitalWrite (Band_3M5_7M3, LOW);
+          Serial.println("3.5MHz filter OFF");
+      }
+  else if (currentFilter == 3) // < 7.3 MHz
+      {
+          digitalWrite (Band_3M5_7M3, HIGH); 
+          Serial.println("3.5MHz filter ON");
+      }
+  else if (currentFilter == 4) // < 11 MHz
+      {
+          digitalWrite (Band_3M5_7M3, LOW);
+          Serial.println("3.5MHz filter OFF");
+      }
+  else if (currentFilter == 5) // < 30 MHz
+      {
+          digitalWrite (Band_3M5_7M3, LOW);  
+          Serial.println("3.5MHz filter OFF");
+      }
+  else if (currentFilter == 6) // > 30 MHz
+      {
+          digitalWrite (Band_3M5_7M3, LOW);
+          Serial.println("3.5MHz filter OFF");
+      }
+  // Bypass all relays (no RF filtering)
+  else
+      {
+      }
+
+#else
    if ((bands[current_band].freq + IF_FREQ) < 1600000)  { 
 //     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);  
       digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);  
@@ -7461,7 +7603,8 @@ void setfreq () {
    // for wideband FM reception, temporarily short-circuited filter for < 1600kHz in hardware by DO7JBH
    if ((bands[current_band].freq + IF_FREQ) > 30000000) { 
       digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
-    } // end if   
+    } // end if  
+#endif
 
 #else
   // LPF switching follows here
@@ -8194,7 +8337,7 @@ void show_menu()
         }
         break;
       case MENU_AGC_THRESH:
-        sprintf(menu_string, "%3d", agc_thresh);
+        sprintf(menu_string, "%3d", bands[current_band].AGC_thresh);
         tft.print(menu_string);
         break;
       case MENU_AGC_DECAY:
@@ -8928,7 +9071,8 @@ void encoders () {
          offsetDisplayDB=100.0;
       else if (offsetDisplayDB < 0.0)
          offsetDisplayDB=0;
-      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+//      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+      bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
       showSpectrumCorners();
      }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
@@ -8940,7 +9084,8 @@ void encoders () {
       else if (currentScale < 0)
          currentScale=0;
 //////
-      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+//      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+      bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
 ///////
          
       showSpectrumCorners();
@@ -9138,9 +9283,9 @@ void encoders () {
     }
     else if (Menu2 == MENU_AGC_THRESH)
     {
-      agc_thresh = agc_thresh + encoder3_change / 4.0;
-      if (agc_thresh < -20) agc_thresh = -20;
-      else if (agc_thresh > 120) agc_thresh = 120;
+      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change / 4.0;
+      if (bands[current_band].AGC_thresh < -20) bands[current_band].AGC_thresh = -20;
+      else if (bands[current_band].AGC_thresh > 120) bands[current_band].AGC_thresh = 120;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_DECAY)
