@@ -147,7 +147,7 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
-//#define HARDWARE_DO7JBH
+#define HARDWARE_DO7JBH
 
 /* only for debugging */
 //#define DEBUG
