@@ -172,6 +172,11 @@
     recommendation: leave this uncommented */
 #define USE_ATAN2FAST
 
+/*  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  */
+extern "C"
+{
+  void sincosf(float err, float *s, float *c);
+}
 
 #include <Audio.h>
 #include <Time.h>
@@ -4044,9 +4049,9 @@ void loop() {
 
         for (int i = 0; i < FFT_length / 2; i++)
         {
-          //sincosf(phzerror,&Sin,&Cos);
-          Sin = sinf(phzerror);
-          Cos = cosf(phzerror);
+          sincosf(phzerror,&Sin,&Cos);
+          //Sin = sinf(phzerror);
+          //Cos = cosf(phzerror);
           ai = Cos * iFFT_buffer[FFT_length + i * 2];
           bi = Sin * iFFT_buffer[FFT_length + i * 2];
           aq = Cos * iFFT_buffer[FFT_length + i * 2 + 1];
