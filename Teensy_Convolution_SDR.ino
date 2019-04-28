@@ -303,8 +303,6 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MIS
 
 #endif
 
-
-
 Bounce button1 = Bounce(BUTTON_1_PIN, 50); //
 Bounce button2 = Bounce(BUTTON_2_PIN, 50); //
 Bounce button3 = Bounce(BUTTON_3_PIN, 50);//
@@ -313,8 +311,6 @@ Bounce button5 = Bounce(BUTTON_5_PIN, 50); //
 Bounce button6 = Bounce(BUTTON_6_PIN, 50); //
 Bounce button7 = Bounce(BUTTON_7_PIN, 50); //
 Bounce button8 = Bounce(BUTTON_8_PIN, 50); //
-
-//void sincosf(float err, float *s, float *c); // not clear to me why we have to insert this here . . . however without this it will produce an error message
 
 Metro five_sec = Metro(2000); // Set up a Metro
 Metro ms_500 = Metro(500); // Set up a Metro
@@ -1308,8 +1304,8 @@ uint8_t agc_switch_mode = 0;
 
 // new synchronous AM PLL & PHASE detector
 // wdsp Warren Pratt, 2016
-float32_t Sin = 0.0;
-float32_t Cos = 0.0;
+//float32_t Sin = 0.0;
+//float32_t Cos = 0.0;
 float32_t pll_fmax = +4000.0;
 int zeta_help = 65;
 float32_t zeta = (float32_t)zeta_help / 100.0; // PLL step response: smaller, slower response 1.0 - 0.1
@@ -4049,6 +4045,7 @@ void loop() {
 
         for (int i = 0; i < FFT_length / 2; i++)
         {
+          float32_t Sin, Cos;
           sincosf(phzerror,&Sin,&Cos);
           //Sin = sinf(phzerror);
           //Cos = cosf(phzerror);
