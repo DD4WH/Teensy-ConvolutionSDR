@@ -613,7 +613,7 @@ struct band {
   unsigned long long freq;      // Current frequency in Hz * 100
   unsigned long long fBandLow;  // Lower band edge
   unsigned long long fBandHigh; // Upper band edge
-  String name; // name of band
+  const char* name; // name of band
   int mode;
   int FHiCut;
   int FLoCut;
@@ -680,7 +680,7 @@ struct band bands[NUM_BANDS] = {
 #define STARTUP_BAND BAND_MW    // 
 struct band {
   unsigned long long freq; // frequency in Hz
-  String name; // name of band
+  const char* name; // name of band
   int mode;
   int FHiCut;
   int FLoCut;
@@ -1013,8 +1013,8 @@ const int BAND_INDICATOR_Y =        212;
 //const int MAX_PIXEL     240
 //uint8_t waterfall[40][255];
 
-int16_t pos_x_smeter = 11; //5
-int16_t pos_y_smeter = (spectrum_y - 12); //94
+const int pos_x_smeter = 11; //5
+int pos_y_smeter = (spectrum_y - 12); //94
 int16_t s_w = 10;
 uint8_t freq_flag[2] = {0, 0};
 uint8_t digits_old [2][10] =
@@ -1090,7 +1090,7 @@ uint8_t dbm_state = 0;
 #define last_tunehelp 3
 uint8_t tune_stepper = 0;
 int tunestep = 5000; //TUNE_STEP1;
-String tune_text = "Fast Tune";
+const char* tune_text = "Fast Tune";
 uint8_t autotune_flag = 0;
 int old_demod_mode = -99;
 
