@@ -2653,7 +2653,6 @@ void setup() {
 
 
   Serial.print("decimation stage 1: no of taps: "); Serial.println(n_dec1_taps);
-
   Serial.print("decimation stage 2: no of taps: "); Serial.println(n_dec2_taps);
   Serial.print("fstop2: "); Serial.println(n_fstop2);
   Serial.print("fpass2: "); Serial.println(n_fpass2);
@@ -2708,7 +2707,6 @@ void loop() {
   //  asm(" wfi"); // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
   elapsedMicros usec = 0;
   static float32_t phaseLO = 0.0;
-  uint16_t xx;
   static uint16_t barGraphUpdate = 0;
   static uint16_t uB4, uAfter;
   static bool omitOutputFlag = false;
@@ -3628,14 +3626,6 @@ void loop() {
             {
               if (Q_sum / I_sum < 0) {
 #ifdef DEBUG
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
-                Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
                 Serial.println("ACHTUNG WURZEL AUS NEGATIVER ZAHL");
 #endif
                 K_est = K_est_old;
@@ -11352,16 +11342,15 @@ void SSB_AUTOTUNE_est(int n, float xr[], float xi[], float smpfrq,
   /* calculate 4-quadrant arctangent (-pi/2 to 3pi/2) */
   if (partr > 0.)
     angl = atanf(parti / partr);
-  if (partr == 0.)
+  else if (partr == 0.)
   {
     if (parti >= 0.)
       angl = 0.5 * pi;
     else
       angl = -0.5 * pi;
   }
-  if (partr < 0.)
-    angl = pi - atanf(-parti / partr);
-  *pshift = *ppitch * angl / (2.*pi);
+  else angl = pi - atanf(-parti / partr);
+  *pshift = *ppitch * angl / (2.0*pi);
 }
 
 
