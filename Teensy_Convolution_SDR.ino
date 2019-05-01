@@ -147,10 +147,10 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by FrankB uncomment the next line */
-#define HARDWARE_FRANKB
+//#define HARDWARE_FRANKB
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
-//#define HARDWARE_DO7JBH
+#define HARDWARE_DO7JBH
 
 /* only for debugging */
 //#define DEBUG
@@ -191,11 +191,11 @@ extern "C"
 #include <Audio.h>
 #include <Time.h>
 #include <TimeLib.h>
+#include <Bounce.h>
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
 #include <Metro.h>
-#include <Bounce.h>
 #include <arm_math.h>
 #include <arm_const_structs.h>
 #include <si5351.h>
@@ -320,6 +320,8 @@ Encoder encoder3  (15, 16); //(26, 28);
 #define TFT_TOUCH_CS    6
 #define LED_PIN         13
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+Bounce SDCard = Bounce(SDCARD_SENSE, 100);
 
 #else
 // Optical Encoder connections
@@ -2164,6 +2166,48 @@ void flexRamInfo(void)
 #endif
 }
 
+#if defined(HARDWARE_FRANKB)
+
+uint8_t i2cExtKeys = 255;
+uint8_t i2cExtKeysOLD = 255;
+uint8_t i2cExtKeysPoll = 0;
+
+void PCF8574isr() {
+  i2cExtKeysPoll = 1;
+}
+
+//Emulate Bounce for Buttons
+class tbutton {
+  public:
+    tbutton(int bitnum) {
+      bitmask = 1 << bitnum;
+    }
+
+    void update() {
+      if (i2cExtKeysPoll) {
+        Wire.requestFrom(PCF8574_ADR, 1);
+        if (Wire.available()) {
+          i2cExtKeys = Wire.read();
+          i2cExtKeysOLD |= i2cExtKeys;
+        }
+        i2cExtKeysPoll = 0;
+      }
+    };
+
+    bool fallingEdge() {
+      int r = i2cExtKeysOLD & bitmask & ~i2cExtKeys;
+      i2cExtKeysOLD = (i2cExtKeysOLD & ~bitmask) | (i2cExtKeys & bitmask);
+      return (r != 0);
+    };
+
+  private:
+    int bitmask;
+};
+
+tbutton button1(0), button2(1), button3(2), button4(3), button5(4), button6(5), button7(6), button8(7);
+
+#endif
+
 PROGMEM
 void setup() {
 #ifdef HARDWARE_DO7JBH
@@ -2172,7 +2216,6 @@ void setup() {
 #endif
 
   Serial.begin(115200);
-  delay(100);
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
@@ -2182,11 +2225,12 @@ void setup() {
   AudioMemory(170); // no MP3,but Zoom FFT works quite well
   //     AudioMemory(200); // is this overkill?
   //    AudioMemory(100);
-  delay(100);
 
   // get TIME from real time clock with 3V backup battery
   setSyncProvider(getTeensy3Time);
 
+  delay(200);
+  Serial.println(__FILE__ " " __DATE__ " " __TIME__);
   flexRamInfo();
 
 #if defined(MP3)
@@ -2195,7 +2239,6 @@ void setup() {
   {
     // print a message
     Serial.println("Unable to access the SD card");
-    delay(500);
   }
   //Starting to index the SD card for MP3/AAC.
   root = SD.open("/");
@@ -2277,7 +2320,10 @@ void setup() {
   Wire.beginTransmission(PCF8574_ADR);
   Wire.write(255); //Init port
   Wire.endTransmission();
+  pinMode(PCF8574_INT, INPUT_PULLUP);
+  attachInterrupt(PCF8574_INT, PCF8574isr, FALLING);
 #endif
+
 #if defined(BACKLIGHT_PIN)
   pinMode(BACKLIGHT_PIN, OUTPUT );
   //  analogWriteFrequency(BACKLIGHT_PIN, 234375); // change PWM speed in order to prevent disturbance in the audio path
@@ -2664,7 +2710,7 @@ void setup() {
   setAttenuator(RF_attenuation);
   si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
   setfreq();
-  delay(100);
+
   //show_frequency(bands[current_band].freq, 1);
 
   /****************************************************************************************
@@ -7798,19 +7844,6 @@ void setfreq () {
 
 } // end setfreq
 
-#if defined(HARDWARE_FRANKB)
-//emulate buttons
-class tbutton {
-  public:
-    void update() {};
-    bool fallingEdge() {
-      return false;
-    };
-};
-tbutton button1, button2, button3, button4, button5, button6, button7, button8;
-#endif
-
-
 void buttons() {
   button1.update(); // BAND --
   button2.update(); // BAND ++
@@ -9690,6 +9723,7 @@ void displayClock()
 
 #define clock_circle_size 21
 
+PROGMEM
 void Init_Display_Clock()
 {
   // Draw Clockface
@@ -9709,6 +9743,7 @@ void Init_Display_Clock()
   }
 }
 
+PROGMEM
 void clock_draw_marks(int hour)
 {
   float x1, y1, x2, y2;
@@ -11205,6 +11240,7 @@ void set_dec_int_filters()
   bin_BW = 1.0 / (DF * FFT_length) * (float32_t)SR[SAMPLE_RATE].rate;
 }
 
+PROGMEM
 void spectral_noise_reduction_init()
 {
   for (int bindx = 0; bindx < NR_FFT_L / 2; bindx++)
@@ -11350,7 +11386,7 @@ void SSB_AUTOTUNE_est(int n, float xr[], float xi[], float smpfrq,
       angl = -0.5 * pi;
   }
   else angl = pi - atanf(-parti / partr);
-  *pshift = *ppitch * angl / (2.0*pi);
+  *pshift = *ppitch * angl / (2.0 * pi);
 }
 
 
