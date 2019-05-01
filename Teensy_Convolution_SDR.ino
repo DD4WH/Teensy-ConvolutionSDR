@@ -212,7 +212,6 @@ extern "C"
 #include <SPIN.h>
 #include <ILI9341_t3n.h>
 #include <ili9341_t3n_font_Arial.h>
-extern void set_audioClock(int nfact, int32_t nmult, uint32_t ndiv);
 #else
 #include <EEPROM.h>
 #include <ILI9341_t3.h>
@@ -5888,16 +5887,39 @@ float32_t Izero (float32_t x)
 // set samplerate code by Frank Boesing
 void setI2SFreq(int freq) {
 #if defined(T4)
-  int fs = AUDIO_SAMPLE_RATE_EXACT;
   // PLL between 27*24 = 648MHz und 54*24=1296MHz
   int n1 = 4; //SAI prescaler 4 => (n1*n2) = multiple of 4
-  int n2 = 1 + (24000000 * 27) / (fs * 256 * n1);
+  int n2 = 1 + (24000000 * 27) / (freq * 256 * n1);
+  double C = ((double)freq * 256 * n1 * n2) / 24000000;
 
-  double C = ((double)fs * 256 * n1 * n2) / 24000000;
-  int c0 = C;
-  int c2 = 10000;
-  int c1 = C * c2 - (c0 * c2);
-  set_audioClock(c0, c1, c2);
+  int nfact = C;
+  int ndiv = 10000;
+  int nmult = C * ndiv - (nfact * ndiv);	
+
+  CCM_ANALOG_PLL_AUDIO = 0;
+  CCM_ANALOG_PLL_AUDIO |= CCM_ANALOG_PLL_AUDIO_ENABLE
+		       | CCM_ANALOG_PLL_AUDIO_POST_DIV_SELECT(2) // 2: 1/4; 1: 1/2; 0: 1/1
+		       | CCM_ANALOG_PLL_AUDIO_DIV_SELECT(nfact);
+
+  CCM_ANALOG_PLL_AUDIO_NUM   = nmult & CCM_ANALOG_PLL_AUDIO_NUM_MASK;
+  CCM_ANALOG_PLL_AUDIO_DENOM = ndiv & CCM_ANALOG_PLL_AUDIO_DENOM_MASK;
+  while (!(CCM_ANALOG_PLL_AUDIO & CCM_ANALOG_PLL_AUDIO_LOCK)) {}; //Wait for pll-lock
+
+  const int div_post_pll = 1; // other values: 2,4
+  CCM_ANALOG_MISC2 &= ~(CCM_ANALOG_MISC2_DIV_MSB | CCM_ANALOG_MISC2_DIV_LSB);
+  if(div_post_pll>1) CCM_ANALOG_MISC2 |= CCM_ANALOG_MISC2_DIV_LSB;
+  if(div_post_pll>3) CCM_ANALOG_MISC2 |= CCM_ANALOG_MISC2_DIV_MSB;
+	
+  CCM_CSCMR1 = (CCM_CSCMR1 & ~(CCM_CSCMR1_SAI1_CLK_SEL_MASK))
+	     | CCM_CSCMR1_SAI1_CLK_SEL(2); // &0x03 // (0,1,2): PLL3PFD0, PLL5, PLL4
+  CCM_CS1CDR = (CCM_CS1CDR & ~(CCM_CS1CDR_SAI1_CLK_PRED_MASK | CCM_CS1CDR_SAI1_CLK_PODF_MASK))
+             | CCM_CS1CDR_SAI1_CLK_PRED(n1-1) // &0x07
+             | CCM_CS1CDR_SAI1_CLK_PODF(n2-1); // &0x3f
+
+  IOMUXC_GPR_GPR1 = (IOMUXC_GPR_GPR1 & ~(IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL_MASK))
+		  | (IOMUXC_GPR_GPR1_SAI1_MCLK_DIR | IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL(0));	//Select MCLK
+			
+  //Serial.printf("n1:%d n2:%d C:%f c0:%d c1:%d c2:%d\n",  n1, n2, C, nfact, nmult, ndiv);
 #else	
   typedef struct {
     uint8_t mult;
@@ -5925,6 +5947,11 @@ void setI2SFreq(int freq) {
     }
   }
 #endif //Teensy4
+#if 1
+ Serial.print("Set Samplerate ");
+ Serial.print(freq / 1000);
+ Serial.println(" kHz");
+#endif
 } // end set_I2S
 
 void init_filter_mask()
