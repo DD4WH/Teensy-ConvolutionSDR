@@ -159,9 +159,8 @@
     recommendation: leave this commented */
 //#define USE_ADC_DAC_display
 
-/*  only for support of the hardware RF frontend filters designed by Bob Larkin, W7PUA
-    http://www.janbob.com/electron/FilterBP1/FiltBP1.html
-    adjust cutoff frequencies according to your needs in function setfreq */
+
+/* this enables the Octave filter designed by Bob Larkin, W7PUA */
 //#define USE_BOBS_FILTER
 
 /*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
@@ -179,49 +178,13 @@
 #define MP3 1
 
 #if defined(__IMXRT1062__)
-#define T4
+#define T4 1
 #endif
 
 /*  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  */
 extern "C"
 {
   void sincosf(float err, float *s, float *c);
-}
-
-#include <Audio.h>
-#include <Time.h>
-#include <TimeLib.h>
-#include <Wire.h>
-#include <SPI.h>
-#include <SD.h>
-#include <Metro.h>
-#include <Bounce.h>
-#include <arm_math.h>
-#include <arm_const_structs.h>
-#include <si5351.h>
-#include <Encoder.h>
-#if defined(MP3)
-#include <play_sd_mp3.h> //mp3 decoder by Frank B
-#include <play_sd_aac.h> // AAC decoder by Frank B
-#endif
-//#include "rtty.h"
-//#include "cw_decoder.h"
-#include <util/crc16.h> //mdrhere
-
-#if defined(T4)
-#include <SPIN.h>
-#include <ILI9341_t3n.h>
-#include <ili9341_t3n_font_Arial.h>
-#else
-#include <EEPROM.h>
-#include <ILI9341_t3.h>
-#include "font_Arial.h"
-#endif
-
-
-time_t getTeensy3Time()
-{
-  return Teensy3Clock.get();
 }
 
 // Settings for the hardware QSD
@@ -234,15 +197,51 @@ time_t getTeensy3Time()
 #define Si_5351_crystal 27000000
 #endif
 
-#define Si_5351_clock  SI5351_CLK2
+#define Si_5351_clock  SI5351_CLK1
+
+#include <Audio.h>
+#include <Time.h>
+#include <TimeLib.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <Metro.h>
+#include <arm_math.h>
+#include <arm_const_structs.h>
+#include <si5351.h>
+#include <Encoder.h>
+#include <Bounce.h>
+#if defined(MP3)
+#include <play_sd_mp3.h> //mp3 decoder by Frank B
+#include <play_sd_aac.h> // AAC decoder by Frank B
+#endif
+//#include "rtty.h"
+//#include "cw_decoder.h"
+#include <util/crc16.h> //mdrhere
+
+
+#if defined(T4)
+#include <SPIN.h>
+#include <ILI9341_t3n.h>
+#include <ili9341_t3n_font_Arial.h>
+#else
+#include <EEPROM.h>
+#include <ILI9341_t3.h>
+#include "font_Arial.h"
+#endif
+
+time_t getTeensy3Time()
+{
+  return Teensy3Clock.get();
+}
 
 // Europe uses 9 kHz AM spacing, N.A. uses 10 (AM_SPACING_EU==0).  Others???  <PUA>
 #define AM_SPACING_EU  1
 
 unsigned long long calibration_factor = 1000000000 ;// 10002285;
-long calibration_constant = 0;
+//long calibration_constant = 0;
 // this is for the Joris PCB !
-//long calibration_constant = 108000; // this is for the Elektor PCB !
+long calibration_constant = 108000; // this is for the Elektor PCB !
 unsigned long long hilfsf = 1000000000;
 
 #ifdef HARDWARE_DO7JBH
@@ -286,21 +285,21 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MIS
 
 const int8_t On_set    = 25; // hold switched on
 
-Bounce button1 = Bounce(BUTTON_1_PIN, 50);
-Bounce button2 = Bounce(BUTTON_2_PIN, 50);
-Bounce button3 = Bounce(BUTTON_3_PIN, 50);
-Bounce button4 = Bounce(BUTTON_4_PIN, 50);
-Bounce button5 = Bounce(BUTTON_5_PIN, 50);
-Bounce button6 = Bounce(BUTTON_6_PIN, 50);
-Bounce button7 = Bounce(BUTTON_7_PIN, 50);
-Bounce button8 = Bounce(BUTTON_8_PIN, 50);
+Bounce button1 = Bounce(BUTTON_1_PIN, 50); //
+Bounce button2 = Bounce(BUTTON_2_PIN, 50); //
+Bounce button3 = Bounce(BUTTON_3_PIN, 50);//
+Bounce button4 = Bounce(BUTTON_4_PIN, 50);//
+Bounce button5 = Bounce(BUTTON_5_PIN, 50); //
+Bounce button6 = Bounce(BUTTON_6_PIN, 50); //
+Bounce button7 = Bounce(BUTTON_7_PIN, 50); //
+Bounce button8 = Bounce(BUTTON_8_PIN, 50); //
 
 #elif defined(HARDWARE_FRANKB)
 Si5351 si5351;
 // Optical Encoder connections
-Encoder tune      (2, 3);
-Encoder filter    (1, 2);
-Encoder encoder3  (15, 16); //(26, 28);
+Encoder filter    (2, 3);
+Encoder tune      (4, 14);
+Encoder encoder3  (15, 16);
 #define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
 
 #define PCF8574_ADR     0x20
@@ -319,7 +318,30 @@ Encoder encoder3  (15, 16); //(26, 28);
 #define TFT_TOUCH_IRQ   5
 #define TFT_TOUCH_CS    6
 #define LED_PIN         13
+
+#define BACKLIGHT_PIN   255
+// push-buttons
+#define BUTTON_1_PIN	255
+#define BUTTON_2_PIN	255
+#define BUTTON_3_PIN	255
+#define BUTTON_4_PIN	255
+#define BUTTON_5_PIN	255
+#define BUTTON_6_PIN	255
+#define BUTTON_7_PIN	255
+#define BUTTON_8_PIN	255
+#define Band1		255
+#define Band2		255
+#define Band3		255
+#define Band4		255
+#define Band5		255
+#define ATT_LE		255
+#define ATT_CLOCK	255
+#define ATT_DATA	255
+
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+Bounce SDCard = Bounce(SDCARD_SENSE, 100);
+
 
 #else
 // Optical Encoder connections
@@ -356,17 +378,19 @@ ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MIS
 #define   BUTTON_7_PIN      37 // this is the menu button pin
 #define   BUTTON_8_PIN       8  //27 // this is the pushbutton pin of encoder 3
 
-Bounce button1 = Bounce(BUTTON_1_PIN, 50);
-Bounce button2 = Bounce(BUTTON_2_PIN, 50);
-Bounce button3 = Bounce(BUTTON_3_PIN, 50);
-Bounce button4 = Bounce(BUTTON_4_PIN, 50);
-Bounce button5 = Bounce(BUTTON_5_PIN, 50);
-Bounce button6 = Bounce(BUTTON_6_PIN, 50);
-Bounce button7 = Bounce(BUTTON_7_PIN, 50);
-Bounce button8 = Bounce(BUTTON_8_PIN, 50);
+Bounce button1 = Bounce(BUTTON_1_PIN, 50); //
+Bounce button2 = Bounce(BUTTON_2_PIN, 50); //
+Bounce button3 = Bounce(BUTTON_3_PIN, 50);//
+Bounce button4 = Bounce(BUTTON_4_PIN, 50);//
+Bounce button5 = Bounce(BUTTON_5_PIN, 50); //
+Bounce button6 = Bounce(BUTTON_6_PIN, 50); //
+Bounce button7 = Bounce(BUTTON_7_PIN, 50); //
+Bounce button8 = Bounce(BUTTON_8_PIN, 50); //
 
 #endif
 
+
+//void sincosf(float err, float *s, float *c); // not clear to me why we have to insert this here . . . however without this it will produce an error message
 
 Metro five_sec = Metro(2000); // Set up a Metro
 Metro ms_500 = Metro(500); // Set up a Metro
@@ -402,9 +426,9 @@ AudioRecordQueue         Q_in_R;
 #if defined(MP3)
 AudioPlaySdMp3           playMp3;
 AudioPlaySdAac           playAac;
-#endif
 AudioMixer4              mixleft;
 AudioMixer4              mixright;
+#endif
 AudioPlayQueue           Q_out_L;
 AudioPlayQueue           Q_out_R;
 AudioOutputI2S           i2s_out;
@@ -421,25 +445,24 @@ AudioConnection          patchCord21(queueTP, 0, dac1, 0);
 AudioConnection          patchCord1(i2s_in, 0, Q_in_L, 0);
 AudioConnection          patchCord2(i2s_in, 1, Q_in_R, 0);
 
-//AudioConnection          patchCord3(Q_out_L, 0, i2s_out, 1);
-//AudioConnection          patchCord4(Q_out_R, 0, i2s_out, 0);
+#if defined(MP3)
 AudioConnection          patchCord3(Q_out_L, 0, mixleft, 0);
 AudioConnection          patchCord4(Q_out_R, 0, mixright, 0);
-#if defined(MP3)
 AudioConnection          patchCord5(playMp3, 0, mixleft, 1);
 AudioConnection          patchCord6(playMp3, 1, mixright, 1);
 AudioConnection          patchCord7(playAac, 0, mixleft, 2);
 AudioConnection          patchCord8(playAac, 1, mixright, 2);
-#endif
 AudioConnection          patchCord9(mixleft, 0,  i2s_out, 1);
 AudioConnection          patchCord10(mixright, 0, i2s_out, 0);
+#else
+AudioConnection          patchCord3(Q_out_L, 0, i2s_out, 1);
+AudioConnection          patchCord4(Q_out_R, 0, i2s_out, 0);
+#endif
 
 AudioControlSGTL5000     sgtl5000_1;
 
 int idx_t = 0;
-//int idx = 0;
-int32_t sum;
-float32_t mean;
+
 int n_L;
 int n_R;
 long int n_clear;
@@ -499,7 +522,6 @@ int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
 #define SAMPLE_RATE_353K              16 // does not work !
 #define SAMPLE_RATE_MAX               15
 
-//uint8_t sr =                     SAMPLE_RATE_96K;
 uint8_t SAMPLE_RATE =            SAMPLE_RATE_100K;
 uint8_t LAST_SAMPLE_RATE =       SAMPLE_RATE_100K;
 
@@ -515,7 +537,6 @@ typedef struct SR_Descriptor
   const float32_t x_factor;
   const uint8_t x_offset;
 } SR_Desc;
-
 
 const SR_Descriptor SR [17] =
 { // x_factor, x_offset and f1 to f4 are NOT USED ANYMORE !!!
@@ -676,19 +697,18 @@ struct band bands[NUM_BANDS] = {
 
 #define FIRST_BAND BAND_LW
 #define LAST_BAND  BAND_13M
-#define NUM_BANDS  16
 #define STARTUP_BAND BAND_MW    // 
 struct band {
   unsigned long long freq; // frequency in Hz
-  const char* name; // name of band
+  String name; // name of band
   int mode;
   int FHiCut;
   int FLoCut;
   int RFgain;
 };
 // f, band, mode, bandwidth, RFgain
-struct band bands[NUM_BANDS] = {
-  //  7750000 ,"VLF", DEMOD_AM, 3600,3600,0,
+struct band bands[] = {
+  7750000 , "VLF", DEMOD_SAM, 3600, 3600, 0,
   22500000, "LW", DEMOD_SAM, 3600, -3600, 0,
   63900000, "MW",  DEMOD_SAM, 3600, -3600, 0,
   248500000, "120M",  DEMOD_SAM, 3600, -3600, 0,
@@ -706,7 +726,7 @@ struct band bands[NUM_BANDS] = {
   2145000000, "13M", DEMOD_SAM, 3600, -3600, 6,
   2567000000, "11M", DEMOD_SAM, 3600, -3600, 6
 };
-
+#define NUM_BANDS  ( sizeof(bands)/sizeof(bands[0]) )
 #endif
 
 int current_band = STARTUP_BAND;
@@ -823,7 +843,7 @@ const uint8_t WFM_BLOCKS = 6;
 // tau = 50µsec in Europe --> alpha = 0.099
 // tau = 75µsec in the US -->
 //
-float32_t dt = 1.0 / 234000.0;
+float32_t dt = 1.0 / 234375.0;
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
 //float32_t deemp_alpha = 0.099;
@@ -854,7 +874,7 @@ const uint32_t N_DEC_B = N_B / (uint32_t)DF;
 float32_t float_buffer_L [BUFFER_SIZE * N_B];
 float32_t float_buffer_R [BUFFER_SIZE * N_B];
 
-float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
+float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) = {0};
 float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B];
 float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B];
 uint8_t flagg = 0;
@@ -889,45 +909,45 @@ arm_fir_instance_f32 FIR_WFM_Q;
 float32_t FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1];
 
 
-/*const float32_t FIR_WFM_Coef[] =
+/*float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 110kHz, Kaiser beta 3.8, 24 taps, transition width 0.1
   0.004625798840274968, 0.003688870813408950,-0.013875557717045652,-0.012934044118920221, 0.012800134495445288,-0.012180950672587090,-0.036852238612996767, 0.037399877886350741, 0.022300481142125423,-0.120157367503476248, 0.057767190665062668, 0.512110566632996034, 0.512110566632996034, 0.057767190665062668,-0.120157367503476248, 0.022300481142125423, 0.037399877886350741,-0.036852238612996767,-0.012180950672587090, 0.012800134495445288,-0.012934044118920221,-0.013875557717045652, 0.003688870813408950, 0.004625798840274968
   };*/
-/*const float32_t FIR_WFM_Coef_Q[] =
+/*float32_t FIR_WFM_Coef_Q[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 110kHz, Kaiser beta 3.8, 24 taps, transition width 0.1
   0.004625798840274968, 0.003688870813408950,-0.013875557717045652,-0.012934044118920221, 0.012800134495445288,-0.012180950672587090,-0.036852238612996767, 0.037399877886350741, 0.022300481142125423,-0.120157367503476248, 0.057767190665062668, 0.512110566632996034, 0.512110566632996034, 0.057767190665062668,-0.120157367503476248, 0.022300481142125423, 0.037399877886350741,-0.036852238612996767,-0.012180950672587090, 0.012800134495445288,-0.012934044118920221,-0.013875557717045652, 0.003688870813408950, 0.004625798840274968
   };*/
 /*
-  const float32_t FIR_WFM_Coef[] =
+  float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 50kHz, Kaiser beta 3.8, 24 taps, transition width 0.1
   -181.6381870078256780E-6, 0.004975451565742671, 0.011653821670876443, 0.017479667256298442, 0.012647025837995754,-0.008440017290804718,-0.036310877512063008,-0.044440114225935128,-0.004516440266678295, 0.088328595562111187, 0.201661521326793242, 0.279840753414532517, 0.279840753414532517, 0.201661521326793242, 0.088328595562111187,-0.004516440266678295,-0.044440114225935128,-0.036310877512063008,-0.008440017290804718, 0.012647025837995754, 0.017479667256298442, 0.011653821670876443, 0.004975451565742671,-181.6381870078256780E-6
   };
 */
-/* const float32_t FIR_WFM_Coef[] =
+/*float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 100kHz, Kaiser beta 5.6, 24 taps, transition width 0.1
   -591.1041711221489550E-6, -0.005129034097065280, -0.005799289015478366, 0.006642848237559112, 0.007498237818598354, -0.019653624598637193, -0.005803653295842078, 0.047380624795600332, -0.012275157191465273, -0.105901764377712204, 0.101477147249252955, 0.485358617041706242, 0.485358617041706242, 0.101477147249252955, -0.105901764377712204, -0.012275157191465273, 0.047380624795600332, -0.005803653295842078, -0.019653624598637193, 0.007498237818598354, 0.006642848237559112, -0.005799289015478366, -0.005129034097065280, -591.1041711221489550E-6
   };
 */
 /*// läuft !
-  const float32_t FIR_WFM_Coef[] =
+  float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 50kHz, Kaiser beta 4.4, 36 taps, transition width 0.1
   592.5825463002674950E-6, 0.001320848265533199, 0.001790946732298105, 655.4821700000750300E-6,-0.002699678833953366,-0.006572566177789689,-0.006914035555941112,-392.0989712319586720E-6, 0.010906809316195571, 0.017765225520549485, 0.009201337532541980,-0.016701709482744322,-0.044809056787863510,-0.047124157952014738,-430.8639980401008530E-6, 0.093472653544572140, 0.201191877174437983, 0.273200564206967700, 0.273200564206967700, 0.201191877174437983, 0.093472653544572140,-430.8639980401008530E-6,-0.047124157952014738,-0.044809056787863510,-0.016701709482744322, 0.009201337532541980, 0.017765225520549485, 0.010906809316195571,-392.0989712319586720E-6,-0.006914035555941112,-0.006572566177789689,-0.002699678833953366, 655.4821700000750300E-6, 0.001790946732298105, 0.001320848265533199, 592.5825463002674950E-6
   };
 */
 /*// läuft !
-  const float32_t FIR_WFM_Coef[] =
+  float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 80.01kHz, Kaiser beta 4.4, 36 taps, transition width 0.1
   -356.2239703155325400E-6, 428.8159583493475110E-6, 0.002768313624795094, 0.003935981937959658,-229.4460384396558650E-6,-0.005676569602896231,-0.001415582278380387, 0.010263042330857489, 0.007877742946416445,-0.014222913476341907,-0.020791118995262630, 0.014235320171826216, 0.042979252785258985,-0.003477333822901606,-0.081033679869946321,-0.037594629553007936, 0.182167448027930057, 0.405225811603383557, 0.405225811603383557, 0.182167448027930057,-0.037594629553007936,-0.081033679869946321,-0.003477333822901606, 0.042979252785258985, 0.014235320171826216,-0.020791118995262630,-0.014222913476341907, 0.007877742946416445, 0.010263042330857489,-0.001415582278380387,-0.005676569602896231,-229.4460384396558650E-6, 0.003935981937959658, 0.002768313624795094, 428.8159583493475110E-6,-356.2239703155325400E-6
   };*/
 
 // läuft !
-const float32_t FIR_WFM_Coef[] =
+float32_t FIR_WFM_Coef[] =
 { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 120kHz, Kaiser beta 4.4, 36 taps, transition width 0.1
   624.6850061499508230E-6, 0.002708497910576767, 463.7277605032298310E-6, -0.002993671768455668, 0.002974399474225367, 0.001851944115674062, -0.008023223272215739, 0.006351672953904165, 0.006981175200321031, -0.019534687805473273, 0.010792340741888977, 0.021004722459631749, -0.043391183038594551, 0.015053012768562642, 0.061299026906325028, -0.111919636212113038, 0.017679746690378837, 0.540918306257059944, 0.540918306257059944, 0.017679746690378837, -0.111919636212113038, 0.061299026906325028, 0.015053012768562642, -0.043391183038594551, 0.021004722459631749, 0.010792340741888977, -0.019534687805473273, 0.006981175200321031, 0.006351672953904165, -0.008023223272215739, 0.001851944115674062, 0.002974399474225367, -0.002993671768455668, 463.7277605032298310E-6, 0.002708497910576767, 624.6850061499508230E-6
@@ -1014,8 +1034,8 @@ const int BAND_INDICATOR_Y =        212;
 //uint8_t waterfall[40][255];
 
 const int pos_x_smeter = 11; //5
-int pos_y_smeter = (spectrum_y - 12); //94
-int16_t s_w = 10;
+const int pos_y_smeter = (spectrum_y - 12); //94
+const int s_w = 10;
 uint8_t freq_flag[2] = {0, 0};
 uint8_t digits_old [2][10] =
 { {9, 9, 9, 9, 9, 9, 9, 9, 9, 9},
@@ -1058,9 +1078,9 @@ float32_t m_DecayAvedbmhz = -103.0;
 float32_t m_AverageMagdbmhz = -103.0;
 
 #ifdef HARDWARE_DO7JBH
-float32_t dbm_calibration = 3.0; //
+const float32_t dbm_calibration = 3.0; //
 #else
-float32_t dbm_calibration = 22.0; //
+const float32_t dbm_calibration = 22.0; //
 #endif
 
 // ALPHA = 1 - e^(-T/Tau), T = 0.02s (because dbm routine is called every 20ms!)
@@ -1090,12 +1110,10 @@ uint8_t dbm_state = 0;
 #define last_tunehelp 3
 uint8_t tune_stepper = 0;
 int tunestep = 5000; //TUNE_STEP1;
-const char* tune_text = "Fast Tune";
+String tune_text = "Fast Tune";
 uint8_t autotune_flag = 0;
 int old_demod_mode = -99;
 
-int8_t first_block = 1;
-//uint32_t i = 0;
 int32_t FFT_shift = 2048; // which means 1024 bins!
 
 // used for AM demodulation
@@ -1109,6 +1127,7 @@ typedef struct DEMOD_Descriptor
 { const uint8_t DEMOD_n;
   const char* const text;
 } DEMOD_Desc;
+
 const DEMOD_Descriptor DEMOD [16] =
 {
   //   DEMOD_n, name
@@ -1221,7 +1240,6 @@ typedef struct Menu_Descriptor
   const uint8_t menu2; // 0 = belongs to Menu, 1 = belongs to Menu2
 } Menu_D;
 
-
 Menu_D Menus [last_menu2 + 1] {
   { MENU_F_HI_CUT, "  Filter", "Hi Cut", 0 },
   { MENU_SPECTRUM_ZOOM, " Spectr", " Zoom ", 0 },
@@ -1288,7 +1306,6 @@ Menu_D Menus [last_menu2 + 1] {
 uint8_t eeprom_saved = 0;
 uint8_t eeprom_loaded = 0;
 
-#if defined(MP3)
 // SD card & MP3 playing
 int track;
 int tracknum;
@@ -1299,7 +1316,6 @@ char playthis[15];
 boolean trackchange;
 boolean paused;
 int eeprom_adress = 1900;
-#endif
 
 uint8_t iFFT_flip = 0;
 
@@ -1333,7 +1349,7 @@ float32_t tau_hang_decay;
 float32_t ring[RB_SIZE * 2];
 float32_t abs_ring[RB_SIZE];
 //assign constants
-unsigned ring_buffsize = RB_SIZE;
+int ring_buffsize = RB_SIZE;
 //do one-time initialization
 int out_index = -1;
 float32_t ring_max = 0.0;
@@ -1369,8 +1385,8 @@ uint8_t agc_switch_mode = 0;
 
 // new synchronous AM PLL & PHASE detector
 // wdsp Warren Pratt, 2016
-//float32_t Sin = 0.0;
-//float32_t Cos = 0.0;
+float32_t Sin = 0.0;
+float32_t Cos = 0.0;
 float32_t pll_fmax = +4000.0;
 int zeta_help = 65;
 float32_t zeta = (float32_t)zeta_help / 100.0; // PLL step response: smaller, slower response 1.0 - 0.1
@@ -1472,7 +1488,7 @@ struct dispSc displayScale[] =
 };
 
 float32_t offsetDisplayDB = 0.0;
-//int16_t offsetPixels = 0;
+int16_t offsetPixels = 0;
 
 #define YTOP_LEVEL_DISP 73
 // ADC Bar on left, DAC bar on right
@@ -1489,7 +1505,7 @@ const char* const Days[7] = { "Saturday", "Sunday", "Monday", "Tuesday", "Wednes
 // Variable-leak LMS algorithm
 // taken from (c) Warren Pratts wdsp library 2016
 // GPLv3 licensed
-#define ANR_DLINE_SIZE 512 //funktioniert nicht, 128 & 256 OK                 // dline_size
+#define ANR_DLINE_SIZE 256 //512 //2048 funktioniert nicht, 128 & 256 OK                 // dline_size
 int ANR_taps =     64; //64;                       // taps
 int ANR_delay =    16; //16;                       // delay
 int ANR_dline_size = ANR_DLINE_SIZE;
@@ -1498,8 +1514,7 @@ int ANR_position = 0;
 float32_t ANR_two_mu =   0.0001;                     // two_mu --> "gain"
 float32_t ANR_gamma =    0.1;                      // gamma --> "leakage"
 float32_t ANR_lidx =     120.0;                      // lidx
-//float32_t ANR_lidx_min = 0.0;                      // lidx_min
-float32_t ANR_lidx_min = 120.0;                      // lidx_min
+float32_t ANR_lidx_min = 0.0;                      // lidx_min
 float32_t ANR_lidx_max = 200.0;                      // lidx_max
 float32_t ANR_ngamma =   0.001;                      // ngamma
 float32_t ANR_den_mult = 6.25e-10;                   // den_mult
@@ -1557,7 +1572,7 @@ float32_t NR_last_iFFT_result [NR_FFT_L / 2];
 float32_t NR_last_sample_buffer_L [NR_FFT_L / 2];
 float32_t NR_last_sample_buffer_R [NR_FFT_L / 2];
 float32_t NR_X[NR_FFT_L / 2][3]; // magnitudes (fabs) of the last four values of FFT results for 128 frequency bins
-float32_t NR_E[NR_FFT_L / 2][NR_N_frames]; // averaged (over the last four values) X values for the last 20 FFT frames
+float32_t NR_E[NR_FFT_L / 2][15]; // averaged (over the last four values) X values for the last 20 FFT frames
 float32_t NR_M[NR_FFT_L / 2]; // minimum of the 20 last values of E
 float32_t NR_Nest[NR_FFT_L / 2][2]; //
 //float32_t NR_Hk[NR_FFT_L / 2]; //
@@ -1688,7 +1703,7 @@ const float32_t nuttallWindow256[] = {
 };
 
 
-float32_t* mag_coeffs[11] =
+static float32_t* mag_coeffs[11] =
 {
   // for Index 0 [1xZoom == no zoom] the mag_coeffs will consist of  a NULL  ptr, since the filter is not going to be used in this  mode!
   (float32_t*)NULL,
@@ -2116,63 +2131,59 @@ const uint16_t gradient[] = {
   , 0xF88F
 };
 
-PROGMEM
-void flexRamInfo(void)
-{
-#if defined(__IMXRT1052__) || defined(__IMXRT1062__)
-  int itcm = 0;
-  int dtcm = 0;
-  int ocram = 0;
-  Serial.print("FlexRAM-Banks: [");
-  for (int i = 15; i >= 0; i--) {
-    switch ((IOMUXC_GPR_GPR17 >> (i * 2)) & 0b11) {
-      case 0b00: Serial.print("."); break;
-      case 0b01: Serial.print("O"); ocram++; break;
-      case 0b10: Serial.print("D"); dtcm++; break;
-      case 0b11: Serial.print("I"); itcm++; break;
-    }
-  }
-  Serial.print("] ITCM: ");
-  Serial.print(itcm * 32);
-  Serial.print(" KB, DTCM: ");
-  Serial.print(dtcm * 32);
-  Serial.print(" KB, OCRAM: ");
-  Serial.print(ocram * 32);
-#if defined(__IMXRT1062__)
-  Serial.print("(+512)");
-#endif
-  Serial.println(" KB");
-  extern unsigned long _stext;
-  extern unsigned long _etext;
-  extern unsigned long _sdata;
-  extern unsigned long _ebss;
-  extern unsigned long _flashimagelen;
-  extern unsigned long _heap_start;
+#if defined(HARDWARE_FRANKB)
 
-  Serial.print("MEM (static usage): ITCM:");
-  Serial.print((unsigned)&_etext - (unsigned)&_stext);
-  Serial.print(", DTCM:");
-  Serial.print((unsigned)&_ebss - (unsigned)&_sdata);
-  Serial.print("(");
-  Serial.print(dtcm * 32768 - ((unsigned)&_ebss - (unsigned)&_sdata));
-  Serial.print(" Bytes free)");
-  Serial.print(", OCRAM:");
-  Serial.print((unsigned)&_heap_start - 0x20200000);
-  Serial.print(", Flash:");
-  Serial.println((unsigned)&_flashimagelen);
-  Serial.println();
-#endif
+uint8_t i2cExtKeys = 255;
+uint8_t i2cExtKeysOLD = 255;
+uint8_t i2cExtKeysPoll = 0;
+
+void PCF8574isr() {
+  i2cExtKeysPoll = 1;
 }
 
-PROGMEM
+//Emulate Bounce for Buttons
+class tbutton {
+  public:
+    tbutton(int bitnum) {
+      bitmask = 1 << bitnum;
+    }
+
+    void update() {
+      if (i2cExtKeysPoll) {
+        Wire.requestFrom(PCF8574_ADR, 1);
+        if (Wire.available()) {
+          i2cExtKeys = Wire.read();
+          i2cExtKeysOLD |= i2cExtKeys;
+        }
+        i2cExtKeysPoll = 0;
+      }
+    };
+
+    bool fallingEdge() {
+      int r = i2cExtKeysOLD & bitmask & ~i2cExtKeys;
+      i2cExtKeysOLD = (i2cExtKeysOLD & ~bitmask) | (i2cExtKeys & bitmask);
+      return (r != 0);
+    };
+
+  private:
+    int bitmask;
+};
+
+tbutton button1(0), button2(1), button3(2), button4(3), button5(4), button6(5), button7(6), button8(7);
+
+#endif
+
+
 void setup() {
+
+  flexRamInfo();
+
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
   digitalWrite (On_set, HIGH);      // Hold switch on
 #endif
 
   Serial.begin(115200);
-  delay(100);
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
@@ -2182,12 +2193,9 @@ void setup() {
   AudioMemory(170); // no MP3,but Zoom FFT works quite well
   //     AudioMemory(200); // is this overkill?
   //    AudioMemory(100);
-  delay(100);
 
   // get TIME from real time clock with 3V backup battery
   setSyncProvider(getTeensy3Time);
-
-  flexRamInfo();
 
 #if defined(MP3)
   // initialize SD card slot
@@ -2200,12 +2208,13 @@ void setup() {
   //Starting to index the SD card for MP3/AAC.
   root = SD.open("/");
 
-  // reads the last track what was playing.
 #if defined(EEPROM_h)
+  // reads the last track what was playing.
   track = EEPROM.read(eeprom_adress);
 #else
   track = 0;
 #endif
+
 
   while (true) {
 
@@ -2247,13 +2256,15 @@ void setup() {
   //      Serial.print("tracknum = "); Serial.println(tracknum);
 
   tracklist[track].toCharArray(playthis, sizeof(tracklist[track]));
-#endif //MP3
+#endif
 
   /****************************************************************************************
       load saved settings from EEPROM
    ****************************************************************************************/
   // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
+#if defined(EEPROM_h)
   EEPROM_LOAD();
+#endif
   // Enable the audio shield. select input. and enable output
   sgtl5000_1.enable();
   sgtl5000_1.inputSelect(myInput);
@@ -2269,23 +2280,17 @@ void setup() {
   //  sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
   //  sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
+#if defined(MP3)
   mixleft.gain(0, 1.0);
   mixright.gain(0, 1.0);
+#endif
   sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
 
-#if defined(HARDWARE_FRANKB)
-  Wire.beginTransmission(PCF8574_ADR);
-  Wire.write(255); //Init port
-  Wire.endTransmission();
-#endif
-#if defined(BACKLIGHT_PIN)
   pinMode(BACKLIGHT_PIN, OUTPUT );
   //  analogWriteFrequency(BACKLIGHT_PIN, 234375); // change PWM speed in order to prevent disturbance in the audio path
   //  analogWriteResolution(8); // set resolution to 8 bit: well, that´s overkill for backlight, 4 bit would be enough :-)
   // severe disturbance occurs (in the audio loudspeaker amp!) with the standard speed of 488.28Hz, which is well in the audible audio range
   analogWrite(BACKLIGHT_PIN, spectrum_brightness); // 0: dark, 255: bright
-#endif
-#if defined(BUTTON_1_PIN)
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
   pinMode(BUTTON_3_PIN, INPUT_PULLUP);
@@ -2294,20 +2299,24 @@ void setup() {
   pinMode(BUTTON_6_PIN, INPUT_PULLUP);
   pinMode(BUTTON_7_PIN, INPUT_PULLUP);
   pinMode(BUTTON_8_PIN, INPUT_PULLUP);
-#endif
-#if defined(Band1)
   pinMode(Band1, OUTPUT);  // LPF switches
-#endif
-#if defined(Band2)
   pinMode(Band2, OUTPUT);  //
-#endif
-#if !defined(HARDWARE_DO7JBH) && !defined(HARDWARE_FRANKB)
+
+#ifndef HARDWARE_DO7JBH
   pinMode(Band3, OUTPUT);  //
   pinMode(Band4, OUTPUT);  //
   pinMode(Band5, OUTPUT);  //
   pinMode(ATT_LE, OUTPUT);
   pinMode(ATT_CLOCK, OUTPUT);
   pinMode(ATT_DATA, OUTPUT);
+#endif
+
+#if defined(HARDWARE_FRANKB)
+  Wire.beginTransmission(PCF8574_ADR);
+  Wire.write(255); //Init port
+  Wire.endTransmission();
+  pinMode(PCF8574_INT, INPUT_PULLUP);
+  attachInterrupt(PCF8574_INT, PCF8574isr, FALLING);
 #endif
 
 #ifdef USE_BOBS_FILTER
@@ -2467,7 +2476,7 @@ void setup() {
   LP_F_help = bands[current_band].FHiCut;
   if (LP_F_help < - bands[current_band].FLoCut) LP_F_help = - bands[current_band].FLoCut;
   set_IIR_coeffs ((float32_t)LP_F_help, 1.3, (float32_t)SR[SAMPLE_RATE].rate / DF, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_lowpass1_coeffs[i] = coefficient_set[i];
   }
@@ -2475,7 +2484,7 @@ void setup() {
   //  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)192000, 0); // 1st stage
   set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)234375, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_coeffs[i] = coefficient_set[i];
     biquad_WFM_coeffs[i + 10] = coefficient_set[i];
@@ -2483,7 +2492,7 @@ void setup() {
   //  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)192000, 0); // 1st stage
   set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)234375, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_coeffs[i + 5] = coefficient_set[i];
     biquad_WFM_coeffs[i + 15] = coefficient_set[i];
@@ -2493,7 +2502,7 @@ void setup() {
   //  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)192000, 2); // 1st stage
   set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)234375, 2); // 1st stage
   //   set_IIR_coeffs ((float32_t)19000, 10.0, (float32_t)192000, 2); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_19k_coeffs[i] = coefficient_set[i];
   }
@@ -2502,7 +2511,7 @@ void setup() {
   //  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)192000, 2); // 1st stage
   set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)234375, 2); // 1st stage
   //   set_IIR_coeffs ((float32_t)38000, 10.0, (float32_t)192000, 2); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_38k_coeffs[i] = coefficient_set[i];
   }
@@ -2519,22 +2528,22 @@ void setup() {
   calc_FIR_coeffs (FIR_dec1_coeffs, n_dec1_taps, (float32_t)(n_desired_BW * 1000.0), n_att, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
   if (arm_fir_decimate_init_f32(&FIR_dec1_I, n_dec1_taps, (uint32_t)DF1 , FIR_dec1_coeffs, FIR_dec1_I_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
   if (arm_fir_decimate_init_f32(&FIR_dec1_Q, n_dec1_taps, (uint32_t)DF1, FIR_dec1_coeffs, FIR_dec1_Q_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
 
   // Decimation filter 2, M2 = DF2
   calc_FIR_coeffs (FIR_dec2_coeffs, n_dec2_taps, (float32_t)(n_desired_BW * 1000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
   if (arm_fir_decimate_init_f32(&FIR_dec2_I, n_dec2_taps, (uint32_t)DF2, FIR_dec2_coeffs, FIR_dec2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
   if (arm_fir_decimate_init_f32(&FIR_dec2_Q, n_dec2_taps, (uint32_t)DF2, FIR_dec2_coeffs, FIR_dec2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
 
   // Interpolation filter 1, L1 = 2
@@ -2546,12 +2555,12 @@ void setup() {
   //    if(arm_fir_interpolate_init_f32(&FIR_int1_I, (uint32_t)DF2, 16, FIR_int1_coeffs, FIR_int1_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
   if (arm_fir_interpolate_init_f32(&FIR_int1_I, (uint8_t)DF2, 48, FIR_int1_coeffs, FIR_int1_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while (1);
   }
   //    if(arm_fir_interpolate_init_f32(&FIR_int1_Q, (uint32_t)DF2, 16, FIR_int1_coeffs, FIR_int1_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
   if (arm_fir_interpolate_init_f32(&FIR_int1_Q, (uint8_t)DF2, 48, FIR_int1_coeffs, FIR_int1_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while (1);
   }
 
   // Interpolation filter 2, L2 = 4
@@ -2564,12 +2573,12 @@ void setup() {
   //    if(arm_fir_interpolate_init_f32(&FIR_int2_I, (uint32_t)DF1, 16, FIR_int2_coeffs, FIR_int2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
   if (arm_fir_interpolate_init_f32(&FIR_int2_I, (uint8_t)DF1, 32, FIR_int2_coeffs, FIR_int2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while (1);
   }
   //    if(arm_fir_interpolate_init_f32(&FIR_int2_Q, (uint32_t)DF1, 16, FIR_int2_coeffs, FIR_int2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
   if (arm_fir_interpolate_init_f32(&FIR_int2_Q, (uint8_t)DF1, 32, FIR_int2_coeffs, FIR_int2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while (1);
   }
 
 #ifdef USE_WFM_FILTER
@@ -2611,13 +2620,13 @@ void setup() {
   //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
   if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
   // same coefficients, but specific state variables
   //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
   if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while (1);
   }
 
   IIR_biquad_Zoom_FFT_I.numStages = IIR_biquad_Zoom_FFT_N_stages; // set number of stages
@@ -2665,7 +2674,6 @@ void setup() {
   setAttenuator(RF_attenuation);
   si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
   setfreq();
-  delay(100);
   //show_frequency(bands[current_band].freq, 1);
 
   /****************************************************************************************
@@ -2702,16 +2710,17 @@ void setup() {
 
 } // END SETUP
 
-
+void yield (void) {};
 
 void loop() {
-  //  asm(" wfi"); // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
+  //asm(" wfi"); // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
   elapsedMicros usec = 0;
   static float32_t phaseLO = 0.0;
-  uint16_t xx;
   static uint16_t barGraphUpdate = 0;
   static uint16_t uB4, uAfter;
   static bool omitOutputFlag = false;
+  static int sum = 0;
+  static float mean_old;
 
   /**********************************************************************************
       Get samples from queue buffers
@@ -2730,108 +2739,118 @@ void loop() {
     if (Q_in_L.available() > 6 && Q_in_R.available() > 6 && Menu_pointer != MENU_PLAYER)
     {
       // get audio samples from the audio  buffers and convert them to float
-      for (int i = 0; i < WFM_BLOCKS; i++)
+      for (unsigned i = 0; i < WFM_BLOCKS; i++)
       {
         sp_L = Q_in_L.readBuffer();
         sp_R = Q_in_R.readBuffer();
 
-        switch (bitnumber)
-        {
-          case 15:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0));
-              sp_R[xx] &= ~((1 << 0));
-            }
-            break;
-          case 14:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1));
-            }
-            break;
-          case 13:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
-            }
-            break;
-          case 12:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
-            }
-            break;
-          case 11:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
-            }
-            break;
-          case 10:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
-            }
-            break;
-          case 9:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
-            }
-            break;
-          case 8:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
-            }
-            break;
-          case 7:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
-            }
-            break;
-          case 6:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
-            }
-            break;
-          case 5:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
-            }
-            break;
-          case 4:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
-            }
-            break;
-          case 3:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
-            }
-            break;
-          default:
-            break;
+        // Test: artificially restrict resolution
+        if (bitnumber < 16) {
+          uint16_t filter = ~((1 << (16 - bitnumber)) - 1);
+          for (int xx = 0; xx < AUDIO_BLOCK_SAMPLES; xx++)
+          {
+            sp_L[xx] &= filter;
+            sp_R[xx] &= filter;
+          }
         }
-
+        /*
+                switch (bitnumber)
+                {
+                  case 15:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0));
+                      sp_R[xx] &= ~((1 << 0));
+                    }
+                    break;
+                  case 14:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1));
+                    }
+                    break;
+                  case 13:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
+                    }
+                    break;
+                  case 12:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
+                    }
+                    break;
+                  case 11:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
+                    }
+                    break;
+                  case 10:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
+                    }
+                    break;
+                  case 9:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
+                    }
+                    break;
+                  case 8:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
+                    }
+                    break;
+                  case 7:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
+                    }
+                    break;
+                  case 6:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+                    }
+                    break;
+                  case 5:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
+                    }
+                    break;
+                  case 4:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
+                    }
+                    break;
+                  case 3:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
+                    }
+                    break;
+                  default:
+                    break;
+                }
+        */
         // convert to float one buffer_size
         // float_buffer samples are now standardized from > -1.0 to < 1.0
         arm_q15_to_float (sp_L, &float_buffer_L[BUFFER_SIZE * i], BUFFER_SIZE); // convert int_buffer to float 32bit
@@ -2887,7 +2906,7 @@ void loop() {
                         - ((float_buffer_L[1] - I_old) * float_buffer_R[0]);
       FFT_buffer[1] /=  float_buffer_L[1] * float_buffer_L[1] + float_buffer_R[1] * float_buffer_R[1];
 
-      for (int i = 2; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+      for (unsigned i = 2; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
         FFT_buffer[i] =   ((float_buffer_R[i] - float_buffer_R[i - 2]) * float_buffer_L[i - 1])
                           - ((float_buffer_L[i] - float_buffer_L[i - 2]) * float_buffer_R[i - 1]);
@@ -2904,7 +2923,7 @@ void loop() {
 
 #ifdef CSDR_FM_DEMOD_ATAN
       //Serial.println("CSDR");
-      for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+      for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
         // WFM_phase = atan2f(float_buffer_R[i], float_buffer_L[i]);
         WFM_phase = atan2f(float_buffer_L[i], float_buffer_R[i]);
@@ -2922,7 +2941,7 @@ void loop() {
       FFT_buffer[0] = 0.01 * (float_buffer_R[0] * I_old - float_buffer_L[0] * Q_old)
                       / (float_buffer_R[0] * float_buffer_R[0] + float_buffer_L[0] * float_buffer_L[0] + 1e-6);
 
-      for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+      for (unsigned i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
         FFT_buffer[i] = 0.01 * (float_buffer_R[i] * float_buffer_L[i - 1] - float_buffer_L[i] * float_buffer_R[i - 1])
                         / (float_buffer_R[i] * float_buffer_R[i] + float_buffer_L[i] * float_buffer_L[i] + 1e-6);
@@ -2942,7 +2961,7 @@ void loop() {
       FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
 #endif
-      for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+      for (unsigned i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
 
         // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
@@ -2962,14 +2981,14 @@ void loop() {
 
 #endif
 
-      if (stereo_factor > 0.1f)
+      if (stereo_factor > 0.1)
       {
         /*******************************************************************************************************
 
            STEREO first trial
            39.2% in MONO
          *******************************************************************************************************/
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+        for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
         { // DC removal filter -----------------------
           w = FFT_buffer[i] + wold * 0.9999f; // yes, I want a superb bass response ;-)
           FFT_buffer[i] = w - wold;
@@ -2988,53 +3007,38 @@ void loop() {
         // float_buffer_L --> 19k pilot
 
         // 2. if negative --> positive in order to rectify the wave
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+        for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
         {
+          // 2. if negative --> positive in order to rectify the wave
           if (float_buffer_L[i] < 0.0) float_buffer_L[i] = - float_buffer_L[i];
-        }
-        // float_buffer_L --> 19k pilot rectified
 
-        // 2.b) eliminate DC
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-        { // DC removal filter -----------------------
+          // DC removal filter -----------------------
           w = float_buffer_L[i] + wold * 0.9999f; // yes, I want a superb bass response ;-)
           float_buffer_L[i] = w - wold;
           wold = w;
         }
+
+        // float_buffer_L --> 19k pilot rectified
         // float_buffer_L --> 19k pilot rectified & without DC
 
         // 3. BPF 38kHz to extract the double f pilot tone
         arm_biquad_cascade_df1_f32 (&biquad_WFM_38k, float_buffer_L, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
         // float_buffer_R --> 38k pilot
 
-        // make 38k pilot tone a rectangle in order to have it of equal size independent of signal strength
-        // thanks Martin Oßmann for this hint!
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+        for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
         {
+          // make 38k pilot tone a rectangle in order to have it of equal size independent of signal strength
+          // thanks Martin Oßmann for this hint!
           if (float_buffer_R[i] > 0) float_buffer_R[i] = 0.002;
           else float_buffer_R[i] = -0.002; // factor 0.002 * 1000 (=stereo_factor) = 2 ! multiplication because L-R is DSB signal
-        }
 
-        // 4. L-R = multiply audio with 38k carrier in order to produce audio L - R
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-        {
+          // 4. L-R = multiply audio with 38k carrier in order to produce audio L - R
           float_buffer_L[i] = stereo_factor * float_buffer_R[i] * FFT_buffer[i];
-        }
-        // float_buffer_L --> L-R
-
-        // 6. Right channel:
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-        {
+          // 6. Right channel:
           iFFT_buffer[i] = FFT_buffer[i] - float_buffer_L[i];
-        }
-        // iFFT_buffer --> RIGHT CHANNEL
-
-        // 7. Left channel
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-        {
+          // 7. Left channel:
           float_buffer_R[i] = FFT_buffer[i] + float_buffer_L[i];
         }
-        // float_buffer_R --> LEFT CHANNEL
 
         // Right channel: lowpass filter with 15kHz Fstop & deemphasis
         rawFM_old_R = deemphasis_wfm_ff (iFFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, SR[SAMPLE_RATE].rate, rawFM_old_R);
@@ -3107,7 +3111,7 @@ void loop() {
       //      arm_scale_f32(float_buffer_L, 3.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
       //      arm_scale_f32(iFFT_buffer, 3.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
-      for (int i = 0; i < WFM_BLOCKS; i++)
+      for (unsigned i = 0; i < WFM_BLOCKS; i++)
       {
         sp_L = Q_out_L.getBuffer();
         sp_R = Q_out_R.getBuffer();
@@ -3144,20 +3148,23 @@ void loop() {
       if (idx_t > 1000)
         //          if (five_sec.check() == 1)
       {
-        tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
-        tft.setCursor(227, 5);
-        tft.setTextColor(ILI9341_GREEN);
-        tft.setFont(Arial_9);
-        mean = sum / idx_t;
-        if (mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS < 100.0)
-        {
-          tft.print (mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);
+        float mean = roundf(((sum / idx_t) / 29.00f * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS) * 100.0f) / 100.0f;
+        if (mean != mean_old) {
+          tft.setFont(Arial_9);
+          tft.setCursor(227, 5);
+          tft.setTextColor(ILI9341_BLACK);
+          tft.print(mean_old);
           tft.print("%");
-        }
-        else
-        {
-          tft.setTextColor(ILI9341_RED);
-          tft.print("100%");
+          tft.setCursor(227, 5);
+          if (mean >= 100.0f) {
+            mean = 100.0f;
+            tft.setTextColor(ILI9341_RED);
+          } else {
+            tft.setTextColor(ILI9341_GREEN);
+          }
+          mean_old = mean;
+          tft.print(mean);
+          tft.print("%");
         }
         //          tft.print (mean/29.0 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);tft.print("%");
         idx_t = 0;
@@ -3177,7 +3184,10 @@ void loop() {
 
   else
     // are there at least N_BLOCKS buffers in each channel available ?
-    if (Q_in_L.available() > N_BLOCKS + 0 && Q_in_R.available() > N_BLOCKS + 0 && Menu_pointer != MENU_PLAYER)
+    if ((Q_in_L.available() > (int)N_BLOCKS) &&
+        (Q_in_R.available() > (int)N_BLOCKS)
+        && (Menu_pointer != MENU_PLAYER)
+       )
     {
       // get audio samples from the audio  buffers and convert them to float
       // read in 32 blocks á 128 samples in I and Q
@@ -3186,108 +3196,116 @@ void loop() {
         sp_L = Q_in_L.readBuffer();
         sp_R = Q_in_R.readBuffer();
 
-        // Test: artificially restrict int16_t to 12bit resolution
-        // lösche bits 0 bis 3
-        switch (bitnumber)
-        {
-          case 15:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0));
-              sp_R[xx] &= ~((1 << 0));
-            }
-            break;
-          case 14:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1));
-            }
-            break;
-          case 13:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
-            }
-            break;
-          case 12:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
-            }
-            break;
-          case 11:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
-            }
-            break;
-          case 10:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
-            }
-            break;
-          case 9:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
-            }
-            break;
-          case 8:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
-            }
-            break;
-          case 7:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
-            }
-            break;
-          case 6:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
-            }
-            break;
-          case 5:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
-            }
-            break;
-          case 4:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
-            }
-            break;
-          case 3:
-            for (int xx = 0; xx < 128; xx++)
-            {
-              sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
-              sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
-            }
-            break;
-          default:
-            break;
+        // Test: artificially restrict resolution
+        if (bitnumber < 16) {
+          uint16_t filter = ~((1 << (16 - bitnumber)) - 1);
+          for (int xx = 0; xx < AUDIO_BLOCK_SAMPLES; xx++)
+          {
+            sp_L[xx] &= filter;
+            sp_R[xx] &= filter;
+          }
         }
-
+        /*
+                switch (bitnumber)
+                {
+                  case 15:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0));
+                      sp_R[xx] &= ~((1 << 0));
+                    }
+                    break;
+                  case 14:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1));
+                    }
+                    break;
+                  case 13:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2));
+                    }
+                    break;
+                  case 12:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3));
+                    }
+                    break;
+                  case 11:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4));
+                    }
+                    break;
+                  case 10:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5));
+                    }
+                    break;
+                  case 9:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6));
+                    }
+                    break;
+                  case 8:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7));
+                    }
+                    break;
+                  case 7:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8));
+                    }
+                    break;
+                  case 6:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9));
+                    }
+                    break;
+                  case 5:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10));
+                    }
+                    break;
+                  case 4:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11));
+                    }
+                    break;
+                  case 3:
+                    for (int xx = 0; xx < 128; xx++)
+                    {
+                      sp_L[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
+                      sp_R[xx] &= ~((1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
+                    }
+                    break;
+                  default:
+                    break;
+                }
+        */
         adcMaxLevel = 0;
         // set clip state flags for codec gain adjustment in codec_gain()
-        for (int xx = 0; xx < 128; xx++)
+        for (int xx = 0; xx < AUDIO_BLOCK_SAMPLES; xx++)
         {
           if (sp_L[xx] > adcMaxLevel)
             adcMaxLevel = sp_L[xx];
@@ -3388,7 +3406,7 @@ void loop() {
             twinpeaks_counter++;
             if (twinpeaks_counter >= 200)
             {
-              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 17, 50, 28, ILI9341_BLACK);
+              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_BLACK);
               twinpeaks_tested = 1;
             }
           }
@@ -3400,14 +3418,14 @@ void loop() {
 #endif
             if (twinpeaks_counter == 1)
             {
-              tft.fillRect(spectrum_x + 256 + 3, pos_y_time + 18, 49, 28, ILI9341_RED);
-              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 258, 30, ILI9341_MAROON);
-              tft.setCursor(spectrum_x + 256 + 6, pos_y_time + 19);
-              tft.setFont(Arial_12);
-              tft.setTextColor(ILI9341_WHITE);
-              tft.print("IQtest");
+              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_RED);
+              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_MAROON);
             }
-            tft.setCursor(pos_x_time + 55, pos_y_time + 19 + 14);
+            tft.setCursor(spectrum_x + 256 + 6, pos_y_time + 22);
+            tft.setFont(Arial_12);
+            tft.setTextColor(ILI9341_WHITE);
+            tft.print("IQtest");
+            tft.setCursor(pos_x_time + 55, pos_y_time + 22 + 14);
             tft.setFont(Arial_12);
             if (twinpeaks_counter)
             {
@@ -3415,7 +3433,7 @@ void loop() {
               tft.print(800 - twinpeaks_counter + 1);
             }
             tft.setTextColor(ILI9341_WHITE);
-            tft.setCursor(pos_x_time + 55, pos_y_time + 19 + 14);
+            tft.setCursor(pos_x_time + 55, pos_y_time + 22 + 14);
             tft.print(800 - twinpeaks_counter);
           }
           //        if(twinpeaks_counter >= 500) // wait 500 cycles for the system to settle: compare fig. 11 in Moseley & Slump (2006)
@@ -3456,7 +3474,7 @@ void loop() {
           }
           if (moseley_help > 0.0)// prevent sqrtf of negative value
           {
-            M_c2 = sqrtf(moseley_help); // eq (31)
+            M_c2 = __builtin_sqrtf(moseley_help); // eq (31)
           }
           else
           {
@@ -3579,7 +3597,7 @@ void loop() {
                     AudioNoInterrupts();
                     Q_sum = 0.0;
                     I_sum = 0.0;
-                    for (i = 0; i < n_para; i++)
+                    for (unsigned i = 0; i < n_para; i++)
                     {
                          Q_sum += float_buffer_R[i] * float_buffer_R[i + n_para];
                          I_sum += float_buffer_L[i] * float_buffer_L[i + n_para];
@@ -3594,7 +3612,7 @@ void loop() {
                     AudioNoInterrupts();
                     IQ_sum = 0.0;
                     I_sum = 0.0;
-                    for (i = 0; i < n_para; i++)
+                    for (unsigned i = 0; i < n_para; i++)
                     {
                          IQ_sum += float_buffer_L[i] * float_buffer_R[i + n_para];
                          I_sum += float_buffer_L[i] * float_buffer_L[i + n_para];
@@ -3642,10 +3660,10 @@ void loop() {
               }
               else
               {
-                if (IQ_counter != 0) K_est = 0.001 * sqrtf(Q_sum / I_sum) + 0.999 * K_est_old;
+                if (IQ_counter != 0) K_est = 0.001 * __builtin_sqrtf(Q_sum / I_sum) + 0.999 * K_est_old;
                 else
                 {
-                  K_est = sqrtf(Q_sum / I_sum);
+                  K_est = __builtin_sqrtf(Q_sum / I_sum);
                 }
                 K_est_old = K_est;
               }
@@ -3665,7 +3683,7 @@ void loop() {
             if (IQ_counter != 0) P_est = 0.001 * (IQ_sum / I_sum) + 0.999 * P_est_old;
             else P_est = (IQ_sum / I_sum);
             P_est_old = P_est;
-            if (P_est > -1.0 && P_est < 1.0) P_est_mult = 1.0 / (sqrtf(1.0 - P_est * P_est));
+            if (P_est > -1.0 && P_est < 1.0) P_est_mult = 1.0 / (__builtin_sqrtf(1.0 - P_est * P_est));
             else P_est_mult = 1.0;
             // dirty fix !!!
 #ifdef DEBUG
@@ -3860,24 +3878,14 @@ void loop() {
       //  numbers for the steps taken from that source
       //  Method used here: overlap-and-save
 
-      // 4.) ONLY FOR the VERY FIRST FFT: fill first samples with zeros
-      if (first_block) // fill real & imaginaries with zeros for the first BLOCKSIZE samples
-      {
-        for (unsigned i = 0; i < BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF / 2.0); i++)
-        {
-          FFT_buffer[i] = 0.0;
-        }
-        first_block = 0;
-      }
-      else
 
-        // HERE IT STARTS for all other instances
-        // 6 a.) fill FFT_buffer with last events audio samples
-        for (unsigned i = 0; i < BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF); i++)
-        {
-          FFT_buffer[i * 2] = last_sample_buffer_L[i]; // real
-          FFT_buffer[i * 2 + 1] = last_sample_buffer_R[i]; // imaginary
-        }
+      // HERE IT STARTS for all other instances
+      // 6 a.) fill FFT_buffer with last events audio samples
+      for (unsigned i = 0; i < BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF); i++)
+      {
+        FFT_buffer[i * 2] = last_sample_buffer_L[i]; // real
+        FFT_buffer[i * 2 + 1] = last_sample_buffer_R[i]; // imaginary
+      }
 
 
       // copy recent samples to last_sample_buffer for next time!
@@ -4022,7 +4030,7 @@ void loop() {
         case DEMOD_USB:
         case DEMOD_STEREO_USB:
           // fill LSB with zeros
-          for (int i = FFT_length; i < FFT_length * 2; i++)
+          for (i = FFT_length; i < FFT_length * 2; i++)
           {
             FFT_buffer[i] = 0.0;
           }
@@ -4034,7 +4042,7 @@ void loop() {
           ////////////////////////////////////////////////////////////////////////////////
           // LSB demodulation
           ////////////////////////////////////////////////////////////////////////////////
-          for (int i = 4; i < FFT_length ; i++)
+          for (i = 4; i < FFT_length ; i++)
             // when I delete all the FFT_buffer products (from i = 0 to FFT_length), LSB is much louder! --> effect of the AGC !!1
             // so, I leave indices 0 to 3 in the buffer
           {
@@ -4186,10 +4194,9 @@ void loop() {
 
         for (unsigned i = 0; i < FFT_length / 2; i++)
         {
-          float32_t Sin, Cos;
-          sincosf(phzerror, &Sin, &Cos);
-          //Sin = sinf(phzerror);
-          //Cos = cosf(phzerror);
+          //sincosf(phzerror,&Sin,&Cos);
+          Sin = sinf(phzerror);
+          Cos = cosf(phzerror);
           ai = Cos * iFFT_buffer[FFT_length + i * 2];
           bi = Sin * iFFT_buffer[FFT_length + i * 2];
           aq = Cos * iFFT_buffer[FFT_length + i * 2 + 1];
@@ -4336,8 +4343,8 @@ void loop() {
         { // // E(t) = sqrtf(I*I + Q*Q) --> highpass IIR 1st order for DC removal --> lowpass IIR 2nd order
           for (unsigned i = 0; i < FFT_length / 2; i++)
           { //
-            audiotmp = sqrtf(iFFT_buffer[FFT_length + (i * 2)] * iFFT_buffer[FFT_length + (i * 2)]
-                             + iFFT_buffer[FFT_length + (i * 2) + 1] * iFFT_buffer[FFT_length + (i * 2) + 1]);
+            audiotmp = __builtin_sqrtf(iFFT_buffer[FFT_length + (i * 2)] * iFFT_buffer[FFT_length + (i * 2)]
+                                       + iFFT_buffer[FFT_length + (i * 2) + 1] * iFFT_buffer[FFT_length + (i * 2) + 1]);
             // DC removal filter -----------------------
             w = audiotmp + wold * 0.9999f; // yes, I want a superb bass response ;-)
             float_buffer_L[i] = w - wold;
@@ -4945,14 +4952,14 @@ void loop() {
         omitOutputFlag = false;
       else
       {
-        for (int i = 0; i < N_BLOCKS; i++)
+        for (unsigned i = 0; i < N_BLOCKS; i++)
         {
           sp_L = Q_out_L.getBuffer();    // two of these is about 5 usec
           sp_R = Q_out_R.getBuffer();
           if (i == 15)      // A rough indicator, so only a sampling of data
           {
             dacMaxLevel = 0;
-            for (int xx = 0; xx < 128; xx++)
+            for (xx = 0; xx < 128; xx++)
             {
               if (sp_L[xx] > dacMaxLevel)
                 dacMaxLevel = sp_L[xx];
@@ -4987,7 +4994,7 @@ void loop() {
       // **********************************************************************************
       //    CONVERT TO INTEGER AND PLAY AUDIO
       // **********************************************************************************
-      for (unsigned  i = 0; i < N_BLOCKS; i++)
+      for (unsigned i = 0; i < N_BLOCKS; i++)
       {
         sp_L = Q_out_L.getBuffer();
         sp_R = Q_out_R.getBuffer();
@@ -5005,20 +5012,23 @@ void loop() {
       sum = sum + usec;
       idx_t++;
       if (idx_t > 40) {
-        tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
-        tft.setCursor(227, 5);
-        tft.setTextColor(ILI9341_GREEN);
-        tft.setFont(Arial_9);
-        mean = sum / idx_t;
-        if (mean / 29.00 / N_BLOCKS * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT < 100.0)
-        {
-          tft.print (mean / 29.00 / N_BLOCKS * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT);
+        float mean = roundf(((sum / idx_t) / 29.00f / N_BLOCKS * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT) * 100.0f) / 100.0f;
+        if (mean != mean_old) {
+          tft.setFont(Arial_9);
+          tft.setCursor(227, 5);
+          tft.setTextColor(ILI9341_BLACK);
+          tft.print(mean_old);
           tft.print("%");
-        }
-        else
-        {
-          tft.setTextColor(ILI9341_RED);
-          tft.print("100%");
+          tft.setCursor(227, 5);
+          if (mean >= 100.0f) {
+            mean = 100.0f;
+            tft.setTextColor(ILI9341_RED);
+          } else {
+            tft.setTextColor(ILI9341_GREEN);
+          }
+          mean_old = mean;
+          tft.print(mean);
+          tft.print("%");
         }
 #ifdef DEBUG
         Serial.print (mean);
@@ -5110,17 +5120,18 @@ void loop() {
     }
   }
 #endif
+
 } // end loop
 
 
 void xanr () // variable leak LMS algorithm for automatic notch or noise reduction
 { // (c) Warren Pratt wdsp library 2016
-  int idx;
+  int j, idx;
   float32_t c0, c1;
   float32_t y, error, sigma, inv_sigp;
   float32_t nel, nev;
 
-  for (int i = 0; i < ANR_buff_size; i++)
+  for (unsigned i = 0; i < ANR_buff_size; i++)
   {
     //      ANR_d[ANR_in_idx] = in_buff[2 * i + 0];
     ANR_d[ANR_in_idx] = float_buffer_L[i];
@@ -5128,7 +5139,7 @@ void xanr () // variable leak LMS algorithm for automatic notch or noise reducti
     y = 0;
     sigma = 0;
 
-    for (int j = 0; j < ANR_taps; j++)
+    for (j = 0; j < ANR_taps; j++)
     {
       idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
       y += ANR_w[j] * ANR_d[idx];
@@ -5142,8 +5153,7 @@ void xanr () // variable leak LMS algorithm for automatic notch or noise reducti
 
     if ((nel = error * (1.0 - ANR_two_mu * sigma * inv_sigp)) < 0.0) nel = -nel;
     if ((nev = ANR_d[ANR_in_idx] - (1.0 - ANR_two_mu * ANR_ngamma) * y - ANR_two_mu * error * sigma * inv_sigp) < 0.0) nev = -nev;
-    if (nev < nel)
-    {
+    if (nev < nel) {
       if ((ANR_lidx += ANR_lincr) > ANR_lidx_max) ANR_lidx = ANR_lidx_max;
       else if ((ANR_lidx -= ANR_ldecr) < ANR_lidx_min) ANR_lidx = ANR_lidx_min;
     }
@@ -5152,7 +5162,7 @@ void xanr () // variable leak LMS algorithm for automatic notch or noise reducti
     c0 = 1.0 - ANR_two_mu * ANR_ngamma;
     c1 = ANR_two_mu * error * inv_sigp;
 
-    for (int j = 0; j < ANR_taps; j++)
+    for (j = 0; j < ANR_taps; j++)
     {
       idx = (ANR_in_idx + j + ANR_delay) & ANR_mask;
       ANR_w[j] = c0 * ANR_w[j] + c1 * ANR_d[idx];
@@ -5284,9 +5294,11 @@ void AGC_prep()
     agc_switch_mode = 0;
   }
   tau_decay = (float32_t)agc_decay / 1000.0;
-  //  max_gain = powf (10.0, (float32_t)agc_thresh / 20.0);
+#if defined(USE_W7PUA)
   max_gain = powf (10.0, (float32_t)bands[current_band].AGC_thresh / 20.0);
-
+#else
+  max_gain = powf (10.0, (float32_t)agc_thresh / 20.0);
+#endif
   attack_buffsize = (int)ceil(sample_rate * n_tau * tau_attack);
   //Serial.println(attack_buffsize);
   in_index = attack_buffsize + out_index;
@@ -5334,7 +5346,7 @@ void AGC_prep()
 
 void AGC()
 {
-  int k;
+  int j, k;
   float32_t mult;
 
   if (AGC_mode == 0)  // AGC OFF
@@ -5349,7 +5361,7 @@ void AGC()
 
   for (unsigned i = 0; i < FFT_length / 2; i++)
   {
-    if (++out_index >= (int)ring_buffsize)
+    if (++out_index >= ring_buffsize)
       out_index -= ring_buffsize;
     if (++in_index >= ring_buffsize)
       in_index -= ring_buffsize;
@@ -5362,7 +5374,7 @@ void AGC()
     if (pmode == 0) // MAGNITUDE CALCULATION
       abs_ring[in_index] = max(fabs(ring[2 * in_index + 0]), fabs(ring[2 * in_index + 1]));
     else
-      abs_ring[in_index] = sqrtf(ring[2 * in_index + 0] * ring[2 * in_index + 0] + ring[2 * in_index + 1] * ring[2 * in_index + 1]);
+      abs_ring[in_index] = __builtin_sqrtf(ring[2 * in_index + 0] * ring[2 * in_index + 0] + ring[2 * in_index + 1] * ring[2 * in_index + 1]);
 
     fast_backaverage = fast_backmult * abs_out_sample + onemfast_backmult * fast_backaverage;
     hang_backaverage = hang_backmult * abs_out_sample + onemhang_backmult * hang_backaverage;
@@ -5371,9 +5383,9 @@ void AGC()
     {
       ring_max = 0.0;
       k = out_index;
-      for (int j = 0; j < attack_buffsize; j++)
+      for (j = 0; j < attack_buffsize; j++)
       {
-        if (++k == (int)ring_buffsize)
+        if (++k == ring_buffsize)
           k = 0;
         if (abs_ring[k] > ring_max)
           ring_max = abs_ring[k];
@@ -5537,7 +5549,7 @@ void filter_bandwidth()
   int filter_BW_highest = bands[current_band].FHiCut;
   if (filter_BW_highest < - bands[current_band].FLoCut) filter_BW_highest = - bands[current_band].FLoCut;
   set_IIR_coeffs ((float32_t)filter_BW_highest, 1.3, (float32_t)SR[SAMPLE_RATE].rate / DF, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
+  for (unsigned i = 0; i < 5; i++)
   {
     biquad_lowpass1_coeffs[i] = coefficient_set[i];
   }
@@ -5562,6 +5574,7 @@ void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t A
   //     numCoeffs = (Astop - 8.0) / (2.285 * TPI * normFtrans);
   // selecting high-pass, numCoeffs is forced to an even number for better frequency response
 
+  int ii, jj;
   float32_t Beta;
   float32_t izb;
   float fcf = fc;
@@ -5595,25 +5608,25 @@ void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t A
   {
     nc =  2 * (numCoeffs / 2);
     // clear coefficients
-    for (int ii = 0; ii < 2 * (nc - 1); ii++) coeffs_I[ii] = 0;
+    for (ii = 0; ii < 2 * (nc - 1); ii++) coeffs_I[ii] = 0;
     // set real delay
     coeffs_I[nc] = 1;
 
     // set imaginary Hilbert coefficients
-    for (int ii = 1; ii < (nc + 1); ii += 2)
+    for (ii = 1; ii < (nc + 1); ii += 2)
     {
       if (2 * ii == nc) continue;
       float x = (float)(2 * ii - nc) / (float)nc;
-      float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
+      float w = Izero(Beta * __builtin_sqrtf(1.0f - x * x)) / izb; // Kaiser window
       coeffs_I[2 * ii + 1] = 1.0f / (PIH * (float)(ii - nc / 2)) * w ;
     }
     return;
   }
 
-  for (int ii = - nc, jj = 0; ii < nc; ii += 2, jj++)
+  for (ii = - nc, jj = 0; ii < nc; ii += 2, jj++)
   {
     float x = (float)ii / (float)nc;
-    float w = Izero(Beta * sqrtf(1.0f - x * x)) / izb; // Kaiser window
+    float w = Izero(Beta * __builtin_sqrtf(1.0f - x * x)) / izb; // Kaiser window
     coeffs_I[jj] = fcf * m_sinc(ii, fcf) * w;
 
   }
@@ -5624,11 +5637,11 @@ void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t A
   }
   else if (type == 2)
   {
-    for (int jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= 2.0f * cosf(PIH * (2 * jj - nc) * fc);
   }
   else if (type == 3)
   {
-    for (int jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
+    for (jj = 0; jj < nc + 1; jj++) coeffs_I[jj] *= -2.0f * cosf(PIH * (2 * jj - nc) * fc);
     coeffs_I[nc / 2] += 1;
   }
 
@@ -5663,7 +5676,7 @@ void calc_cplx_FIR_coeffs (float * coeffs_I, float * coeffs_Q, int numCoeffs, fl
   float32_t nFs = PI * (nFH + nFL); //2 PI times required frequency shift (FHiCut+FLoCut)/2
   float32_t fCenter = 0.5 * (float32_t)(numCoeffs - 1); //floating point center index of FIR filter
 
-  //  for (int i = 0; i < FFT_length; i++) // WRONG! causes overflow, because coeffs_I is of length [FFT_length / 2 + 1]
+  //  for (unsigned i = 0; i < FFT_length; i++) // WRONG! causes overflow, because coeffs_I is of length [FFT_length / 2 + 1]
   for (int i = 0; i < numCoeffs; i++) //zero pad entire coefficient buffer
   {
     coeffs_I[i] = 0.0;
@@ -5883,7 +5896,7 @@ float32_t Izero (float32_t x)
   return (summe);
 }  // END Izero
 
-// set samplerate code by Frank Bösing
+// set samplerate code by Frank Boesing
 void setI2SFreq(int freq) {
 #if defined(T4)
   // PLL between 27*24 = 648MHz und 54*24=1296MHz
@@ -5893,16 +5906,23 @@ void setI2SFreq(int freq) {
 
   int nfact = C;
   int ndiv = 10000;
-  int nmult = C * ndiv - (nfact * ndiv);
+  int nmult = C * ndiv - (nfact * ndiv);//677
 
-  CCM_ANALOG_PLL_AUDIO = 0;
-  CCM_ANALOG_PLL_AUDIO |= CCM_ANALOG_PLL_AUDIO_ENABLE
-                          | CCM_ANALOG_PLL_AUDIO_POST_DIV_SELECT(2) // 2: 1/4; 1: 1/2; 0: 1/1
+  //IOMUXC_SW_PAD_CTL_PAD_GPIO_AD_B1_09 |= 1 | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 7) | (1 << 6);
+  //Switch off Audio PLL (PLL4)
+  CCM_ANALOG_PLL_AUDIO = CCM_ANALOG_PLL_AUDIO_BYPASS | CCM_ANALOG_PLL_AUDIO_POWERDOWN | CCM_ANALOG_PLL_AUDIO_ENABLE; //Bypass enable, Power down PLL, Output enable
+  //Set PLL Freq
+  CCM_ANALOG_PLL_AUDIO |= CCM_ANALOG_PLL_AUDIO_POST_DIV_SELECT(2) // 2: 1/4; 1: 1/2; 0: 1/1
                           | CCM_ANALOG_PLL_AUDIO_DIV_SELECT(nfact);
-
   CCM_ANALOG_PLL_AUDIO_NUM   = nmult & CCM_ANALOG_PLL_AUDIO_NUM_MASK;
   CCM_ANALOG_PLL_AUDIO_DENOM = ndiv & CCM_ANALOG_PLL_AUDIO_DENOM_MASK;
+
+  //Switch PLL on
+  CCM_ANALOG_PLL_AUDIO &= ~CCM_ANALOG_PLL_AUDIO_POWERDOWN;
   while (!(CCM_ANALOG_PLL_AUDIO & CCM_ANALOG_PLL_AUDIO_LOCK)) {}; //Wait for pll-lock
+
+  // Wait for mux to go idle after the handshake
+  //while (CCM_CDHIPR & (CCM_CDHIPR_PERIPH_CLK_SEL_BUSY | CCM_CDHIPR_PERIPH2_CLK_SEL_BUSY)) {};
 
   const int div_post_pll = 1; // other values: 2,4
   CCM_ANALOG_MISC2 &= ~(CCM_ANALOG_MISC2_DIV_MSB | CCM_ANALOG_MISC2_DIV_LSB);
@@ -5914,6 +5934,9 @@ void setI2SFreq(int freq) {
   CCM_CS1CDR = (CCM_CS1CDR & ~(CCM_CS1CDR_SAI1_CLK_PRED_MASK | CCM_CS1CDR_SAI1_CLK_PODF_MASK))
                | CCM_CS1CDR_SAI1_CLK_PRED(n1 - 1) // &0x07
                | CCM_CS1CDR_SAI1_CLK_PODF(n2 - 1); // &0x3f
+
+  //Remove Bypass
+  CCM_ANALOG_PLL_AUDIO &= ~CCM_ANALOG_PLL_AUDIO_BYPASS;
 
   IOMUXC_GPR_GPR1 = (IOMUXC_GPR_GPR1 & ~(IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL_MASK))
                     | (IOMUXC_GPR_GPR1_SAI1_MCLK_DIR | IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL(0));	//Select MCLK
@@ -5947,12 +5970,8 @@ void setI2SFreq(int freq) {
       return;
     }
   }
-#endif //Teensy4
-#if 1
-  Serial.print("Set Samplerate ");
-  Serial.print(freq / 1000);
-  Serial.println(" kHz");
 #endif
+  Serial.println(freq);
 } // end set_I2S
 
 void init_filter_mask()
@@ -5964,7 +5983,7 @@ void init_filter_mask()
   // in order to produce a FFT_length point input buffer for the FFT
   // copy coefficients into real values of first part of buffer, rest is zero
 #if 1
-
+  //  for (unsigned i = 0; i < m_NumTaps + 1; i++) // buffer overflow !!!???
   for (unsigned i = 0; i < m_NumTaps; i++)
   {
     // try out a window function to eliminate ringing of the filter at the stop frequency
@@ -5991,7 +6010,7 @@ void init_filter_mask()
   // all others zero
 
   FIR_filter_mask[0] = 1;
-  for (unsigned i = 1; i < FFT_length * 2; i++)
+  for (i = 1; i < FFT_length * 2; i++)
   {
     FIR_filter_mask[i] = 0.0;
   }
@@ -6166,6 +6185,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
 
 
     //***************
+    float32_t help = 0.0;
     // adjust lowpass filter coefficient, so that
     // "spectrum display smoothness" is the same across the different sample rates
     // and the same across different magnify modes . . .
@@ -6180,10 +6200,8 @@ void Zoom_FFT_exe (uint32_t blockSize)
 
     //      if(spectrum_zoom >= 7) LPFcoeff = 1.0; // FIXME
     // save old pixels for lowpass filter
-    for (int i = 0; i < 256; i++)
-    {
-      pixelold[i] = pixelnew[i];
-    }
+    memcpy(pixelold, pixelnew, sizeof(pixelold));
+
     // perform complex FFT
     // calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
     arm_cfft_f32(spec_FFT, buffer_spec_FFT, 0, 1);
@@ -6209,14 +6227,14 @@ void Zoom_FFT_exe (uint32_t blockSize)
     // apply low pass filter and scale the magnitude values and convert to int for spectrum display
     // apply spectrum AGC
     //
-    for (int16_t x = 0; x < 256; x++)
+    for (int x = 0; x < 256; x++)
     {
       FFT_spec[x] = LPFcoeff * FFT_spec[x] + onem_LPFcoeff * FFT_spec_old[x];
       FFT_spec_old[x] = FFT_spec[x];
     }
     float32_t min_spec = 10000.0;
 #ifdef USE_W7PUA
-    for (int16_t x = 0; x < 256; x++)
+    for (int x = 0; x < 256; x++)
     {
       // pixelnew[x] = DISPLAY_OFFSET_PIXELS + (int16_t)(spectrum_display_scale*10.0*log10f(FFT_spec[x])); <PUA>
 #ifdef USE_LOG10FAST
@@ -6229,7 +6247,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
       if (pixelnew[x] > 220)   pixelnew[x] = 220;
     }
 #else
-    for (int16_t x = 0; x < 256; x++)
+    for (int x = 0; x < 256; x++)
     {
 #ifdef USE_LOG10FAST
       help = 10.0 * log10f_fast(FFT_spec[x] + 1.0) * spectrum_display_scale;
@@ -6312,19 +6330,19 @@ void calc_256_magn()
   float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
   if (LPFcoeff > 1.0) LPFcoeff = 1.0;
 
-  for (int i = 0; i < 256; i++)
+  for (i = 0; i < 256; i++)
   {
     pixelold[i] = pixelnew[i];
   }
 
   // Do multiple 256 blocks and add powers.  Start by zeroing power sum:
-  for (int i = 0; i < 256; i++)
+  for (i = 0; i < 256; i++)
     FFT_spec[i] = 0.0;;
 
-  for (int jjj = 0; jjj < nDisplay; jjj++)
+  for (jjj = 0; jjj < nDisplay; jjj++)
   {
     // put 256 samples into buffer and apply windowing
-    for (int i = 0; i < 256; i++)
+    for (i = 0; i < 256; i++)
     { // interleave real and imaginary input values [real, imag, real, imag . . .]
       // apply  window
       // Thanks, Bob for pointing me to the bug! fixed now:
@@ -6343,7 +6361,7 @@ void calc_256_magn()
 
     if (NR_Kim == 1 || NR_Kim == 2)
     {
-      for (int i = 0; i < 128; i++)
+      for (i = 0; i < 128; i++)
       {
         FFT_spec[i * 2] = NR_G[i];
         FFT_spec[i * 2 + 1] = NR_G[i];
@@ -6351,7 +6369,7 @@ void calc_256_magn()
     }
     else
     {
-      for (int i = 0; i < 128; i++)
+      for (i = 0; i < 128; i++)
       {
         // From complex FFT the "negative frequencies" are mirrors of the frequencies above fs/2.  So, we get
         // frequencies from 0 to fs by re-arranging the coefficients.  These are powers (not Volts):                <PUA>
@@ -6366,17 +6384,14 @@ void calc_256_magn()
 
   //Serial.println(pixelnew[75]);
 
-  for (int x = 0; x < 256; x++)
+  for (x = 0; x < 256; x++)
   {
     FFT_spec_old[x] = FFT_spec[x];    //<< ANYBODY NEED?
 #ifdef USE_LOG10FAST
-    //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
+    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
 #else
-    //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
+    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
 #endif
-
     // Here -6 is about the bottom of the display and +74 is the top.  It can go 10 higher and still display.
     if (pixelnew[x] < -6)
       pixelnew[x] = -6;
@@ -6457,16 +6472,14 @@ void calc_256_magn()
     //    spec_help = 10.0 * log10f(spec_help + 1.0);
     //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
 #ifdef USE_LOG10FAST
-    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
 #else
-    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
 #endif
-
   }
 } // end calc_256_magn
 #endif
+
 /*
   // leave this here for REFERENCE !
   void calc_spectrum_mags(uint32_t zoom, float32_t LPFcoeff) {
@@ -6896,6 +6909,7 @@ void show_bandwidth ()
   if (pos_left < spectrum_x) pos_left = spectrum_x;
   if (len > (256 - pos_left + spectrum_x)) len = 256 - pos_left + spectrum_x;
 
+  char string[10];
   //  int pos_y = spectrum_y + spectrum_height+2;        // + 2;     // 212      Move down below base line?  <PUA>
 #ifdef USE_W7PUA
   int pos_y = BW_indicator_y;
@@ -6935,10 +6949,15 @@ void show_bandwidth ()
   tft.setFont(Arial_9);
   tft.setTextColor(ILI9341_WHITE);
   tft.print(DEMOD[bands[current_band].mode].text);
+
   tft.setCursor(70, 25);
-  tft.printf("%02.1f kHz", (bands[current_band].mode != DEMOD_SAM_USB) ? (float)(bands[current_band].FLoCut / 1000.0f) : 0.0f);
+  if (bands[current_band].mode != DEMOD_SAM_USB) tft.printf("%02.1f kHz", (float)(bands[current_band].FLoCut / 1000.0)); //kHz);
+  else tft.printf(string, "%02.1f kHz", 0.0);
+
   tft.setCursor(130, 25);
-  tft.printf("%02.1f kHz", (bands[current_band].mode != DEMOD_SAM_LSB) ? (float)(float)(bands[current_band].FHiCut / 1000.0f) : 0.0f);
+  if (bands[current_band].mode != DEMOD_SAM_LSB) tft.printf("%02.1f kHz", (float)(bands[current_band].FHiCut / 1000.0)); //kHz);
+  else tft.printf("%02.1f kHz", 0.0);
+
   tft.setCursor(180, 25);
   //tft.print("   SR: ");
   tft.print("  ");
@@ -7068,11 +7087,11 @@ void FrequencyBarText()
   // (rounded to the nearest kHz) in the "center".  (by KA7OEI, 20140913) modified from the mcHF source code
   float   freq_calc;
   ulong   i;
-  char    txt[16], *c;
+  char    txt[16];
   float   grat;
   int centerIdx;
   const int pos_grat_y = 20;
-  grat = (float)(SR[SAMPLE_RATE].rate / 8000.0) / (float)(1 << spectrum_zoom); // 1, 2, 4, 8, 16, 32, 64 . . . 4096
+  grat = (float)(SR[SAMPLE_RATE].rate / 8000.0f) / (float)(1 << spectrum_zoom); // 1, 2, 4, 8, 16, 32, 64 . . . 4096
 
   /*    if(spectrum_zoom == SPECTRUM_SUPER_ZOOM)
       {
@@ -7089,12 +7108,12 @@ void FrequencyBarText()
   if (bands[current_band].mode == DEMOD_WFM)
   { // undersampling mode with 3x undersampling
     // grat *= 5.0;
-    freq_calc = 3.0 * freq_calc + 0.75 * SR[SAMPLE_RATE].rate;
+    freq_calc = 3.0f * freq_calc + 0.75f * SR[SAMPLE_RATE].rate;
   }
 
   if (spectrum_zoom == 0)        //
   {
-    freq_calc += (float32_t)SR[SAMPLE_RATE].rate / 4.0;
+    freq_calc += (float32_t)SR[SAMPLE_RATE].rate / 4.0f;
   }
 
   if (spectrum_zoom < 3)
@@ -7152,7 +7171,7 @@ void FrequencyBarText()
       }
     }
 
-    i = centerIdx2pos[centerIdx + 2] - ((strlen(txt) - 4) * 4); // calculate position of center frequency text
+    i = centerIdx2pos[centerIdx + 2] - ((strlen(txt) - 4) * 4) - 8; // calculate position of center frequency text
 
     tft.setCursor(spectrum_x + i, spectrum_y + spectrum_WF_height + pos_grat_y);
     tft.print(txt);
@@ -7166,10 +7185,11 @@ void FrequencyBarText()
       int pos_help = idx2pos[spectrum_zoom < 3 ? 0 : 1][idx + 4];
       if (idx != centerIdx)
       {
+        tft.setCursor(spectrum_x + pos_help, spectrum_y + spectrum_WF_height + pos_grat_y);
+
         if (spectrum_zoom < 3)
         {
-          snprintf(txt, 16, " %lu ", (ulong)(freq_calc + (idx * grat))); // build string for middle-left frequency (1khz precision)
-          c = &txt[strlen(txt) - 3]; // point at 2nd character from the end
+          tft.printf(" %lu", (ulong)(freq_calc + (idx * grat))); // build string for middle-left frequency (1khz precision)
         }
         else
         {
@@ -7178,21 +7198,16 @@ void FrequencyBarText()
           if (spectrum_zoom < 8)
           {
             int smallnum = (int)roundf((disp_freq - bignum) * 100);
-            snprintf(txt, 16, "  %u.%02u  ", bignum, smallnum); // build string for center frequency precision 100Hz/10Hz/1Hz
+            tft.printf("  %u.%02u", bignum, smallnum); // build string for center frequency precision 100Hz/10Hz/1Hz
           }
           else
           {
             int smallnum = (int)roundf((disp_freq - bignum) * 1000);
-            snprintf(txt, 16, "  %u.%03u  ", bignum, smallnum); // build string for center frequency precision 100Hz/10Hz/1Hz
+            tft.printf("  %u.%03u", bignum, smallnum); // build string for center frequency precision 100Hz/10Hz/1Hz
           }
-          c = &txt[strlen(txt) - 5]; // point at 5th character from the end
         }
 
-        tft.setCursor(spectrum_x + pos_help, spectrum_y + spectrum_WF_height + pos_grat_y);
-        tft.print(txt);
         // insert draw vertical bar HERE:
-
-
 
       }
       if (spectrum_zoom > 2 || freq_calc > 1000)
@@ -7316,7 +7331,7 @@ Prototypes temp ref:
 // Draw the frames for ADC & DAC bar graphs, but not the inside bar.
 void prepareLevelDisplay()
 {
-  //  uint16_t jjj;
+  uint16_t jjj;
 
   tft.fillRect(0, YTOP_LEVEL_DISP - 2, 200, 14, ILI9341_BLACK);
 
@@ -7326,7 +7341,7 @@ void prepareLevelDisplay()
   tft.drawFastVLine (ADC_BAR, YTOP_LEVEL_DISP + 4,   5, ILI9341_ORANGE); // Left
   tft.drawFastVLine (ADC_BAR + 61, YTOP_LEVEL_DISP + 3, 7, ILI9341_ORANGE); // Right
 
-  for (int jjj = 0; jjj < 8; jjj++)
+  for (jjj = 0; jjj < 8; jjj++)
     tft.drawFastVLine (4 + ADC_BAR + 8 * jjj, YTOP_LEVEL_DISP, 3, ILI9341_ORANGE); // Tic's
 
   tft.setCursor(ADC_BAR + 63, YTOP_LEVEL_DISP + 2);
@@ -7340,7 +7355,7 @@ void prepareLevelDisplay()
   tft.drawFastVLine (DAC_BAR, YTOP_LEVEL_DISP + 4,   5, ILI9341_ORANGE); // Left
   tft.drawFastVLine (DAC_BAR + 61, YTOP_LEVEL_DISP + 3, 7, ILI9341_ORANGE); // Right
 
-  for (int jjj = 0; jjj < 8; jjj++)
+  for (jjj = 0; jjj < 8; jjj++)
     tft.drawFastVLine (4 + DAC_BAR + 8 * jjj, YTOP_LEVEL_DISP, 3, ILI9341_ORANGE); // Tic's
 
   tft.setCursor(DAC_BAR + 63, YTOP_LEVEL_DISP + 2);
@@ -7625,8 +7640,7 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
 } // END VOID SHOW-FREQUENCY
 
 void setfreq () {
-  // Changes for Bobs Octave Filters:  18 March 2018  W7PUA <<<<<<
-  // http://www.janbob.com/electron/FilterBP1/FiltBP1.html
+  // Changes to freq  18 March 2018  W7PUA <<<<<<
   static int16_t lastFilter;
   static int16_t currentFilter;
 
@@ -7762,7 +7776,7 @@ void setfreq () {
   } // end if
 #endif
 
-#elif defined(Band1) && defined(Band2) && defined(Band3) && defined(Band4) && defined(Band5)
+#else
   // LPF switching follows here
   // Five filter banks there:
   // longwave LPF 295kHz, mediumwave I LPF 955kHz, mediumwave II LPF 2MHz, tropical bands LPF 5.4MHz, others LPF LPF 30MHz
@@ -7808,19 +7822,6 @@ void setfreq () {
 
 } // end setfreq
 
-#if defined(HARDWARE_FRANKB)
-//emulate buttons
-class tbutton {
-  public:
-    void update() {};
-    bool fallingEdge() {
-      return false;
-    };
-};
-tbutton button1, button2, button3, button4, button5, button6, button7, button8;
-#endif
-
-
 void buttons() {
   button1.update(); // BAND --
   button2.update(); // BAND ++
@@ -7834,14 +7835,13 @@ void buttons() {
   eeprom_loaded = 0;
 
   if ( button1.fallingEdge()) {
-
+#if defined(MP3)
     if (Menu_pointer == MENU_PLAYER)
     {
-#if defined(MP3)
       prevtrack();
-#endif
     }
     else
+#endif
     {
       int last_band = current_band;
       current_band--;
@@ -7883,13 +7883,13 @@ void buttons() {
     }
   }
   if ( button2.fallingEdge()) {
+#if defined(MP3)
     if (Menu_pointer == MENU_PLAYER)
     {
-#if defined(MP3)
       pausetrack();
-#endif
     }
     else
+#endif
     {
       AudioNoInterrupts();
       int last_band = current_band;
@@ -7931,13 +7931,13 @@ void buttons() {
     }
   }
   if ( button3.fallingEdge()) {  // cycle through DEMOD modes
+#if defined(MP3)
     if (Menu_pointer == MENU_PLAYER)
     {
-#if defined(MP3)
       nexttrack();
-#endif
     }
     else
+#endif
     { int old_mode = bands[current_band].mode;
       bands[current_band].mode++;
       if (bands[current_band].mode > DEMOD_MAX) bands[current_band].mode = DEMOD_MIN; // cycle thru demod modes
@@ -7996,6 +7996,7 @@ void buttons() {
     {
       if (--Menu2 < first_menu2) Menu2 = last_menu2;
     }
+#if defined(MP3)
     if (Menu_pointer == MENU_PLAYER)
     {
       Menu2 = MENU_VOLUME;
@@ -8013,31 +8014,35 @@ void buttons() {
       mixleft.gain(2, 0.1);
       mixright.gain(2, 0.1);
     }
-#if defined(MP3)
+#endif
+
     if (Menu_pointer == (MENU_PLAYER - 1) || (Menu_pointer == last_menu && MENU_PLAYER == first_menu))
     {
+#if defined(MP3)
       // stop all playing
       playMp3.stop();
       playAac.stop();
+#endif
       delay(200);
       setI2SFreq (SR[SAMPLE_RATE].rate);
       delay(200); // essential ?
+#if defined(MP3)
       mixleft.gain(0, 1.0);
       mixright.gain(0, 1.0);
       mixleft.gain(1, 0.0);
       mixright.gain(1, 0.0);
       mixleft.gain(2, 0.0);
       mixright.gain(2, 0.0);
+#endif
       prepare_spectrum_display();
       Q_in_L.clear();
       Q_in_R.clear();
       Q_in_L.begin();
       Q_in_R.begin();
     }
-#endif
     show_menu();
-
   }
+
   if ( button5.fallingEdge()) { // cycle thru tune steps
     if (++tune_stepper > TUNE_STEP_MAX) tune_stepper = TUNE_STEP_MIN;
     set_tunestep();
@@ -8094,6 +8099,7 @@ void buttons() {
       if (++Menu2 > last_menu2) Menu2 = first_menu2;
     }
     //               Serial.println("MENU BUTTON pressed");
+#if defined(MP3)
     if (Menu_pointer == MENU_PLAYER)
     {
       Menu2 = MENU_VOLUME;
@@ -8111,28 +8117,32 @@ void buttons() {
       mixleft.gain(2, 0.1);
       mixright.gain(2, 0.1);
     }
-#if defined(MP3)
+#endif
     if (Menu_pointer == (MENU_PLAYER + 1) || (Menu_pointer == 0 && MENU_PLAYER == last_menu))
     {
+#if defined(MP3)
       // stop all playing
       playMp3.stop();
       playAac.stop();
       delay(200);
+#endif
       setI2SFreq (SR[SAMPLE_RATE].rate);
       delay(200); // essential ?
+#if defined(MP3)
       mixleft.gain(0, 1.0);
       mixright.gain(0, 1.0);
       mixleft.gain(1, 0.0);
       mixright.gain(1, 0.0);
       mixleft.gain(2, 0.0);
       mixright.gain(2, 0.0);
+#endif
       prepare_spectrum_display();
       Q_in_L.clear();
       Q_in_R.clear();
       Q_in_L.begin();
       Q_in_R.begin();
     }
-#endif
+
     show_menu();
   }
   if (button8.fallingEdge()) {
@@ -8297,7 +8307,7 @@ void show_menu()
       case MENU_CALIBRATION_CONSTANT:
         tft.setFont(Arial_8);
         tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
-        tft.printf("%9d", (int)(calibration_constant));
+        tft.printf("%9d", (int)calibration_constant);
         break;
       case MENU_LPF_SPECTRUM:
         tft.setFont(Arial_11);
@@ -8434,6 +8444,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
         tft.printf("%4.0f", notches[0]);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_NOTCH_1_BW:
         tft.setFont(Arial_12);
@@ -8441,6 +8452,7 @@ void show_menu()
         BW_help = (float32_t)notches_BW[0] * bin_BW * 1000.0 * 2.0;
         BW_help = roundf(BW_help / 10) / 100 ; // round  frequency to the nearest 10Hz
         tft.printf("%3.0f", BW_help);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       /*            case MENU_NOTCH_2:
                       tft.setFont(Arial_12);
@@ -8453,16 +8465,16 @@ void show_menu()
                       {
                           tft.setTextColor(ILI9341_WHITE);
                       }
-                      sprintf(string,"%4.0f", notches[1]);
-                      tft.print(string);
+                      tft.printf("%4.0f", notches[1]);
+                      tft.setTextColor(ILI9341_WHITE);
                   break;
                   case MENU_NOTCH_2_BW:
                       tft.setFont(Arial_11);
                       tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
                       BW_help = (float32_t)notches_BW[1] * bin_BW * 1000.0 * 2.0;
                       BW_help = roundf(BW_help / 10) / 100 ; // round  frequency to the nearest 10Hz
-                      sprintf(string,"%3.0f", BW_help);
-                      tft.print(string);
+                      tft.printf("%3.0f", BW_help);
+                      tft.setTextColor(ILI9341_WHITE);
                   break;
       */
       case MENU_AGC_MODE:
@@ -8491,7 +8503,11 @@ void show_menu()
         }
         break;
       case MENU_AGC_THRESH:
+#if defined(USE_W7PUA)
         tft.printf("%3d", bands[current_band].AGC_thresh);
+#else
+        tft.printf("%3d", agc_thresh);
+#endif
         break;
       case MENU_AGC_DECAY:
         tft.printf("%3d", agc_decay / 10);
@@ -8512,26 +8528,31 @@ void show_menu()
             tft.print("Notch");
             break;
         }
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_ANR_TAPS:
         tft.setTextColor(ANR_colour);
         tft.printf("%3d", ANR_taps);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_ANR_DELAY:
         tft.setTextColor(ANR_colour);
         tft.printf("%3d", ANR_delay);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_ANR_MU:
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.3f", ANR_two_mu * 1000.0);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_ANR_GAMMA:
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", ANR_gamma * 1000.0);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_NB_THRESH:
         tft.setFont(Arial_12);
@@ -8545,6 +8566,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
         tft.printf("%2.1f", NB_thresh);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_NB_TAPS:
         tft.setFont(Arial_12);
@@ -8558,6 +8580,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
         tft.printf("%2d", NB_taps);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_NB_IMPULSE_SAMPLES:
         tft.setFont(Arial_12);
@@ -8576,6 +8599,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
         tft.printf("%2d", NB_impulse_samples);
+        tft.setTextColor(ILI9341_WHITE);
         break;
       case MENU_STEREO_FACTOR:
         tft.setFont(Arial_10);
@@ -8620,6 +8644,7 @@ void show_menu()
             tft.print(" LMS ");
             break;
         }
+        tft.setTextColor(ILI9341_WHITE);
         break;
       /*      case MENU_NR_VAD_ENABLE:
               tft.setFont(Arial_10);
@@ -8633,6 +8658,7 @@ void show_menu()
                   tft.print(" ON ");
                   break;
               }
+              tft.setTextColor(ILI9341_WHITE);
               break; */
       case MENU_NR_USE_X:
         tft.setFont(Arial_10);
@@ -8646,15 +8672,14 @@ void show_menu()
             tft.print(" X  ");
             break;
         }
+        tft.setTextColor(ILI9341_WHITE);
         break;
 
       /*      case MENU_NR_L:
-              sprintf(menu_string, "%2d", NR_L_frames);
-              tft.print(menu_string);
+              tft.printf("%2d", NR_L_frames);
               break;
             case MENU_NR_N:
-              sprintf(menu_string, "%2d", NR_N_frames);
-              tft.print(menu_string);
+              tft.printf("%2d", NR_N_frames);
               break; */
       case MENU_NR_ALPHA:
         tft.setFont(Arial_11);
@@ -8677,8 +8702,7 @@ void show_menu()
       /*      case MENU_NR_VAD_THRESH:
               tft.setFont(Arial_11);
               tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
-              sprintf(menu_string, "%5.1f", NR_VAD_thresh);
-              tft.print(menu_string);
+              tft.printf("%5.1f", NR_VAD_thresh);
               break; */
       case MENU_NR_PSI:
         tft.setFont(Arial_11);
@@ -8687,7 +8711,7 @@ void show_menu()
         break;
     }
   }
-  tft.setTextColor(ILI9341_WHITE);
+
   spectrum_y -= 2;
 }
 
@@ -9000,13 +9024,13 @@ void set_samplerate ()
     onem_deemp_alpha = 1.0 - deemp_alpha;
     // IIR lowpass filter for wideband FM at 15k
     set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-    for (int i = 0; i < 5; i++)
+    for (unsigned i = 0; i < 5; i++)
     { // fill coefficients into the right file
       biquad_WFM_coeffs[i] = coefficient_set[i];
       biquad_WFM_coeffs[i + 10] = coefficient_set[i];
     }
     set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-    for (int i = 0; i < 5; i++)
+    for (unsigned i = 0; i < 5; i++)
     { // fill coefficients into the right file
       biquad_WFM_coeffs[i + 5] = coefficient_set[i];
       biquad_WFM_coeffs[i + 15] = coefficient_set[i];
@@ -9014,14 +9038,14 @@ void set_samplerate ()
 
     // high Q IIR bandpass filter for wideband FM at 19k
     set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-    for (int i = 0; i < 5; i++)
+    for (unsigned i = 0; i < 5; i++)
     { // fill coefficients into the right file
       biquad_WFM_19k_coeffs[i] = coefficient_set[i];
     }
 
     // high Q IIR bandpass filter for wideband FM at 38k
     set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-    for (int i = 0; i < 5; i++)
+    for (unsigned i = 0; i < 5; i++)
     { // fill coefficients into the right file
       biquad_WFM_38k_coeffs[i] = coefficient_set[i];
     }
@@ -9079,11 +9103,13 @@ void encoders () {
       else if (encoder_change >= -4 && encoder_change < 0) encoder_change = - 4;
     }
     long long tune_help1;
+
     if (bands[current_band].mode == DEMOD_WFM)
     { // hopefully tunes FM stations in 25kHz steps ;-)
       // 25000000 / 3 = 833333.3333f
       //
       tune_help1 = (long long)(833333.3333f * roundf((float32_t)encoder_change / 4.0));
+
     }
     else
     {
@@ -9161,9 +9187,7 @@ void encoders () {
       spectrum_brightness += encoder2_change / 4 * 10;
       if (spectrum_brightness > 255) spectrum_brightness = 255;
       if (spectrum_brightness < 10) spectrum_brightness = 10;
-#if defined(BACKLIGHT_PIN)
       analogWrite(BACKLIGHT_PIN, spectrum_brightness);
-#endif
     } //
     else if (Menu_pointer == MENU_SAMPLE_RATE)
     {
@@ -9198,8 +9222,12 @@ void encoders () {
         offsetDisplayDB = 100.0;
       else if (offsetDisplayDB < 0.0)
         offsetDisplayDB = 0;
-      //      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+
+#if defined(USE_W7PUA)
       bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
+#else
+      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
+#endif
       showSpectrumCorners();
     }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
@@ -9210,10 +9238,13 @@ void encoders () {
         currentScale = 4;
       else if (currentScale < 0)
         currentScale = 0;
-      //////
-      //      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
+
+#if defined(USE_W7PUA)
       bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
-      ///////
+#else
+      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
+#endif
+
 
       showSpectrumCorners();
     }
@@ -9410,9 +9441,15 @@ void encoders () {
     }
     else if (Menu2 == MENU_AGC_THRESH)
     {
+#if defined(USE_W7PUA)
       bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change / 4.0;
       if (bands[current_band].AGC_thresh < -20) bands[current_band].AGC_thresh = -20;
       else if (bands[current_band].AGC_thresh > 120) bands[current_band].AGC_thresh = 120;
+#else
+      agc_thresh = agc_thresh + encoder3_change / 4.0;
+      if (agc_thresh < -20) agc_thresh = -20;
+      else if (agc_thresh > 120) agc_thresh = 120;
+#endif
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_DECAY)
@@ -9725,8 +9762,8 @@ void clock_draw_marks(int hour)
 
   hour = hour * 30;
   hour = hour + 270;
-  float COS = cosf(hour * 0.0175f);
-  float SIN = sinf(hour * 0.0175f);
+  float COS = cosf(hour * 0.0175);
+  float SIN = sinf(hour * 0.0175);
   x1 = (clock_circle_size - 2) * COS;
   y1 = (clock_circle_size - 2) * SIN;
   x2 = (clock_circle_size - 6) * COS;
@@ -9754,8 +9791,8 @@ void clock_draw_second(int s)
     tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_BLACK);
   }
 
-  float COS = cosf(s * 0.0175f);
-  float SIN = sinf(s * 0.0175f);
+  float COS = cosf(s * 0.0175);
+  float SIN = sinf(s * 0.0175);
 
   x1 = (clock_circle_size - 7) * COS; // outer
   y1 = (clock_circle_size - 7) * SIN;
@@ -9780,8 +9817,8 @@ void clock_draw_minute (int m)
 
   tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_BLACK);
 
-  float COS = cosf(m * 0.0175f);
-  float SIN = sinf(m * 0.0175f);
+  float COS = cosf(m * 0.0175);
+  float SIN = sinf(m * 0.0175);
 
   x1 = (clock_circle_size - 6) * COS;
   y1 = (clock_circle_size - 6) * SIN;
@@ -9819,22 +9856,22 @@ void clock_draw_hour(int h, int m)
   tft.drawLine(x2 + pos_x_a_time, y2 + pos_y_a_time, x4 + pos_x_a_time, y4 + pos_y_a_time, ILI9341_BLACK);
   tft.drawLine(x4 + pos_x_a_time, y4 + pos_y_a_time, x1 + pos_x_a_time, y1 + pos_y_a_time, ILI9341_BLACK);
 
-  float COS = cosf(h * 0.0175f);
-  float SIN = sinf(h * 0.0175f);
+  float COS = cosf(h * 0.0175);
+  float SIN = sinf(h * 0.0175);
 
   x1 = (clock_circle_size - 10) * COS;
   y1 = (clock_circle_size - 10) * SIN;
   x2 = 2 * COS;
   y2 = 2 * SIN;
 
-  COS = cosf((h + 12) * 0.0175f);
-  SIN = sinf((h + 12) * 0.0175f);
+  COS = cosf((h + 12) * 0.0175);
+  SIN = sinf((h + 12) * 0.0175);
 
   x3 = 6 * COS;
   y3 = 6 * SIN;
 
-  COS = cosf((h - 12) * 0.0175f);
-  SIN = sinf((h - 12) * 0.0175f);
+  COS = cosf((h - 12) * 0.0175);
+  SIN = sinf((h - 12) * 0.0175);
 
   x4 = 6 * COS;
   y4 = 6 * SIN;
@@ -9850,7 +9887,8 @@ void displayDate() {
   tft.setTextColor(ILI9341_ORANGE);
   tft.setFont(Arial_12);
   tft.setCursor(pos_x_date, pos_y_date);
-  tft.printf("%s, %02d.%02d.%04d", Days[weekday() % 7], day(), month(), year());
+  //  Date: %s, %d.%d.20%d P:%d %d", Days[weekday-1], day, month, year
+  tft.printf("%s, %02d.%02d.%04d", Days[weekday()], day(), month(), year());
 } // end function displayDate
 
 void set_SAM_PLL() {
@@ -9869,13 +9907,14 @@ void set_SAM_PLL() {
   omega_max = TPI * pll_fmax * DF / SR[SAMPLE_RATE].rate;
   zeta = (float32_t)zeta_help / 100.0;
   g1 = 1.0 - expf(-2.0 * omegaN * zeta * DF / SR[SAMPLE_RATE].rate);
-  g2 = - g1 + 2.0 * (1 - expf(- omegaN * zeta * DF / SR[SAMPLE_RATE].rate) * cosf(omegaN * DF / SR[SAMPLE_RATE].rate * sqrtf(1.0 - zeta * zeta)));
+  g2 = - g1 + 2.0 * (1 - expf(- omegaN * zeta * DF / SR[SAMPLE_RATE].rate) * cosf(omegaN * DF / SR[SAMPLE_RATE].rate * __builtin_sqrtf(1.0f - zeta * zeta)));
 
   mtauR = expf(- DF / (SR[SAMPLE_RATE].rate * tauR));
   onem_mtauR = 1.0 - mtauR;
   mtauI = expf(- DF / (SR[SAMPLE_RATE].rate * tauI));
   onem_mtauI = 1.0 - mtauI;
 }
+
 
 #if defined(MP3)
 void playFileMP3(const char *filename)
@@ -9918,7 +9957,6 @@ void playFileAAC(const char *filename)
     displayClock();
   }
 }
-
 void nexttrack() {
 #ifdef DEBUG
   Serial.println("Next track!");
@@ -9977,8 +10015,8 @@ void printTrack () {
   tft.print (track);
   tft.print (" "); tft.print (playthis);
 } //end printTrack
-
 #endif //MP3
+
 
 void show_load() {
   if (five_sec.check() == 1)
@@ -10205,6 +10243,7 @@ void Calculatedbm()
 void Display_dbm()
 {
   //    static int dbm_old = (int)dbm;
+  static char dbm_txt[20];
   uint8_t display_something = 0;
   float32_t val_dbm = 0.0;
   const char* unit_label;
@@ -10226,11 +10265,11 @@ void Display_dbm()
   if ( abs(dbm - dbm_old) < 0.1) display_something = 0;
 
   if (display_something == 1)
-  {
-    /////////////////////////////////////////////////////////////////////////
-    tft.fillRect(pos_x_dbm, pos_y_dbm, 100, 16, ILI9341_BLACK);
-    // Added tenths of a dB and moved "dBm" right 10 oixels  <PUA>
+  { /////////////////////////////////////////////////////////////////////////
     tft.setFont(Arial_14);
+    tft.setCursor(pos_x_dbm, pos_y_dbm);
+    tft.setTextColor(ILI9341_BLACK);
+    tft.printf("%03.1f", dbm_old);
     tft.setCursor(pos_x_dbm, pos_y_dbm);
     tft.setTextColor(ILI9341_WHITE);
     tft.printf("%03.1f", val_dbm);
@@ -10346,6 +10385,7 @@ struct config_t {
   uint16_t crc;   // added when saving
 } E;
 
+
 void EEPROM_LOAD() { //mdrhere
   config_t E;
   if (loadFromEEPROM(&E) == true) {
@@ -10353,15 +10393,15 @@ void EEPROM_LOAD() { //mdrhere
     //printConfig_t(&E);  //for debugging
     calibration_factor = E.calibration_factor;
     calibration_constant = E.calibration_constant;
-    for (int i = 0; i < (NUM_BANDS); i++)
+    for (unsigned i = 0; i < (NUM_BANDS); i++)
       bands[i].freq = E.freq[i];
-    for (int i = 0; i < (NUM_BANDS); i++)
+    for (unsigned i = 0; i < (NUM_BANDS); i++)
       bands[i].mode = E.mode[i];
-    for (int i = 0; i < (NUM_BANDS); i++)
+    for (unsigned i = 0; i < (NUM_BANDS); i++)
       bands[i].FHiCut = E.bwu[i];
-    for (int i = 0; i < (NUM_BANDS); i++)
+    for (unsigned i = 0; i < (NUM_BANDS); i++)
       bands[i].FLoCut = E.bwl[i];
-    for (int i = 0; i < (NUM_BANDS); i++)
+    for (unsigned i = 0; i < (NUM_BANDS); i++)
       bands[i].RFgain = E.rfg[i];
     current_band = E.current_band;
     //I_help = E.I_ampl;
@@ -10402,21 +10442,73 @@ void EEPROM_LOAD() { //mdrhere
     gEEPROM_current = false;
   }
 }
+/*
+  void EEPROM_LOAD() {
+  eeprom_read_block(&E, 0, sizeof(E));
+  calibration_factor = E.calibration_factor;
+  calibration_constant = E.calibration_constant;
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
+    bands[i].freq = E.freq[i];
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
+    bands[i].mode = E.mode[i];
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
+    bands[i].FHiCut = E.bwu[i];
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
+    bands[i].FLoCut = E.bwl[i];
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
+    bands[i].RFgain = E.rfg[i];
+  current_band = E.current_band;
+  //I_help = E.I_ampl;
+  //Q_in_I_help = E.Q_in_I;
+  //I_in_Q_help = E.I_in_Q;
+  //Window_FFT = E.Window_FFT;
+  LPF_spectrum = E.LPFcoeff;
+  audio_volume = E.audio_volume;
+  AGC_mode = E.AGC_mode;
+  pll_fmax = E.pll_fmax;
+  omegaN = E.omegaN;
+  zeta_help = E.zeta_help;
+  zeta = (float32_t) zeta_help / 100.0;
+  SAMPLE_RATE = E.rate;
+  bass = E.bass;
+  treble = E.treble;
+  agc_thresh = E.agc_thresh;
+  agc_decay = E.agc_decay;
+  agc_slope = E.agc_slope;
+  auto_IQ_correction = E.auto_IQ_correction;
+  midbass = E.midbass;
+  mid = E.mid;
+  midtreble = E.midtreble;
+  RF_attenuation = E.RF_attenuation;
+  show_spectrum_flag = E.show_spectrum_flag;
+  stereo_factor = E.stereo_factor;
+  spectrum_display_scale = E.spectrum_display_scale;
+  spectrum_zoom = E.spectrum_zoom;
+  NR_use_X = E.NR_use_X;
+  //  NR_L_frames = E.NR_L_frames;
+  //  NR_N_frames = E.NR_N_frames;
+  NR_PSI = E.NR_PSI;
+  NR_alpha = E.NR_alpha;
+  NR_beta = E.NR_beta;
+  offsetDisplayDB = E.offsetDisplayDB;
+  currentScale = E.currentScale;
+  } // end void eeProm LOAD
+*/
 
 void EEPROM_SAVE() {
   config_t E;
   E.calibration_factor = calibration_factor;
   E.current_band = current_band;
   E.calibration_constant = calibration_constant;
-  for (int i = 0; i < (NUM_BANDS); i++)
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
     E.freq[i] = bands[i].freq;
-  for (int i = 0; i < (NUM_BANDS); i++)
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
     E.mode[i] = bands[i].mode;
-  for (int i = 0; i < (NUM_BANDS); i++)
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
     E.bwu[i] = bands[i].FHiCut;
-  for (int i = 0; i < (NUM_BANDS); i++)
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
     E.bwl[i] = bands[i].FLoCut;
-  for (int i = 0; i < (NUM_BANDS); i++)
+  for (unsigned i = 0; i < (NUM_BANDS); i++)
     E.rfg[i] = bands[i].RFgain;
   //      E.I_ampl = I_help;
   //      E.Q_in_I = Q_in_I_help;
@@ -10506,6 +10598,7 @@ boolean saveInEEPROM(struct config_t *pd) {
   int byteswritten = 0;
   uint8_t thecrc = 0;
   boolean errors = false;
+
   unsigned int t;
   for (t = 0; t < (sizeof(config_t) - 2); t++) { // writes to EEPROM
     thecrc = _crc_ibutton_update(thecrc, *((unsigned char*)pd + t) );
@@ -10611,7 +10704,6 @@ void reset_codec ()
 
 void setAttenuator(int value)
 {
-#if defined(ATT_LE)
   // bit-banging of the digital step attenuator chip PE4306
   // allows 0 to 31dB RF attenuation in 1dB steps
   // inspired by https://github.com/jefftranter/Arduino/blob/master/pe4306/pe4306.ino
@@ -10641,7 +10733,6 @@ void setAttenuator(int value)
   }
   digitalWrite(ATT_LE, HIGH); // Toggle LE high to enable latch
   digitalWrite(ATT_LE, LOW);  // and then low again to hold it.
-#endif
 }
 
 void show_analog_gain()
@@ -10853,18 +10944,12 @@ float deemphasis_wfm_ff (float* input, float* output, int input_size, int sample
 #define NB_FFT_SIZE FFT_length/2
 void noiseblanker(float32_t* inputsamples, float32_t* outputsamples )
 {
-
   float32_t* Energy = 0;
-
-
-
   alt_noise_blanking(inputsamples, NB_FFT_SIZE, Energy);
-
   for (unsigned k = 0; k < NB_FFT_SIZE;  k++)
   {
     outputsamples[k] = inputsamples[k];
   }
-
 }
 
 
@@ -10957,7 +11042,6 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
   {
     for (int i = 0; i < 128; i++)
       //                insamp[i]=NR_test_sinus_samp[i];
-
       if ((frame_count > 19) && (nr_setting > 11))    // insert a distorting pulse
       {
         dist_level = nr_setting - 10;
@@ -10966,12 +11050,7 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
         insamp[25] = insamp[25] + dist_level * 500;
         insamp[26] = insamp[26] - dist_level * 200; // overlaying a short  distortion pulse +/-
         insamp[27] = insamp[27] - dist_level * 100;
-
-
       }
-
-
-
   }
 
 
@@ -10996,7 +11075,6 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
     arm_dot_prod_f32(&insamp[0], &insamp[i], Nsam - i, &R[i]); // R is carrying the crosscorrelations
   }
   // end of autocorrelation
-
   //Serial.println("Noise Blanker working");
 
   //alternative levinson durben algorithm to calculate the lpc coefficients from the crosscorrelation
@@ -11037,10 +11115,8 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
   arm_fir_f32(&LPC, insamp, tempsamp, Nsam); //do the inverse filtering to eliminate voice and enhance the impulses
   arm_fir_init_f32(&LPC, order + 1, &lpcs[0], &firStateF32[0], NB_FFT_SIZE);                                   // we are using the same function as used in freedv
   arm_fir_f32(&LPC, tempsamp, tempsamp, Nsam); // do a matched filtering to detect an impulse in our now voiceless signal
-
   arm_var_f32(tempsamp, NB_FFT_SIZE, &sigma2); //calculate sigma2 of the original signal ? or tempsignal
   arm_power_f32(lpcs, order, &lpc_power); // calculate the sum of the squares (the "power") of the lpc's
-
   impulse_threshold = NB_thresh * sqrtf(sigma2 * lpc_power);  //set a detection level (3 is not really a final setting)
 
   //if ((nr_setting > 20) && (nr_setting <51))
@@ -11091,8 +11167,6 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
 
       Rbw[impulse_length + k] = insamp[impulse_positions[j] + PL + k + 1];
 
-
-
     }     //bis hier alles ok
 
     for (int i = 0; i < impulse_length; i++) //now we calculate the forward and backward predictions
@@ -11122,7 +11196,6 @@ void alt_noise_blanking(float* insamp, int Nsam, float* E )
 #else
     //finally add the two weighted predictions and insert them into the original signal - thereby eliminating the distortion
     arm_add_f32(&Rfw[order], &Rbw[0], &insamp[impulse_positions[j] - PL], impulse_length);
-
 #endif
   }
 
@@ -11245,10 +11318,10 @@ SSB_AUTOTUNE_ccor(int n, float32_t* dat, float32_t* FFT_buffer)
 /*  float w[];           Data Window (raised cosine)   */
 /*  float xr[], xi[];    Real & Imag data vectors      */
 {
-  // int idx;
+  int idx;
 
   /*  Windowed data -> real vector, zeros -> imag vector */
-  for (int idx = 0; idx < n; idx++)
+  for (idx = 0; idx < n; idx++)
   {
 
     FFT_buffer[]
@@ -11271,7 +11344,7 @@ SSB_AUTOTUNE_ccor(int n, float32_t* dat, float32_t* FFT_buffer)
   //xr[1]=0.0;
   //xr[]
   xi[1] = 0.0;
-  for (int idx = 2; idx < n; idx = idx + 2)
+  for (idx = 2; idx < n; idx = idx + 2)
   {
     xr[idx]   = sqrtf(xr[idx] * xr[idx] + xi[idx] * xi[idx]);
     xi[idx]   = 0.0;
@@ -11300,7 +11373,6 @@ void SSB_AUTOTUNE_est(int n, float xr[], float xi[], float smpfrq,
 /*  pitch;        Estimated speaker pitch                         */
 /*  shift;        One possible frequency shift                    */
 {
-  float pi = 3.14159265358979;
   float lolim, hilim; /* low, high limits for speaker_pitch search range */
   int lidx, hidx; /* low, high index limits for tau search range */
   float temp;
@@ -11318,9 +11390,9 @@ void SSB_AUTOTUNE_est(int n, float xr[], float xi[], float smpfrq,
   if (lidx < 4)lidx = 4;
   hidx = smpfrq / lolim;
   if (hidx > n / 2 - 2)hidx = n / 2 - 2;
-  *ppeak = 0.;
+  *ppeak = 0.0f;
   idpk = 4; /*  2-18-98  */
-  for (int idx = lidx; idx <= hidx; idx++)
+  for (idx = lidx; idx <= hidx; idx++)
   {
     temp = xr[idx] * xr[idx] + xi[idx] * xi[idx];
     if (*ppeak < temp)
@@ -11332,36 +11404,36 @@ void SSB_AUTOTUNE_est(int n, float xr[], float xi[], float smpfrq,
   /* Find quadratic-interpolation peak */
   bsq = xr[idpk - 1] * xr[idpk - 1] + xi[idpk - 1] * xi[idpk - 1];
   usq = xr[idpk + 1] * xr[idpk + 1] + xi[idpk + 1] * xi[idpk + 1];
-  x = 1.;
+  x = 1.0f;
   if (*ppeak > usq)
-    x = 0.;
+    x = 0.0f;
   if (bsq >= *ppeak)
-    x = -1.;
-  if (x == 0.)
-    x = 0.5 * (usq - bsq) / (2.* *ppeak - bsq - usq);
+    x = -1.0f;
+  if (x == 0.0f)
+    x = 0.5f * (usq - bsq) / (2.0f * *ppeak - bsq - usq);
   tau = idpk + x;
   *ppitch = smpfrq / tau;
   /* Interpolate real and imag parts */
-  cf1 = 0.5 * (xr[idpk + 1] - xr[idpk - 1]);
-  cf2 = 0.5 * (xr[idpk - 1] + xr[idpk + 1]) - xr[idpk];
+  cf1 = 0.5f * (xr[idpk + 1] - xr[idpk - 1]);
+  cf2 = 0.5f * (xr[idpk - 1] + xr[idpk + 1]) - xr[idpk];
   partr = xr[idpk] + x * (cf1 + x * cf2);
-  cf1 = 0.5 * (xi[idpk + 1] - xi[idpk - 1]);
-  cf2 = 0.5 * (xi[idpk - 1] + xi[idpk + 1]) - xi[idpk];
+  cf1 = 0.5f * (xi[idpk + 1] - xi[idpk - 1]);
+  cf2 = 0.5f * (xi[idpk - 1] + xi[idpk + 1]) - xi[idpk];
   parti = xi[idpk] + x * (cf1 + x * cf2);
   *ppeak = partr * partr + parti * parti;
   /* calculate 4-quadrant arctangent (-pi/2 to 3pi/2) */
-  if (partr > 0.)
+  if (partr > 0.0f)
     angl = atanf(parti / partr);
-  if (partr == 0.)
+  else if (partr < 0.0f)
+    angl = PI - atanf(-parti / partr);
+  else
   {
-    if (parti >= 0.)
-      angl = 0.5 * pi;
+    if (parti >= 0.0f)
+      angl = 0.5f * PI;
     else
-      angl = -0.5 * pi;
+      angl = -0.5f * PI;
   }
-  if (partr < 0.)
-    angl = pi - atanf(-parti / partr);
-  *pshift = *ppitch * angl / (2.*pi);
+  *pshift = *ppitch * angl / (2.0f * PI);
 }
 
 
@@ -11406,7 +11478,7 @@ void SSB_AUTOTUNE_srchist(int nbins, float bins[], float thresh,
       }
     }
   }
-  *pctr = minlow + *pminwid * 0.5;
+  *pctr = minlow + *pminwid * 0.5f;
 }
 
 
@@ -11430,10 +11502,10 @@ void SSB_AUTOTUNE_inchist(int nbins, float bins[],
   float fidx;  /*  Floating point histogram index  */
   int   idx;   /*  Integer histogram index         */
 
-  if (hpitch >= 1.0  && 0.0 <= hshift && hshift < nbins && incr > 0.0)
+  if (hpitch >= 1.0f  && 0.0f <= hshift && hshift < nbins && incr > 0.0f)
   {
     fidx = hshift;
-    while (fidx >= 0.0)
+    while (fidx >= 0.0f)
     {
       idx = fidx;
       bins[idx] = bins[idx] + incr;
@@ -11486,10 +11558,10 @@ void spectral_noise_reduction (void)
   //static float32_t xih1r; //=-0.969346; // xih1r=1/(1+xih1)-1;
   ax = expf(-tinc / tax);
   ap = expf(-tinc / tap);
-  xih1 = powf(10, (float32_t)asnr / 10.0);
-  static float32_t xih1r = 1.0 / (1.0 + xih1) - 1.0;
-  static float32_t pfac = (1.0 / pspri - 1.0) * (1.0 + xih1);
-  float32_t snr_prio_min = powf(10, - (float32_t)20 / 20.0);
+  xih1 = powf(10, (float32_t)asnr / 10.0f);
+  static float32_t xih1r = 1.0f / (1.0f + xih1) - 1.0f;
+  static float32_t pfac = (1.0f / pspri - 1.0f) * (1.0f + xih1);
+  float32_t snr_prio_min = powf(10, - (float32_t)20 / 20.0f);
   //static float32_t pfac; //=32.6;  // pfac=(1/pspri-1)*(1+xih1); % p(noise)/p(speech)
   static float32_t pslp[NR_FFT_L / 2];
   static float32_t xt[NR_FFT_L / 2];
@@ -11677,9 +11749,9 @@ void spectral_noise_reduction (void)
 
       for (int bindx = VAD_low; bindx < VAD_high; bindx++) // maybe we should limit this to the signal containing bins (filtering!!)
       {
-        float32_t v = NR_SNR_prio[bindx] * NR_SNR_post[bindx] / (1.0 + NR_SNR_prio[bindx]);
+        float32_t v = NR_SNR_prio[bindx] * NR_SNR_post[bindx] / (1.0f + NR_SNR_prio[bindx]);
 
-        NR_G[bindx] = 1.0 / NR_SNR_post[bindx] * sqrtf((0.7212 * v + v * v));
+        NR_G[bindx] = 1.0f / NR_SNR_post[bindx] * __builtin_sqrtf((0.7212f * v + v * v));
 
         NR_Hk_old[bindx] = NR_SNR_post[bindx] * NR_G[bindx] * NR_G[bindx]; //
       }
@@ -11703,7 +11775,7 @@ void spectral_noise_reduction (void)
       }
       else
       {
-        NN = 1 + 2 * (int)(0.5 + NR_width * (1.0 - power_ratio / power_threshold));
+        NN = 1 + 2 * (int)(0.5f + NR_width * (1.0f - power_ratio / power_threshold));
       }
 
       for (int bindx = VAD_low + NN / 2; bindx < VAD_high - NN / 2; bindx++)
@@ -11867,6 +11939,54 @@ void Init_LMS_NR ()
   // use "canned" init to initialize the filter coefficients
   arm_lms_norm_init_f32(&LMS_Norm_instance, calc_taps, &LMS_NormCoeff_f32[0], &LMS_StateF32[0], mu_calc, 256);
 
+}
+
+PROGMEM
+void flexRamInfo(void)
+{
+#if defined(__IMXRT1052__) || defined(__IMXRT1062__)
+  int itcm = 0;
+  int dtcm = 0;
+  int ocram = 0;
+  Serial.print("FlexRAM-Banks: [");
+  for (int i = 15; i >= 0; i--) {
+    switch ((IOMUXC_GPR_GPR17 >> (i * 2)) & 0b11) {
+      case 0b00: Serial.print("."); break;
+      case 0b01: Serial.print("O"); ocram++; break;
+      case 0b10: Serial.print("D"); dtcm++; break;
+      case 0b11: Serial.print("I"); itcm++; break;
+    }
+  }
+  Serial.print("] ITCM: ");
+  Serial.print(itcm * 32);
+  Serial.print(" KB, DTCM: ");
+  Serial.print(dtcm * 32);
+  Serial.print(" KB, OCRAM: ");
+  Serial.print(ocram * 32);
+#if defined(__IMXRT1062__)
+  Serial.print("(+512)");
+#endif
+  Serial.println(" KB");
+  extern unsigned long _stext;
+  extern unsigned long _etext;
+  extern unsigned long _sdata;
+  extern unsigned long _ebss;
+  extern unsigned long _flashimagelen;
+  extern unsigned long _heap_start;
+
+  Serial.print("MEM (static usage): ITCM:");
+  Serial.print((unsigned)&_etext - (unsigned)&_stext);
+  Serial.print(", DTCM:");
+  Serial.print((unsigned)&_ebss - (unsigned)&_sdata);
+  Serial.print("(");
+  Serial.print(dtcm * 32768 - ((unsigned)&_ebss - (unsigned)&_sdata));
+  Serial.print(" Bytes free)");
+  Serial.print(", OCRAM:");
+  Serial.print((unsigned)&_heap_start - 0x20200000);
+  Serial.print(", Flash:");
+  Serial.println((unsigned)&_flashimagelen);
+  Serial.println();
+#endif
 }
 
 /**
