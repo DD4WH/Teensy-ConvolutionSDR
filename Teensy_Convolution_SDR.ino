@@ -239,9 +239,8 @@ time_t getTeensy3Time()
 #define AM_SPACING_EU  1
 
 unsigned long long calibration_factor = 1000000000 ;// 10002285;
-//long calibration_constant = 0;
-// this is for the Joris PCB !
-long calibration_constant = 108000; // this is for the Elektor PCB !
+long calibration_constant = 0;// this is for the Joris PCB !
+//long calibration_constant = 108000; // this is for the Elektor PCB !
 unsigned long long hilfsf = 1000000000;
 
 #ifdef HARDWARE_DO7JBH
@@ -6388,9 +6387,11 @@ void calc_256_magn()
   {
     FFT_spec_old[x] = FFT_spec[x];    //<< ANYBODY NEED?
 #ifdef USE_LOG10FAST
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
+    //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));   
 #else
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
+    //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
 #endif
     // Here -6 is about the bottom of the display and +74 is the top.  It can go 10 higher and still display.
     if (pixelnew[x] < -6)
@@ -6472,9 +6473,11 @@ void calc_256_magn()
     //    spec_help = 10.0 * log10f(spec_help + 1.0);
     //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
 #ifdef USE_LOG10FAST
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
 #else
-    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
 #endif
   }
 } // end calc_256_magn
@@ -11750,9 +11753,7 @@ void spectral_noise_reduction (void)
       for (int bindx = VAD_low; bindx < VAD_high; bindx++) // maybe we should limit this to the signal containing bins (filtering!!)
       {
         float32_t v = NR_SNR_prio[bindx] * NR_SNR_post[bindx] / (1.0f + NR_SNR_prio[bindx]);
-
         NR_G[bindx] = 1.0f / NR_SNR_post[bindx] * __builtin_sqrtf((0.7212f * v + v * v));
-
         NR_Hk_old[bindx] = NR_SNR_post[bindx] * NR_G[bindx] * NR_G[bindx]; //
       }
 
@@ -11899,10 +11900,7 @@ void LMS_NoiseReduction(int16_t blockSize, float32_t *nrbuffer)
   static ulong    lms1_inbuf = 0, lms1_outbuf = 0;
 
   arm_copy_f32(nrbuffer, &LMS_nr_delay[lms1_inbuf], blockSize);  // put new data into the delay buffer
-  //
   arm_lms_norm_f32(&LMS_Norm_instance, nrbuffer, &LMS_nr_delay[lms1_outbuf], nrbuffer, LMS_errsig1, blockSize);  // do noise reduction
-  //
-  //
   lms1_inbuf += blockSize;  // bump input to the next location in our de-correlation buffer
   lms1_outbuf = lms1_inbuf + blockSize; // advance output to same distance ahead of input
   lms1_inbuf %= 512;
