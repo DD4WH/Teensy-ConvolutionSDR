@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_04_28
+   (c) Frank DD4WH 2019_05_08
 
    "TEENSY CONVOLUTION SDR"
 
@@ -93,8 +93,10 @@
    - integrated automatic crc check on eePROM load and save (by Mike / bicycleguy, thanks!) - no more need to uncomment/comment during first time use of the software
    - added support for Bob Larkins RF Octave frontend filters http://www.janbob.com/electron/FilterBP1/FiltBP1.html
    - bugfix: only use local loop variables
+   - bugfix: software now usable on different hardware versions: DO7JBH, DD4WH
 
    TODO:
+   - get this software to run on the T4 with software switches, so we can use ONE software for T3.6 AND T4.0 
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
@@ -146,14 +148,17 @@
 
  ************************************************************************************************************************************/
 
+/*  If you use the hardware made by Frank DD4WH uncomment the next line */
+#define HARDWARE_DD4WH
+
 /*  If you use the hardware made by FrankB uncomment the next line */
-#define HARDWARE_FRANKB
+//#define HARDWARE_FRANKB
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
 //#define HARDWARE_DO7JBH
 
 /* only for debugging */
-//#define DEBUG
+#define DEBUG
 
 /*  this prints out the ADC and DAC levels when NOT in SAM mode, primarily for debugging hardware
     recommendation: leave this commented */
@@ -379,10 +384,11 @@ const uint8_t Band1 = 26; // band selection pins for LPF relays, used with 2N700
 const uint8_t Band2 = 27; // always use only one LPF with HIGH, all others have to be LOW
 // not used
 const uint8_t Band3 = 30;
-const uint8_t Band4 = 29; // 29: > 5.4MHz
+const uint8_t Band4 = 57; // 29: > 5.4MHz
 const uint8_t Band5 = 26; // LW
-#elif defined(HARDWARE_FRANKB)
-#else
+#endif
+
+#ifdef HARDWARE_DD4WH
 const uint8_t Band1 = 31; // band selection pins for LPF relays, used with 2N7000: HIGH means LPF is activated
 const uint8_t Band2 = 30; // always use only one LPF with HIGH, all others have to be LOW
 const uint8_t Band3 = 27;
@@ -392,6 +398,8 @@ const uint8_t Band5 = 26; // LW
 
 #ifdef USE_BOBS_FILTER
 const uint8_t Band_3M5_7M3 =    31;
+const uint8_t Band_7M3_15M =    28;
+const uint8_t Band_15M_30M =    29;
 #endif
 
 // this audio comes from the codec by I2S2
@@ -630,7 +638,7 @@ struct band {
 #define WFM_BAND 3
 
 struct band bands[NUM_BANDS] = {
-  7750000,    1200000,   14000000, "VLF", DEMOD_SAM, 3600, -3600, 0, MISC_BAND,      6.0,     30,    2,
+  7700000,    1200000,   14000000, "VLF", DEMOD_USB, 800, 100, 0, MISC_BAND,      6.0,     30,    2,
   22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,     30,    2,
   100000000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,     30,    2,
   185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,     30,    2,
@@ -651,7 +659,7 @@ struct band bands[NUM_BANDS] = {
   2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
   2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
   2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
-  3500800000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    2
+  3500807200, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    2
 };
 
 //
@@ -2295,13 +2303,11 @@ void setup() {
   pinMode(BUTTON_7_PIN, INPUT_PULLUP);
   pinMode(BUTTON_8_PIN, INPUT_PULLUP);
 #endif
-#if defined(Band1)
+
   pinMode(Band1, OUTPUT);  // LPF switches
-#endif
-#if defined(Band2)
   pinMode(Band2, OUTPUT);  //
-#endif
-#if !defined(HARDWARE_DO7JBH) && !defined(HARDWARE_FRANKB)
+
+#ifdef HARDWARE_DD4WH
   pinMode(Band3, OUTPUT);  //
   pinMode(Band4, OUTPUT);  //
   pinMode(Band5, OUTPUT);  //
@@ -2312,6 +2318,8 @@ void setup() {
 
 #ifdef USE_BOBS_FILTER
   pinMode(Band_3M5_7M3, OUTPUT);
+  pinMode(Band_7M3_15M, OUTPUT);
+  pinMode(Band_15M_30M, OUTPUT);
 #endif
 
   // *******  Init latching relays <PUA>   ********
@@ -2327,8 +2335,12 @@ void setup() {
 #ifdef USE_BOBS_FILTER
   // *******  Init latching relays <PUA>   ********
   digitalWrite (Band_3M5_7M3, HIGH);
+  digitalWrite (Band_7M3_15M, HIGH);
+  digitalWrite (Band_15M_30M, HIGH);
   delay(2000);
   digitalWrite (Band_3M5_7M3, LOW);
+  digitalWrite (Band_7M3_15M, LOW);
+  digitalWrite (Band_15M_30M, LOW);
   //  delay(2000);
   //  digitalWrite (Band_3M5_7M3, HIGH);
   delay(100);
@@ -2519,22 +2531,22 @@ void setup() {
   calc_FIR_coeffs (FIR_dec1_coeffs, n_dec1_taps, (float32_t)(n_desired_BW * 1000.0), n_att, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
   if (arm_fir_decimate_init_f32(&FIR_dec1_I, n_dec1_taps, (uint32_t)DF1 , FIR_dec1_coeffs, FIR_dec1_I_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
   if (arm_fir_decimate_init_f32(&FIR_dec1_Q, n_dec1_taps, (uint32_t)DF1, FIR_dec1_coeffs, FIR_dec1_Q_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
 
   // Decimation filter 2, M2 = DF2
   calc_FIR_coeffs (FIR_dec2_coeffs, n_dec2_taps, (float32_t)(n_desired_BW * 1000.0), n_att, 0, 0.0, (float32_t)(SR[SAMPLE_RATE].rate / DF1));
   if (arm_fir_decimate_init_f32(&FIR_dec2_I, n_dec2_taps, (uint32_t)DF2, FIR_dec2_coeffs, FIR_dec2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
   if (arm_fir_decimate_init_f32(&FIR_dec2_Q, n_dec2_taps, (uint32_t)DF2, FIR_dec2_coeffs, FIR_dec2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
 
   // Interpolation filter 1, L1 = 2
@@ -2546,12 +2558,12 @@ void setup() {
   //    if(arm_fir_interpolate_init_f32(&FIR_int1_I, (uint32_t)DF2, 16, FIR_int1_coeffs, FIR_int1_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
   if (arm_fir_interpolate_init_f32(&FIR_int1_I, (uint8_t)DF2, 48, FIR_int1_coeffs, FIR_int1_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while(1);
   }
   //    if(arm_fir_interpolate_init_f32(&FIR_int1_Q, (uint32_t)DF2, 16, FIR_int1_coeffs, FIR_int1_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
   if (arm_fir_interpolate_init_f32(&FIR_int1_Q, (uint8_t)DF2, 48, FIR_int1_coeffs, FIR_int1_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while(1);
   }
 
   // Interpolation filter 2, L2 = 4
@@ -2564,12 +2576,12 @@ void setup() {
   //    if(arm_fir_interpolate_init_f32(&FIR_int2_I, (uint32_t)DF1, 16, FIR_int2_coeffs, FIR_int2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
   if (arm_fir_interpolate_init_f32(&FIR_int2_I, (uint8_t)DF1, 32, FIR_int2_coeffs, FIR_int2_I_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while(1);
   }
   //    if(arm_fir_interpolate_init_f32(&FIR_int2_Q, (uint32_t)DF1, 16, FIR_int2_coeffs, FIR_int2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
   if (arm_fir_interpolate_init_f32(&FIR_int2_Q, (uint8_t)DF1, 32, FIR_int2_coeffs, FIR_int2_Q_state, BUFFER_SIZE * N_BLOCKS / (uint32_t)DF1)) {
     Serial.println("Init of interpolation failed");
-    abort();
+    while(1);
   }
 
 #ifdef USE_WFM_FILTER
@@ -2611,13 +2623,13 @@ void setup() {
   //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
   if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
   // same coefficients, but specific state variables
   //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
   if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
     Serial.println("Init of decimation failed");
-    abort();
+    while(1);
   }
 
   IIR_biquad_Zoom_FFT_I.numStages = IIR_biquad_Zoom_FFT_N_stages; // set number of stages
@@ -3387,8 +3399,8 @@ void loop() {
           {
             twinpeaks_counter++;
             if (twinpeaks_counter >= 200)
-            {
-              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 17, 50, 28, ILI9341_BLACK);
+            { // delete IQ test message
+              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 58, 31, ILI9341_BLACK);
               twinpeaks_tested = 1;
             }
           }
@@ -3401,7 +3413,7 @@ void loop() {
             if (twinpeaks_counter == 1)
             {
               tft.fillRect(spectrum_x + 256 + 3, pos_y_time + 18, 49, 28, ILI9341_RED);
-              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 258, 30, ILI9341_MAROON);
+              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 258, 31, ILI9341_MAROON);
               tft.setCursor(spectrum_x + 256 + 6, pos_y_time + 19);
               tft.setFont(Arial_12);
               tft.setTextColor(ILI9341_WHITE);
@@ -3506,8 +3518,8 @@ void loop() {
                 Serial.println("Tried four times to reset your codec, but still IQ balance is very bad - hardware error ???");
 #endif
                 twinpeaks_tested = 3;
-                tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_RED);
-                tft.setCursor(pos_x_time + 55, pos_y_time + 22 + 14);
+                tft.fillRect(spectrum_x + 256 + 3, pos_y_time + 18, 49, 28, ILI9341_RED);
+                tft.setCursor(pos_x_time + 42, pos_y_time + 22);
                 tft.setFont(Arial_12);
                 tft.print("reset!");
               }
@@ -3519,8 +3531,8 @@ void loop() {
 #ifdef DEBUG
               Serial.println("IQ phase balance is OK, so enjoy radio reception !");
 #endif
-              tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_NAVY);
-              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_MAROON);
+              tft.fillRect(spectrum_x + 256 + 3, pos_y_time + 18, 49, 28, ILI9341_NAVY);
+              tft.drawRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 258, 31, ILI9341_MAROON);
               tft.setCursor(spectrum_x + 256 + 6, pos_y_time + 22);
               tft.setFont(Arial_12);
               tft.setTextColor(ILI9341_WHITE);
@@ -3831,25 +3843,27 @@ void loop() {
       //    if (flagg == 1)
 #ifdef DEBUG
       {
-        flagg = 0;
-        float32_t sample_min = 0.0;
-        float32_t sample_max = 0.0;
-        float32_t sample_mean = 0.0;
-        uint32_t min_index, max_index;
-        arm_mean_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_mean);
-        arm_max_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_max, &max_index);
-        arm_min_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_min, &min_index);
-
-        Serial.print("NACH DECIMATION: ");
-        Serial.print("Sample min: "); Serial.println(sample_min);
-        Serial.print("Sample max: "); Serial.println(sample_max);
-        Serial.print("Max index: "); Serial.println(max_index);
-
-        Serial.print("Sample mean: "); Serial.println(sample_mean);
-        //    Serial.print("FFT_length: "); Serial.println(FFT_length);
-        //    Serial.print("N_BLOCKS: "); Serial.println(N_BLOCKS);
-        //Serial.println(BUFFER_SIZE * N_BLOCKS / 8);
-
+        if(0)
+        {
+          flagg = 0;
+          float32_t sample_min = 0.0;
+          float32_t sample_max = 0.0;
+          float32_t sample_mean = 0.0;
+          uint32_t min_index, max_index;
+          arm_mean_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_mean);
+          arm_max_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_max, &max_index);
+          arm_min_f32(float_buffer_L, BUFFER_SIZE * N_BLOCKS / 8, &sample_min, &min_index);
+  
+          Serial.print("NACH DECIMATION: ");
+          Serial.print("Sample min: "); Serial.println(sample_min);
+          Serial.print("Sample max: "); Serial.println(sample_max);
+          Serial.print("Max index: "); Serial.println(max_index);
+  
+          Serial.print("Sample mean: "); Serial.println(sample_mean);
+          //    Serial.print("FFT_length: "); Serial.println(FFT_length);
+          //    Serial.print("N_BLOCKS: "); Serial.println(N_BLOCKS);
+          //Serial.println(BUFFER_SIZE * N_BLOCKS / 8);
+        }
       }
 #endif
       /**********************************************************************************
@@ -6221,10 +6235,10 @@ void Zoom_FFT_exe (uint32_t blockSize)
       // pixelnew[x] = DISPLAY_OFFSET_PIXELS + (int16_t)(spectrum_display_scale*10.0*log10f(FFT_spec[x])); <PUA>
 #ifdef USE_LOG10FAST
       //      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
-      pixelnew[x] = bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
+      pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
 #else
       //      pixelnew[x] = offsetPixels + (int16_t)(displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
-      pixelnew[x] = bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
+      pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
 #endif
       if (pixelnew[x] > 220)   pixelnew[x] = 220;
     }
@@ -6371,10 +6385,10 @@ void calc_256_magn()
     FFT_spec_old[x] = FFT_spec[x];    //<< ANYBODY NEED?
 #ifdef USE_LOG10FAST
     //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(FFT_spec[x]));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
 #else
     //       pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(FFT_spec[x]));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(FFT_spec[x]));
 #endif
 
     // Here -6 is about the bottom of the display and +74 is the top.  It can go 10 higher and still display.
@@ -6458,10 +6472,10 @@ void calc_256_magn()
     //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
 #ifdef USE_LOG10FAST
     //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
 #else
     //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
-    pixelnew[x] = bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
 #endif
 
   }
@@ -7060,7 +7074,8 @@ void showSpectrumCorners(void)
   tft.setTextColor(ILI9341_WHITE);
   tft.setFont(Arial_8);
   //tft.print(display_offset);
-  tft.printf("%4.1f", offsetDisplayDB);
+//  tft.printf("%4.1f", offsetDisplayDB);
+  tft.printf("%4d", bands[current_band].pixel_offset);
 }
 
 void FrequencyBarText()
@@ -7479,7 +7494,7 @@ void set_IIR_coeffs (float32_t f0, float32_t Q, float32_t sample_rate, uint8_t f
 
 }
 
-int ExtractDigit(long int n, int k) {
+int ExtractDigit(unsigned long long int n, int k) {
   switch (k) {
     case 0: return n % 10;
     case 1: return n / 10 % 10;
@@ -7507,7 +7522,7 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
   {
     // old undersampling 5 times MODE, now switched to 3 times undersampling
     //        freq = freq * 5 + 1.25 * SR[SAMPLE_RATE].rate; // undersampling of f/5 and correction, because no IF is used in WFM mode
-    freq = freq * 3 + 0.75 * SR[SAMPLE_RATE].rate; // undersampling of f/3 and correction, because no IF is used in WFM mode
+    freq = freq * 3 + 0.75 * (unsigned long long)SR[SAMPLE_RATE].rate; // undersampling of f/3 and correction, because no IF is used in WFM mode
     erase_flag = 1;
   }
   if (text_size == 0) // small SAM carrier display
@@ -7624,23 +7639,68 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
 
 } // END VOID SHOW-FREQUENCY
 
-void setfreq () {
-  // Changes for Bobs Octave Filters:  18 March 2018  W7PUA <<<<<<
-  // http://www.janbob.com/electron/FilterBP1/FiltBP1.html
-  static int16_t lastFilter;
-  static int16_t currentFilter;
+void switch_RF_filters()
+{
+//#elif defined(Band1) && defined(Band2) && defined(Band3) && defined(Band4) && defined(Band5)
+#ifdef HARDWARE_DD4WH
+  // LPF switching follows here
+  // Five filter banks there:
+  // longwave LPF 295kHz, mediumwave I LPF 955kHz, mediumwave II LPF 2MHz, tropical bands LPF 5.4MHz, others LPF LPF 30MHz
+  // LW: Band5
+  // MW: Band3 (up to 955kHz)
+  // MW: Band1 (up tp 1996kHz)
+  // SW: Band2 (up to 5400kHz)
+  // SW: Band4 (up up up)
+  //
+  // LOWPASS 955KHZ
+  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 955001 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 300001 * SI5351_FREQ_MULT)) {
+    digitalWrite (Band3, HIGH); 
+#ifdef DEBUG
+    Serial.println ("Band3: 300kHz bis 955kHz");
+#endif    
+    digitalWrite (Band1, LOW); digitalWrite (Band2, LOW); digitalWrite (Band4, LOW); digitalWrite (Band5, LOW);
+  } // end if
 
-  // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
-  //   hilfsf = (bands[current_band].freq +  IF_FREQ) * 10000000 * MASTER_CLK_MULT * SI5351_FREQ_MULT;
-  hilfsf = (bands[current_band].freq +  IF_FREQ * SI5351_FREQ_MULT) * 1000000000 * MASTER_CLK_MULT; // SI5351_FREQ_MULT is 100ULL;
-  hilfsf = hilfsf / calibration_factor;
-  si5351.set_freq(hilfsf, Si_5351_clock);
-  if (bands[current_band].mode == DEMOD_AUTOTUNE)
-  {
-    autotune_flag = 1;
+  // LOWPASS 2MHZ
+  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 955000 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 1996001 * SI5351_FREQ_MULT)) {
+    digitalWrite (Band1, HIGH);//Serial.println ("Band1");
+#ifdef DEBUG
+    Serial.println ("Band1: 955kHz bis 1996kHz");
+#endif    
+    digitalWrite (Band5, LOW); digitalWrite (Band3, LOW); digitalWrite (Band4, LOW); digitalWrite (Band2, LOW);
+  } // end if
+
+  //LOWPASS 5.4MHZ
+  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 1996000 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 5400001 * SI5351_FREQ_MULT)) {
+    digitalWrite (Band2, HIGH);//Serial.println ("Band2");
+    digitalWrite (Band4, LOW); digitalWrite (Band3, LOW); digitalWrite (Band1, LOW); digitalWrite (Band5, LOW);
+#ifdef DEBUG
+    Serial.println ("Band2: 1996kHz bis 5.4MHz");
+#endif    
+  } // end if
+
+  // LOWPASS 30MHZ --> OK
+  if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 5400000 * SI5351_FREQ_MULT) {
+    // && ((bands[current_band].freq + IF_FREQ) < 12500001)) {
+    digitalWrite (Band4, HIGH);//Serial.println ("Band4");
+    digitalWrite (Band1, LOW); digitalWrite (Band3, LOW); digitalWrite (Band2, LOW); digitalWrite (Band5, LOW);
+#ifdef DEBUG
+    Serial.println ("Band4: > 5.4MHz zwischen 5.4MHz und 12MHz Geistersignale !");
+#endif    
+  } // end if
+  // I took out the 12.5MHz lowpass and inserted the 30MHz instead - I have to live with 3rd harmonic images in the range 5.4 - 12Mhz now
+  // maybe this is more important than the 5.4 - 2Mhz filter ?? Maybe swap them sometime, because I only got five filter relays . . .
+
+  // this is the brandnew longwave LPF (cutoff ca. 295kHz) --> OK
+  if ((bands[current_band].freq - IF_FREQ * SI5351_FREQ_MULT) < 300000 * SI5351_FREQ_MULT) {
+    digitalWrite (Band5, HIGH);//Serial.println ("Band5");
+    digitalWrite (Band2, LOW); digitalWrite (Band3, LOW); digitalWrite (Band4, LOW); digitalWrite (Band1, LOW);
+#ifdef DEBUG
+    Serial.println ("Band5: < 295kHz");
+#endif    
   }
-  FrequencyBarText();
-
+#endif // HARDWARE_DD4WH
+  
 #ifdef HARDWARE_DO7JBH
   //***************************************************************************
   // Bandpass Filter switch
@@ -7654,8 +7714,8 @@ void setfreq () {
   // this switches the four DO7JBH filters
 
   if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 160000000)  {
-    //     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
-    digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);
+      digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
+//    digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);
     Serial.println("< 1.6MHz filter");
   } // end if
   if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 160000000) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 416000000)) {
@@ -7675,6 +7735,7 @@ void setfreq () {
     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
     Serial.println(" UKW filter");
   } // end if
+#endif
 
 #ifdef USE_BOBS_FILTER
 
@@ -7710,102 +7771,72 @@ void setfreq () {
   if (currentFilter == 1) // < 1.6 MHz
   {
     digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
     Serial.println("3.5MHz filter OFF");
   }
   else if (currentFilter == 2) // < 3.5 MHz
   {
     digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
     Serial.println("3.5MHz filter OFF");
   }
   else if (currentFilter == 3) // < 7.3 MHz
   {
     digitalWrite (Band_3M5_7M3, HIGH);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
     Serial.println("3.5MHz filter ON");
   }
-  else if (currentFilter == 4) // < 11 MHz
+  else if (currentFilter == 4) // < 15 MHz
   {
     digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, HIGH);
+    digitalWrite (Band_15M_30M, LOW);
     Serial.println("3.5MHz filter OFF");
   }
   else if (currentFilter == 5) // < 30 MHz
   {
     digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, HIGH);
     Serial.println("3.5MHz filter OFF");
   }
   else if (currentFilter == 6) // > 30 MHz
   {
     digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
     Serial.println("3.5MHz filter OFF");
   }
   // Bypass all relays (no RF filtering)
   else
   {
-  }
-
-#else
-  if ((bands[current_band].freq + IF_FREQ) < 1600000)  {
-    //     digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
-    digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);
-  } // end if
-  if (((bands[current_band].freq + IF_FREQ) > 1600000) && ((bands[current_band].freq + IF_FREQ) < 4160000)) {
-    digitalWrite (Band1, HIGH); digitalWrite (Band2, LOW);
-  } // end if
-  if (((bands[current_band].freq + IF_FREQ) > 4160000) && ((bands[current_band].freq + IF_FREQ) < 11000000)) {
-    digitalWrite (Band1, LOW); digitalWrite (Band2, HIGH);
-  } // end if
-  if ((bands[current_band].freq + IF_FREQ) > 11000000) {
-    digitalWrite (Band1, HIGH); digitalWrite (Band2, HIGH);
-  } // end if
-  // for wideband FM reception, temporarily short-circuited filter for < 1600kHz in hardware by DO7JBH
-  if ((bands[current_band].freq + IF_FREQ) > 30000000) {
-    digitalWrite (Band1, LOW); digitalWrite (Band2, LOW);
-  } // end if
-#endif
-
-#elif defined(Band1) && defined(Band2) && defined(Band3) && defined(Band4) && defined(Band5)
-  // LPF switching follows here
-  // Five filter banks there:
-  // longwave LPF 295kHz, mediumwave I LPF 955kHz, mediumwave II LPF 2MHz, tropical bands LPF 5.4MHz, others LPF LPF 30MHz
-  // LW: Band5
-  // MW: Band3 (up to 955kHz)
-  // MW: Band1 (up tp 1996kHz)
-  // SW: Band2 (up to 5400kHz)
-  // SW: Band4 (up up up)
-  //
-  // LOWPASS 955KHZ
-  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 955001 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 300001 * SI5351_FREQ_MULT)) {
-    digitalWrite (Band3, HIGH); //Serial.println ("Band3");
-    digitalWrite (Band1, LOW); digitalWrite (Band2, LOW); digitalWrite (Band4, LOW); digitalWrite (Band5, LOW);
-  } // end if
-
-  // LOWPASS 2MHZ
-  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 955000 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 1996001 * SI5351_FREQ_MULT)) {
-    digitalWrite (Band1, HIGH);//Serial.println ("Band1");
-    digitalWrite (Band5, LOW); digitalWrite (Band3, LOW); digitalWrite (Band4, LOW); digitalWrite (Band2, LOW);
-  } // end if
-
-  //LOWPASS 5.4MHZ
-  if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 1996000 * SI5351_FREQ_MULT) && ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 5400001 * SI5351_FREQ_MULT)) {
-    digitalWrite (Band2, HIGH);//Serial.println ("Band2");
-    digitalWrite (Band4, LOW); digitalWrite (Band3, LOW); digitalWrite (Band1, LOW); digitalWrite (Band5, LOW);
-  } // end if
-
-  // LOWPASS 30MHZ --> OK
-  if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) > 5400000 * SI5351_FREQ_MULT) {
-    // && ((bands[current_band].freq + IF_FREQ) < 12500001)) {
-    digitalWrite (Band4, HIGH);//Serial.println ("Band4");
-    digitalWrite (Band1, LOW); digitalWrite (Band3, LOW); digitalWrite (Band2, LOW); digitalWrite (Band5, LOW);
-  } // end if
-  // I took out the 12.5MHz lowpass and inserted the 30MHz instead - I have to live with 3rd harmonic images in the range 5.4 - 12Mhz now
-  // maybe this is more important than the 5.4 - 2Mhz filter ?? Maybe swap them sometime, because I only got five filter relays . . .
-
-  // this is the brandnew longwave LPF (cutoff ca. 295kHz) --> OK
-  if ((bands[current_band].freq - IF_FREQ * SI5351_FREQ_MULT) < 300000 * SI5351_FREQ_MULT) {
-    digitalWrite (Band5, HIGH);//Serial.println ("Band5");
-    digitalWrite (Band2, LOW); digitalWrite (Band3, LOW); digitalWrite (Band4, LOW); digitalWrite (Band1, LOW);
+    digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
   }
 #endif
+}   // end switch_RF_filters()
 
+void setfreq () {
+  // Changes for Bobs Octave Filters:  18 March 2018  W7PUA <<<<<<
+  // http://www.janbob.com/electron/FilterBP1/FiltBP1.html
+  static int16_t lastFilter;
+  static int16_t currentFilter;
+
+  // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
+  //   hilfsf = (bands[current_band].freq +  IF_FREQ) * 10000000 * MASTER_CLK_MULT * SI5351_FREQ_MULT;
+  hilfsf = (bands[current_band].freq +  IF_FREQ * SI5351_FREQ_MULT) * 1000000000 * MASTER_CLK_MULT; // SI5351_FREQ_MULT is 100ULL;
+  hilfsf = hilfsf / calibration_factor;
+  si5351.set_freq(hilfsf, Si_5351_clock);
+  if (bands[current_band].mode == DEMOD_AUTOTUNE)
+  {
+    autotune_flag = 1;
+  }
+  FrequencyBarText();
+  switch_RF_filters();
 } // end setfreq
 
 #if defined(HARDWARE_FRANKB)
@@ -7858,6 +7889,7 @@ void buttons() {
       show_menu();
       prepare_spectrum_display();
       leave_WFM = 0;
+      AGC_prep();
       if (bands[current_band].mode == DEMOD_WFM)
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
@@ -7906,6 +7938,7 @@ void buttons() {
       show_menu();
       prepare_spectrum_display();
       leave_WFM = 0;
+      AGC_prep();
       if (bands[current_band].mode == DEMOD_WFM)
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
@@ -8312,7 +8345,8 @@ void show_menu()
       case MENU_SPECTRUM_OFFSET:
         tft.setFont(Arial_11);
         tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
-        tft.printf("%4.0f", offsetDisplayDB);
+//        tft.printf("%4.0f", offsetDisplayDB);        
+        tft.printf("%4d", bands[current_band].pixel_offset);
         break;
       case MENU_SAVE_EEPROM:
         if (eeprom_saved)
@@ -8971,7 +9005,7 @@ void setup_mode(int MO) {
   show_bandwidth();
   if (bands[current_band].mode == DEMOD_WFM)
   {
-    tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 20, 320 - spectrum_x - 258, 31, ILI9341_BLACK);
+    tft.fillRect(spectrum_x + 256 + 2, pos_y_time + 17, 320 - spectrum_x - 258, 31, ILI9341_BLACK);
   }
   //    Q_in_L.clear();
   //    Q_in_R.clear();
@@ -9083,11 +9117,11 @@ void encoders () {
     { // hopefully tunes FM stations in 25kHz steps ;-)
       // 25000000 / 3 = 833333.3333f
       //
-      tune_help1 = (long long)(833333.3333f * roundf((float32_t)encoder_change / 4.0));
+      tune_help1 = (long long)(833333.3333 * round((double)encoder_change / 4.0));
     }
     else
     {
-      tune_help1 = (long long)tunestep  * SI5351_FREQ_MULT * (long long)roundf((float32_t)encoder_change / 4.0);
+      tune_help1 = (long long)tunestep  * SI5351_FREQ_MULT * (long long)round((double)encoder_change / 4.0);
     }
     //    long long tune_help1 = tunestep  * SI5351_FREQ_MULT * encoder_change;
     old_freq = bands[current_band].freq;
@@ -9193,13 +9227,15 @@ void encoders () {
     } // END LPFSPECTRUM
     else if (Menu_pointer == MENU_SPECTRUM_OFFSET)   // added pixel offsets  <PUA>
     {
-      offsetDisplayDB += 0.25 * displayScale[currentScale].offsetIncrement * (float)encoder2_change; // 4 changes per detent
+        bands[current_band].pixel_offset += (float)encoder2_change;
+/*      offsetDisplayDB += 0.25 * displayScale[currentScale].offsetIncrement * (float)encoder2_change; // 4 changes per detent
       if (offsetDisplayDB > 100.0)       // This offset is in dB
         offsetDisplayDB = 100.0;
       else if (offsetDisplayDB < 0.0)
         offsetDisplayDB = 0;
       //      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
       bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
+*/
       showSpectrumCorners();
     }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
@@ -9212,7 +9248,7 @@ void encoders () {
         currentScale = 0;
       //////
       //      offsetPixels = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB*displayScale[currentScale].pixelsPerDB);
-      bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
+      //bands[current_band].pixel_offset = displayScale[currentScale].baseOffset + (int16_t)(offsetDisplayDB * displayScale[currentScale].pixelsPerDB);
       ///////
 
       showSpectrumCorners();
@@ -10312,6 +10348,8 @@ struct config_t {
   int bwu[NUM_BANDS];
   int bwl[NUM_BANDS];
   int rfg[NUM_BANDS];
+  int AGC_thresh[NUM_BANDS];
+  int16_t pixel_offset[NUM_BANDS];
   int current_band;
   float32_t LPFcoeff;
   int audio_volume;
@@ -10363,6 +10401,10 @@ void EEPROM_LOAD() { //mdrhere
       bands[i].FLoCut = E.bwl[i];
     for (int i = 0; i < (NUM_BANDS); i++)
       bands[i].RFgain = E.rfg[i];
+    for (int i = 0; i < (NUM_BANDS); i++)
+      bands[i].AGC_thresh = E.AGC_thresh[i];
+    for (int i = 0; i < (NUM_BANDS); i++)
+      bands[i].pixel_offset = E.pixel_offset[i];
     current_band = E.current_band;
     //I_help = E.I_ampl;
     //Q_in_I_help = E.Q_in_I;
@@ -10418,6 +10460,10 @@ void EEPROM_SAVE() {
     E.bwl[i] = bands[i].FLoCut;
   for (int i = 0; i < (NUM_BANDS); i++)
     E.rfg[i] = bands[i].RFgain;
+  for (int i = 0; i < (NUM_BANDS); i++)
+    E.AGC_thresh[i] = bands[i].AGC_thresh;
+  for (int i = 0; i < (NUM_BANDS); i++)
+    E.pixel_offset[i] = bands[i].pixel_offset;
   //      E.I_ampl = I_help;
   //      E.Q_in_I = Q_in_I_help;
   //      E.I_in_Q = I_in_Q_help;
