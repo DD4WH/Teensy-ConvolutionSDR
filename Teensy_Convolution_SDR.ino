@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_05_08
+   (c) Frank DD4WH 2019_06_21
 
    "TEENSY CONVOLUTION SDR"
 
@@ -149,16 +149,16 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Frank DD4WH uncomment the next line */
-#define HARDWARE_DD4WH
+//#define HARDWARE_DD4WH
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
-//#define HARDWARE_DO7JBH
+#define HARDWARE_DO7JBH
 
 /* only for debugging */
-#define DEBUG
+//#define DEBUG
 
 /*  this prints out the ADC and DAC levels when NOT in SAM mode, primarily for debugging hardware
     recommendation: leave this commented */
@@ -167,7 +167,7 @@
 /*  only for support of the hardware RF frontend filters designed by Bob Larkin, W7PUA
     http://www.janbob.com/electron/FilterBP1/FiltBP1.html
     adjust cutoff frequencies according to your needs in function setfreq */
-//#define USE_BOBS_FILTER
+#define USE_BOBS_FILTER
 
 /*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
     recommendation: leave this uncommented */
@@ -4927,7 +4927,10 @@ void loop() {
       }
 
 #endif
-
+      /**********************************************************************************
+          CW DECODER
+       **********************************************************************************/
+      //cw_decoder();
 
       /**********************************************************************************
           INTERPOLATION
@@ -6269,7 +6272,7 @@ void codec_gain()
   if (timer > 10000) timer = 10000;
   if (half_clip == 1)      // did clipping almost occur?
   {
-    if (timer >= 10)     // has enough time passed since the last gain decrease?
+    if (timer >= 100)     // has enough time passed since the last gain decrease?
     {
       if (bands[current_band].RFgain != 0)       // yes - is this NOT zero?
       {
@@ -6279,14 +6282,16 @@ void codec_gain()
           bands[current_band].RFgain = 0;
         }
         timer = 0;  // reset the adjustment timer
+        AudioNoInterrupts();
         sgtl5000_1.lineInLevel(bands[current_band].RFgain);
+        AudioInterrupts();
         if (Menu2 == MENU_RF_GAIN) show_menu();
       }
     }
   }
   else if (quarter_clip == 0)     // no clipping occurred
   {
-    if (timer >= 50)       // has it been long enough since the last increase?
+    if (timer >= 500)       // has it been long enough since the last increase?
     {
       bands[current_band].RFgain += 1;    // increase gain by one step, 1.5dB
       timer = 0;  // reset the timer to prevent this from executing too often
@@ -6294,7 +6299,9 @@ void codec_gain()
       {
         bands[current_band].RFgain = 15;
       }
+      AudioNoInterrupts();
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
+      AudioInterrupts();
       if (Menu2 == MENU_RF_GAIN) show_menu();
     }
   }
@@ -7641,6 +7648,8 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
 
 void switch_RF_filters()
 {
+    static int16_t lastFilter;
+  static int16_t currentFilter;
 //#elif defined(Band1) && defined(Band2) && defined(Band3) && defined(Band4) && defined(Band5)
 #ifdef HARDWARE_DD4WH
   // LPF switching follows here
@@ -7823,8 +7832,7 @@ void switch_RF_filters()
 void setfreq () {
   // Changes for Bobs Octave Filters:  18 March 2018  W7PUA <<<<<<
   // http://www.janbob.com/electron/FilterBP1/FiltBP1.html
-  static int16_t lastFilter;
-  static int16_t currentFilter;
+
 
   // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
   //   hilfsf = (bands[current_band].freq +  IF_FREQ) * 10000000 * MASTER_CLK_MULT * SI5351_FREQ_MULT;
