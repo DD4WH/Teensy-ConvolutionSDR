@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_06_21
+   (c) Frank DD4WH 2019_09_27
 
    "TEENSY CONVOLUTION SDR"
 
@@ -9,7 +9,7 @@
    - simple quadrature sampling detector board producing baseband IQ signals (Softrock, Elektor SDR etc.)
    (IQ boards with up to 192kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
    - Teensy audio board
-   - Teensy 3.6 (No, Teensy 3.1/3.2/3.5 not supported)
+   - Teensy 3.6 (No, Teensy 3.1/3.2/3.5/4.0 not supported)
    HARDWARE OPTIONAL:
    - Preselection: switchable RF lowpass or bandpass filter
    - digital step attenuator: PE4306 used in my setup
@@ -94,13 +94,14 @@
    - added support for Bob Larkins RF Octave frontend filters http://www.janbob.com/electron/FilterBP1/FiltBP1.html
    - bugfix: only use local loop variables
    - bugfix: software now usable on different hardware versions: DO7JBH, DD4WH
+   - CW decoder (modified version of Lofturs excellent implementation) taken from UHSDR
 
    TODO:
-   - get this software to run on the T4 with software switches, so we can use ONE software for T3.6 AND T4.0 
+   - ABANDONED UNTIL RELIABLE AUDIO AVAILABLE: get this software to run on the T4 with software switches, so we can use ONE software for T3.6 AND T4.0 
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
-   - RTTY and CW decoder
+   - RTTY decoder
    - BPSK decoder
    - UKW DX filters for WFM prior to FM demodulation (110kHz, 80kHz, 57kHz)
    - test dBm measurement according to filter passband
@@ -129,7 +130,25 @@
 
    Audio processing in float32_t with the NEW ARM CMSIS lib, --> https://forum.pjrc.com/threads/40590-Teensy-Convolution-SDR-(Software-Defined-Radio)?p=129081&viewfull=1#post129081
 
- ***********************************************************************************************************************************
+*********************************************************************************
+**
+** Project.........: Read Hand Sent Morse Code (tolerant of considerable jitter)
+**
+** Copyright (c) 2016  Loftur E. Jonasson  (tf3lj [at] arrl [dot] net)
+**
+** Substantive portions of the methodology used here to decode Morse Code are found in:
+**
+** "MACHINE RECOGNITION OF HAND-SENT MORSE CODE USING THE PDP-12 COMPUTER"
+** by Joel Arthur Guenther, Air Force Institute of Technology,
+** Wright-Patterson Air Force Base, Ohio
+** December 1973
+** http://www.dtic.mil/dtic/tr/fulltext/u2/786492.pdf
+**
+** Platform........: Teensy 3.1 / 3.2 and the Teensy Audio Shield
+**
+** Initial version.: 0.00, 2016-01-25  Loftur Jonasson, TF3LJ / VE2LJX
+**
+*********************************************************************************
 
    GNU GPL LICENSE v3
 
@@ -209,8 +228,6 @@ extern "C"
 #include <play_sd_mp3.h> //mp3 decoder by Frank B
 #include <play_sd_aac.h> // AAC decoder by Frank B
 #endif
-//#include "rtty.h"
-//#include "cw_decoder.h"
 #include <util/crc16.h> //mdrhere
 
 #if defined(T4)
@@ -223,6 +240,81 @@ extern "C"
 #include "font_Arial.h"
 #endif
 
+
+// CW DECODER STUFF
+#define CW_DECODER_BLOCKSIZE_MIN    8
+#define CW_DECODER_BLOCKSIZE_MAX    256
+#define CW_DECODER_BLOCKSIZE_DEFAULT  128 //88
+
+//#define CW_DECODER_THRESH_MIN     1000
+//#define CW_DECODER_THRESH_MAX     50000
+//#define CW_DECODER_THRESH_DEFAULT   32000
+
+//#define SIGNAL_TAU      0.01
+#define SIGNAL_TAU      0.1
+#define ONEM_SIGNAL_TAU     (1.0 - SIGNAL_TAU)
+
+#define CW_TIMEOUT      3  // Time, in seconds, to trigger display of last Character received
+#define ONE_SECOND      (12000 / cw_decoder_config.blocksize) // sample rate / decimation rate / block size
+
+#define CW_SPIKECANCEL_MAX_DURATION        8  // Cancel transients/spikes/drops that have max duration of number chosen.
+// Typically 4 or 8 to select at time periods of 4 or 8 times 2.9ms.
+// 0 to deselect.
+
+
+#define CW_SIG_BUFSIZE      256  // Size of a circular buffer of decoded input levels and durations
+#define CW_DATA_BUFSIZE      40  // Size of a buffer of accumulated dot/dash information. Max is DATA_BUFSIZE-2
+// Needs to be significantly longer than longest symbol 'sos'= ~30.
+
+uint8_t CW_decoder_enable = 1;
+
+typedef struct
+{
+  float32_t sampling_freq;
+  float32_t target_freq;
+//  float32_t speed;
+  uint8_t speed;
+//  uint8_t average;
+//  uint32_t thresh;
+  float32_t thresh;
+  uint8_t blocksize;
+
+//  uint8_t AGC_enable;
+  uint8_t noisecancel_enable;
+  uint8_t spikecancel;
+#define CW_SPIKECANCEL_MODE_OFF 0
+#define CW_SPIKECANCEL_MODE_SPIKE 1
+#define CW_SPIKECANCEL_MODE_SHORT 2
+  bool use_3_goertzels;
+  bool snap_enable;
+    bool show_CW_LED; // menu choice whether the user wants the CW LED indicator to be working or not
+} cw_config_t;
+
+typedef struct
+{
+  int a;
+  float32_t b;
+  float32_t sin;
+  float32_t cos;
+  float32_t r;
+  float32_t buf[3];
+} Goertzel;
+
+Goertzel cw_goertzel;
+
+cw_config_t cw_decoder_config =
+{ .sampling_freq = 12000.0, .target_freq = 700, //700.0,
+    .speed = 25,
+    //    .average = 2,
+    .thresh = 0.9, //32000,
+    .blocksize = CW_DECODER_BLOCKSIZE_DEFAULT,
+    //    .AGC_enable = 0,
+    .noisecancel_enable = 1,
+    .spikecancel = 0,
+    .use_3_goertzels = false,
+    .snap_enable = false,
+    .show_CW_LED = false // menu choice whether the user wants the CW LED indicator to be working or not
+};
 
 time_t getTeensy3Time()
 {
@@ -372,7 +464,6 @@ Bounce button8 = Bounce(BUTTON_8_PIN, 50);
 
 #endif
 
-
 Metro five_sec = Metro(2000); // Set up a Metro
 Metro ms_500 = Metro(500); // Set up a Metro
 Metro encoder_check = Metro(100); // Set up a Metro
@@ -402,7 +493,7 @@ const uint8_t Band_7M3_15M =    28;
 const uint8_t Band_15M_30M =    29;
 #endif
 
-// this audio comes from the codec by I2S2
+// this audio comes from the codec by I2S
 AudioInputI2S            i2s_in;
 
 AudioRecordQueue         Q_in_L;
@@ -838,6 +929,14 @@ float32_t deemp_alpha = dt / (50e-6 + dt);
 float32_t onem_deemp_alpha = 1.0 - deemp_alpha;
 uint16_t autotune_counter = 0;
 
+
+
+/* no.of audio samples
+ * BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF)
+ * 128 * (FFT_L / 2 / BUFFER_SIZE * (uint32_t)DF) / 8
+ * = 128 * (512 / 2 / 128 * 8) / 8
+ */
+
 //const uint32_t FFT_L = 1024; // needs 89% of the memory !
 const uint32_t FFT_L = 512; // needs 60% of the memory
 float32_t FIR_Coef_I[(FFT_L / 2) + 1];
@@ -1008,10 +1107,9 @@ float32_t FIR_int2_coeffs[32];
 //#define USE_WATERFALL
 int spectrum_y =              115; // upper edge
 const int spectrum_x =              10;
-const int spectrum_height =         96;
+int spectrum_height =         96;
 int spectrum_pos_centre_f =         64;
-//const int spectrum_height =         56; // height of spectrum display
-const int spectrum_WF_height =       96; // height of spectrum plus waterfall
+int spectrum_WF_height =       96; // height of spectrum plus waterfall
 const int BW_indicator_y =          spectrum_y + spectrum_WF_height + 5;
 const int WATERFALL_TOP =           spectrum_y + spectrum_height + 4;
 const int WATERFALL_BOTTOM =        spectrum_y + spectrum_WF_height + 4;
@@ -1078,7 +1176,7 @@ float32_t dbm_calibration = 22.0; //
 //  50ms   0.3297
 // 100ms   0.1812
 // 500ms   0.0391
-float32_t m_AttackAlpha = 0.1; //0.08; //0.2;
+float32_t m_AttackAlpha = 0.03; //0.1; //0.08; //0.2;
 float32_t m_DecayAlpha  = 0.01; //0.02; //0.05;
 int16_t pos_x_dbm = pos_x_smeter + 170;
 int16_t pos_y_dbm = pos_y_smeter - 7;
@@ -1210,14 +1308,15 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_NR_USE_KIM                   51
 #define MENU_NR_KIM_K                     52
 #define MENU_LMS_NR_STRENGTH              53
+#define MENU_CW_DECODER_THRESH            54
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
-#define MENU_AGC_HANG_ENABLE              54
-#define MENU_AGC_HANG_TIME                55
-#define MENU_AGC_HANG_THRESH              56
+#define MENU_AGC_HANG_ENABLE              55
+#define MENU_AGC_HANG_TIME                56
+#define MENU_AGC_HANG_THRESH              57
 #define first_menu2                       19
-#define last_menu2                        53
+#define last_menu2                        54
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1289,6 +1388,7 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_NR_USE_KIM, " type ", "  NR ", 1 },
   { MENU_NR_KIM_K, "Kim K ", "  NR ", 1 },
   { MENU_LMS_NR_STRENGTH, " LMS ", "strengt", 1 },
+  { MENU_CW_DECODER_THRESH, " CW ", "thresh", 1 },
   //  { MENU_NR_VAD_ENABLE, " VAD ", "  NR ", 1 },
   //  { MENU_NR_VAD_THRESH, " VAD ", "thresh", 1 },
   //  { MENU_NR_ENABLE, "spectral", "  NR ", 1 }
@@ -2650,6 +2750,12 @@ void setup() {
 
   Zoom_FFT_prep();
 
+  /****************************************************************************************
+     Initialize CW variables
+  ****************************************************************************************/
+
+  CwDecode_Filter_Set();
+  
   /****************************************************************************************
      Initialize AGC variables
   ****************************************************************************************/
@@ -4478,8 +4584,6 @@ void loop() {
               }
             }
 
-
-
       /**********************************************************************************
           EXPERIMENTAL: variable-leak LMS algorithm
           can be switched to NOISE REDUCTION or AUTOMATIC NOTCH FILTER
@@ -4927,10 +5031,17 @@ void loop() {
       }
 
 #endif
+
       /**********************************************************************************
-          CW DECODER
+          CW decoding
        **********************************************************************************/
-      //cw_decoder();
+      if(CW_decoder_enable) 
+      {
+        CwDecode_RxProcessor(&float_buffer_L[0], FFT_length / 4);
+        CwDecode_RxProcessor(&float_buffer_L[FFT_length / 4], FFT_length / 4);
+//        CwDecode_RxProcessor(&float_buffer_L[FFT_length / 4], FFT_length / 8);
+//        CwDecode_RxProcessor(&float_buffer_L[FFT_length / 8 * 3], FFT_length / 8);
+      }
 
       /**********************************************************************************
           INTERPOLATION
@@ -6583,7 +6694,10 @@ void show_spectrum()
   // First cut at a plot grid  <PUA>
   int h = spectrum_height + 3;
   tft.drawFastHLine (spectrum_x - 1, spectrum_y - 2, 254, ILI9341_MAROON);
-  tft.drawFastHLine (spectrum_x - 1, spectrum_y + 18, 254, ILI9341_MAROON);
+  if(!CW_decoder_enable) 
+  {
+    tft.drawFastHLine (spectrum_x - 1, spectrum_y + 18, 254, ILI9341_MAROON);
+  }
   tft.drawFastHLine (spectrum_x - 1, spectrum_y + 38, 254, ILI9341_MAROON);
   tft.drawFastHLine (spectrum_x - 1, spectrum_y + 58, 254, ILI9341_MAROON);
 #ifndef USE_WATERFALL
@@ -6591,6 +6705,14 @@ void show_spectrum()
   tft.drawFastHLine (spectrum_x - 1, spectrum_y + h, 254, ILI9341_MAROON);
 #endif
   tft.drawFastVLine (spectrum_x - 1,   spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 255, spectrum_y, h, ILI9341_MAROON);
+
+  if(CW_decoder_enable) 
+  {
+    spectrum_y = spectrum_y + 40;
+    h = h - 40;
+    spectrum_height = spectrum_height - 40;
+  }
   if (spectrum_zoom != SPECTRUM_ZOOM_1)                 //  Change the color for the center frequency
   {
     tft.drawFastVLine (spectrum_x + 63,  spectrum_y, h, ILI9341_MAROON);
@@ -6602,8 +6724,6 @@ void show_spectrum()
     tft.drawFastVLine (spectrum_x + 127, spectrum_y, h, ILI9341_MAROON);
   }
   tft.drawFastVLine (spectrum_x + 191, spectrum_y, h, ILI9341_MAROON);
-  tft.drawFastVLine (spectrum_x + 255, spectrum_y, h, ILI9341_MAROON);
-
 
   // ScrollAreaDefinition(uint16_t TopFixedArea, uint16_t VerticalScrollingArea, uint16_t BottomFixedArea)
   // summ must be 320
@@ -6752,6 +6872,12 @@ void show_spectrum()
     if(WF_cnt > 40) WF_cnt = 0;
   */
   //  showSpectrumCorners();
+    if(CW_decoder_enable) 
+  {
+    spectrum_y = spectrum_y - 40;
+    h = h + 40;
+    spectrum_height = spectrum_height + 40;
+  }
 } // End show_spectrum()
 #else
 void show_spectrum()
@@ -7070,19 +7196,22 @@ void prepare_spectrum_display()
 
 void showSpectrumCorners(void)
 {
-  tft.fillRect(12, spectrum_y + 3, 33, 10, ILI9341_BLACK);
-  tft.setCursor(12, spectrum_y + 3);
-  tft.setTextColor(ILI9341_WHITE);
-  tft.setFont(Arial_8);
-  tft.print(displayScale[currentScale].dbText);
-
-  tft.fillRect(240, spectrum_y + 3, 20, 10, ILI9341_BLACK);
-  tft.setCursor(240, spectrum_y + 3);
-  tft.setTextColor(ILI9341_WHITE);
-  tft.setFont(Arial_8);
-  //tft.print(display_offset);
-//  tft.printf("%4.1f", offsetDisplayDB);
-  tft.printf("%4d", bands[current_band].pixel_offset);
+  if(!CW_decoder_enable)
+  {
+    tft.fillRect(12, spectrum_y + 3, 33, 10, ILI9341_BLACK);
+    tft.setCursor(12, spectrum_y + 3);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(Arial_8);
+    tft.print(displayScale[currentScale].dbText);
+  
+    tft.fillRect(240, spectrum_y + 3, 20, 10, ILI9341_BLACK);
+    tft.setCursor(240, spectrum_y + 3);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(Arial_8);
+    //tft.print(display_offset);
+  //  tft.printf("%4.1f", offsetDisplayDB);
+    tft.printf("%4d", bands[current_band].pixel_offset);
+  }
 }
 
 void FrequencyBarText()
@@ -7903,7 +8032,7 @@ void buttons() {
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        setI2SFreq(SAMPLE_RATE);
+        //setI2SFreq(SAMPLE_RATE);
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -7913,7 +8042,7 @@ void buttons() {
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          setI2SFreq(SAMPLE_RATE);
+          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
         }
       }
@@ -7952,7 +8081,7 @@ void buttons() {
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        setI2SFreq(SAMPLE_RATE);
+        //setI2SFreq(SAMPLE_RATE);
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -7962,7 +8091,7 @@ void buttons() {
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          setI2SFreq(SAMPLE_RATE);
+          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
         }
       }
@@ -7998,7 +8127,7 @@ void buttons() {
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        setI2SFreq(SAMPLE_RATE);
+        //setI2SFreq(SAMPLE_RATE);
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -8008,7 +8137,7 @@ void buttons() {
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          setI2SFreq(SAMPLE_RATE);
+          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
         }
       }
@@ -8715,6 +8844,9 @@ void show_menu()
         break;
       case MENU_LMS_NR_STRENGTH:
         tft.printf("%2d", LMS_nr_strength);
+        break;
+      case MENU_CW_DECODER_THRESH:
+        tft.printf("%2.1f", cw_decoder_config.thresh);
         break;
       /*      case MENU_NR_VAD_THRESH:
               tft.setFont(Arial_11);
@@ -9636,6 +9768,12 @@ void encoders () {
       if (LMS_nr_strength < 0) LMS_nr_strength = 0;
       else if (LMS_nr_strength > 40) LMS_nr_strength = 40;
       Init_LMS_NR ();
+    }
+    else if (Menu2 == MENU_CW_DECODER_THRESH)
+    {
+      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 40.0;
+      if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
+      else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
     /*    else if (Menu2 == MENU_NR_VAD_THRESH)
       {
@@ -12176,3 +12314,1346 @@ float32_t arm_atan2_f32(float32_t y, float32_t x)
 /**
    @} end of atan2 group
 */
+
+
+float32_t AudioFilter_GoertzelEnergy(Goertzel* goertzel)
+{
+  float32_t a = (goertzel->buf[1] - (goertzel->buf[2] * goertzel->cos));// calculate energy at frequency
+  float32_t b = (goertzel->buf[2] * goertzel->sin);
+  goertzel->buf[0] = 0;
+  goertzel->buf[1] = 0;
+  goertzel->buf[2] = 0;
+  return sqrtf(a * a + b * b);
+}
+
+void CwDecode_Filter_Set()
+{
+  // set Goertzel parameters for CW decoding
+  AudioFilter_CalcGoertzel(&cw_goertzel, cw_decoder_config.target_freq , // cw_decoder_config.target_freq,
+      cw_decoder_config.blocksize, 1.0, cw_decoder_config.sampling_freq);
+}
+
+void AudioFilter_CalcGoertzel(Goertzel* g, float32_t freq, const uint32_t size, const float goertzel_coeff, float32_t samplerate)
+{
+    g->a = (0.5 + (freq * goertzel_coeff) * size/samplerate);
+    g->b = (2*PI*g->a)/size;
+    g->sin = sinf(g->b);
+    g->cos = cosf(g->b);
+    g->r = 2 * g->cos;
+}
+
+
+void AudioFilter_GoertzelInput(Goertzel* goertzel, float32_t in)
+{
+  goertzel->buf[0] = goertzel->r * goertzel->buf[1] - goertzel->buf[2]  + in;
+  goertzel->buf[2] = goertzel->buf[1];
+  goertzel->buf[1] = goertzel->buf[0];
+}
+
+float32_t decayavg(float32_t average, float32_t input, int weight)
+{ // adapted from https://github.com/ukhas/dl-fldigi/blob/master/src/include/misc.h
+  float32_t retval;
+  if (weight <= 1)
+  {
+    retval = input;
+  }
+  else
+  {
+    retval = ( ( input - average ) / (float32_t)weight ) + average ;
+  }
+  return retval;
+}
+
+typedef struct
+{
+  unsigned state :1; // Pulse or space (sample buffer) OR Dot or Dash (data buffer)
+  unsigned time :31; // Time duration
+} sigbuf;
+
+typedef struct
+{
+  unsigned initialized :1; // Do we have valid time duration measurements?
+  unsigned dash :1; // Dash flag
+  unsigned wspace :1; // Word Space flag
+  unsigned timeout :1; // Timeout flag
+  unsigned overload :1; // Overload flag
+} bflags;
+
+static bool cw_state;                   // Current decoded signal state
+static sigbuf sig[CW_SIG_BUFSIZE]; // A circular buffer of decoded input levels and durations, input from
+
+static int32_t sig_lastrx = 0; // Circular buffer in pointer, updated by SignalSampler
+static int32_t sig_incount = 0; // Circular buffer in pointer, copy of sig_lastrx, used by CW Decode functions
+static int32_t sig_outcount = 0; // Circular buffer out pointer, used by CW Decode functions
+static int32_t sig_timer = 0; // Elapsed time of current signal state, dependent
+
+// on sample rate, decimation factor and CW_DECODE_BLOCK_SIZE
+// 48ksps & decimation-by-4 equals 12ksps
+// if CW_DECODE_BLOCK_SIZE == 32, then we have 12000/32 = 375 blocks per second, which means
+// one Goertzel magnitude is calculated 375 times a second, which means 2.67ms per timer_stepsize
+// this is very similar to the original 2.9ms (when using FFT256 in the Teensy 3 original sketch)
+// DD4WH 2017_09_08
+static int32_t timer_stepsize = 1; // equivalent to 2.67ms, see above
+static int32_t cur_time;                     // copy of sig_timer
+static int32_t cur_outcount = 0; // Basically same as sig_outcount, for Error Correction functionality
+static int32_t last_outcount = 0; // sig_outcount for previous character, used for Error Correction func
+
+sigbuf data[CW_DATA_BUFSIZE]; // Buffer containing decoded dot/dash and time information
+// for assembly into a character
+static uint8_t data_len = 0;             // Length of incoming character data
+
+static uint32_t code; // Decoded dot/dash info in pairs of bits, - is encoded as 11, and . is encoded as 10
+
+static bflags cw_b;                            // Various Operational state flags
+
+typedef struct
+{
+  float32_t pulse_avg; // CW timing variables - pulse_avg is a composite value
+  float32_t dot_avg;
+  float32_t dash_avg;            // Dot and Dash Space averages
+  float32_t symspace_avg;
+  float32_t cwspace_avg; // Intra symbol Space and Character-Word Space
+  int32_t w_space;                      // Last word space time
+} cw_times_t;
+
+static cw_times_t cw_times;
+
+// audio signal buffer
+static float32_t raw_signal_buffer[CW_DECODER_BLOCKSIZE_MAX];  //cw_decoder_config.blocksize];
+
+
+// RINGBUFFER HELPER MACROS START
+#define ring_idx_wrap_upper(value,size) (((value) >= (size)) ? (value) - (size) : (value))
+#define ring_idx_wrap_zero(value,size) (((value) < (0)) ? (value) + (size) : (value))
+
+
+// * @brief adjust index "value" by "change" while keeping it in the ring buffer size limits of "size"
+// * @returns the value changed by adding change to it and doing a modulo operation on it for the ring buffer size. So return value is always 0 <= result < size
+// *
+#define ring_idx_change(value,change,size) (change>0 ? ring_idx_wrap_upper((value)+(change),(size)):ring_idx_wrap_zero((value)+(change),(size)))
+
+#define ring_idx_increment(value,size) ((value+1) == (size)?0:(value+1))
+
+#define ring_idx_decrement(value,size) ((value) == 0?(size)-1:(value)-1)
+
+// Determine number of states waiting to be processed
+#define ring_distanceFromTo(from,to) (((to) < (from))? ((CW_SIG_BUFSIZE + (to)) - ((from) )) : (to - from))
+
+// RINGBUFFER HELPER MACROS END
+
+static void CW_Decode_exe(void)
+{
+  bool newstate;
+  static float32_t CW_env = 0.0;
+  static float32_t CW_mag = 0.0;
+  static float32_t CW_noise = 0.0;
+  float32_t CW_clipped = 0.0;
+
+  static float32_t old_siglevel = 0.001;
+  static float32_t speed_wpm_avg = 0.0;
+  float32_t siglevel;                 // signal level from Goertzel calculation
+  static bool prevstate;        // Last recorded state of signal input (mark or space)
+
+  //    1.) get samples
+  // these are already in raw_signal_buffer
+
+  //    2.) calculate Goertzel
+  for (uint16_t index = 0; index < cw_decoder_config.blocksize; index++)
+  {
+    AudioFilter_GoertzelInput(&cw_goertzel, raw_signal_buffer[index]);
+  }
+
+  float32_t magnitudeSquared = AudioFilter_GoertzelEnergy(&cw_goertzel);
+  Serial.print("GoertzelEnergy "); Serial.println(magnitudeSquared);
+  // I am not sure whether we would need an AGC here, because the audio chain already has an AGC
+  // Now I am sure, we do not need it
+  //    3.) AGC
+
+#if 0
+
+  float32_t pklvl;                    // Used for AGC calculations
+  if (cw_decoder_config.AGC_enable)
+  {
+    pklvl = CW_agcvol * CW_vol * magnitudeSquared; // Get level at Goertzel frequency
+    if (pklvl > AGC_MAX_PEAK)
+      CW_agcvol = CW_agcvol * CW_AGC_ATTACK; // Decrease volume if above this level.
+    if (pklvl < AGC_MIN_PEAK)
+      CW_agcvol = CW_agcvol * CW_AGC_DECAY; // Increase volume if below this level.
+    if (CW_agcvol > 1.0)
+      CW_agcvol = 1.0;                 // Cap max at 1.0
+    siglevel = CW_agcvol * CW_vol * pklvl;
+  }
+  else
+#endif
+  {
+    siglevel = magnitudeSquared;
+  }
+  //    4.) signal averaging/smoothing
+
+#if 0
+
+  static float32_t avg_win[20]; // Sliding window buffer for signal averaging, if used
+  static uint8_t avg_cnt = 0;                        // Sliding window counter
+
+  avg_win[avg_cnt] = siglevel;     // Add value onto "sliding window" buffer
+  avg_cnt = ring_idx_increment(avg_cnt, cw_decoder_config.average);
+
+  float32_t lvl = 0;                  // Multiuse variable
+  for (uint8_t x = 0; x < cw_decoder_config.average; x++) // Average up all values within sliding window
+  {
+    lvl = lvl + avg_win[x];
+  }
+  siglevel = lvl / cw_decoder_config.average;
+
+#else
+  // better use exponential averager for averaging/smoothing here !? Letï¿½s try!
+//  siglevel = siglevel * SIGNAL_TAU + ONEM_SIGNAL_TAU * old_siglevel;
+//  old_siglevel = magnitudeSquared;
+#endif
+
+
+  // 4b.) automatic threshold correction
+  if(cw_decoder_config.use_3_goertzels)
+  {
+  CW_mag = siglevel;
+  CW_env = decayavg(CW_env, CW_mag, (CW_mag > CW_env)?
+      //        (CW_ONE_BIT_SAMPLE_COUNT / 4) : (CW_ONE_BIT_SAMPLE_COUNT * 16));
+        (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 16));
+
+  CW_noise = decayavg(CW_noise, CW_mag, (CW_mag < CW_noise)?
+      //(CW_ONE_BIT_SAMPLE_COUNT / 4) : (CW_ONE_BIT_SAMPLE_COUNT * 48));
+      (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 48));
+
+  CW_clipped = CW_mag > CW_env? CW_env: CW_mag;
+
+  if (CW_clipped < CW_noise)
+  {
+    CW_clipped = CW_noise;
+  }
+
+  float32_t v1 = (CW_clipped - CW_noise) * (CW_env - CW_noise) -
+          0.8 * ((CW_env - CW_noise) * (CW_env - CW_noise));
+  //        0.85 * ((CW_env - CW_noise) * (CW_env - CW_noise));
+//         ((CW_env - CW_noise) * (CW_env - CW_noise));
+//  0.25 * ((CW_env - CW_noise) * (CW_env - CW_noise));
+
+  //lowpass
+
+//  v1 = RttyDecoder_lowPass(v1, rttyDecoderData.lpfConfig, &rttyDecoderData.lpfData);
+    siglevel = v1 * SIGNAL_TAU + ONEM_SIGNAL_TAU * old_siglevel;
+    old_siglevel = v1;
+//  bool newstate = (siglevel > 0)? false:true;
+  newstate = (siglevel < 0)? false:true;
+  }
+  //    5.) signal state determination
+  //----------------
+  // Signal State sampling
+
+  // noise cancel requires at least two consecutive samples to be
+  // of same (changed state) to accept change (i.e. a single sample change is ignored).
+  else
+  {
+    siglevel = siglevel * SIGNAL_TAU + ONEM_SIGNAL_TAU * old_siglevel;
+    old_siglevel = magnitudeSquared;
+    newstate = (siglevel >= cw_decoder_config.thresh);
+  }
+
+  if(cw_decoder_config.noisecancel_enable)
+  {
+    static bool change; // reads to be the same to confirm a true change
+
+    if (change == true)
+    {
+      cw_state = newstate;
+      change = false;
+    }
+    else if (newstate != cw_state)
+    {
+      change = true;
+    }
+
+  }
+  else
+  {// No noise canceling
+    cw_state = newstate;
+  }
+
+  // only used for frequency estimation
+  //ads.CW_signal = cw_state;
+
+  //    6.) fill into circular buffer
+  //----------------
+  // Record state changes and durations onto circular buffer
+  if (cw_state != prevstate)
+  {
+    // Enter the type and duration of the state change into the circular buffer
+    sig[sig_lastrx].state = prevstate;
+    sig[sig_lastrx].time = sig_timer;
+
+    // Zero circular buffer when at max
+    sig_lastrx = ring_idx_increment(sig_lastrx, CW_SIG_BUFSIZE);
+
+    sig_timer = 0;                                // Zero the signal timer.
+    prevstate = cw_state;                            // Update state
+  }
+
+  Serial.println(cw_state);
+
+  //----------------
+  // Count signal state timer upwards based on which sampling rate is in effect
+  sig_timer = sig_timer + timer_stepsize;
+
+  if (sig_timer > ONE_SECOND * CW_TIMEOUT)
+  {
+    sig_timer = ONE_SECOND * CW_TIMEOUT; // Impose a MAXTIME second boundary for overflow time
+  }
+
+  sig_incount = sig_lastrx;                         // Current Incount pointer
+  cur_time = sig_timer;
+
+  //    7.) CW Decode
+  if(CW_decoder_enable)
+  {
+    CW_Decode();                                     // Do all the heavy lifting
+  }
+  // calculation of speed of the received morse signal on basis of the standard "PARIS"
+  float32_t spdcalc =  10.0 * cw_times.dot_avg + 4.0 * cw_times.dash_avg + 9.0 * cw_times.symspace_avg + 5.0 * cw_times.cwspace_avg;
+
+  // update only if initialized and prevent division  by zero
+  if(cw_b.initialized == true && spdcalc > 0)
+  {
+    // Convert to Milliseconds per Word
+    float32_t speed_ms_per_word = spdcalc * 1000.0 / (cw_decoder_config.sampling_freq / (float32_t)cw_decoder_config.blocksize);
+    float32_t speed_wpm_raw = (0.5 + 60000.0 / speed_ms_per_word); // calculate words per minute
+    speed_wpm_avg = speed_wpm_raw * 0.3 + 0.7 * speed_wpm_avg; // a little lowpass filtering
+  }
+  else
+  {
+    speed_wpm_avg = 0; // we have no calculated speed, i.e. not synchronized to signal
+  }
+
+  cw_decoder_config.speed = speed_wpm_avg; // for external use, 0 indicates no signal condition
+  Serial.println(cw_decoder_config.speed);
+}
+
+void CwDecode_RxProcessor(float32_t * const src, int16_t blockSize)
+{
+  static uint16_t sample_counter = 0;
+  for (uint16_t idx = 0; idx < blockSize; idx++)
+  {
+    raw_signal_buffer[sample_counter] = src[idx];
+    sample_counter++;
+  }
+  //Serial.println("CW buffer filled");
+  if (sample_counter >= cw_decoder_config.blocksize)
+  {
+    CW_Decode_exe();
+    sample_counter = 0;
+  }
+}
+
+//------------------------------------------------------------------
+//
+// Initialization Function (non-blocking-style)
+// Determine Pulse, Dash, Dot and initial
+// Character-Word time averages
+//
+// Input is the circular buffer sig[], including in and out counters
+// Output is variables containing dot dash and space averages
+//
+//------------------------------------------------------------------
+static void InitializationFunc(void)
+{
+  static int16_t startpos, progress;   // Progress counter, size = SIG_BUFSIZE
+  static bool initializing = false; // Bool for first time init of progress counter
+  int16_t processed;              // Number of states that have been processed
+  float32_t t;                     // We do timing calculations in floating point
+  // to gain a little bit of precision when low
+  // sampling rate
+  // Set up progress counter at beginning of initialize
+  if (initializing == false)
+  {
+    startpos = sig_outcount;        // We start at last processed mark/space
+    progress = sig_outcount;
+    initializing = true;
+    cw_times.pulse_avg = 0;                         // Reset CW timing variables to 0
+    cw_times.dot_avg = 0;
+    cw_times.dash_avg = 0;
+    cw_times.symspace_avg = 0;
+    cw_times.cwspace_avg = 0;
+    cw_times.w_space = 0;
+  }
+  //    Board_RedLed(LED_STATE_ON);
+
+  // Determine number of states waiting to be processed
+  processed = ring_distanceFromTo(startpos,progress);
+
+  if (processed >= 98)
+  {
+    cw_b.initialized = true;                  // Indicate we're done and return
+    initializing = false;          // Allow for correct setup of progress if
+    // InitializaitonFunc is invoked a second time
+    // Board_RedLed(LED_STATE_OFF);
+  }
+  if (progress != sig_incount)                      // Do we have a new state?
+  {
+    t = sig[progress].time;
+
+    if (sig[progress].state)                               // Is it a pulse?
+    {
+      if (processed > 32)                  // More than 32, getting stable
+      {
+        if (t > cw_times.pulse_avg)
+        {
+          cw_times.dash_avg = cw_times.dash_avg + (t - cw_times.dash_avg) / 4.0;    // (e.q. 4.5)
+        }
+        else
+        {
+          cw_times.dot_avg = cw_times.dot_avg + (t - cw_times.dot_avg) / 4.0;       // (e.q. 4.4)
+        }
+      }
+      else                           // Less than 32, still quite unstable
+      {
+        if (t > cw_times.pulse_avg)
+        {
+          cw_times.dash_avg = (t + cw_times.dash_avg) / 2.0;               // (e.q. 4.2)
+        }
+        else
+        {
+          cw_times.dot_avg = (t + cw_times.dot_avg) / 2.0;                 // (e.q. 4.1)
+        }
+      }
+      cw_times.pulse_avg = (cw_times.dot_avg / 4 + cw_times.dash_avg) / 2.0; // Update pulse_avg (e.q. 4.3)
+    }
+    else          // Not a pulse - determine character_word space avg
+    {
+      if (processed > 32)
+      {
+        if (t > cw_times.pulse_avg)                              // Symbol space?
+        {
+          cw_times.cwspace_avg = cw_times.cwspace_avg + (t - cw_times.cwspace_avg) / 4.0; // (e.q. 4.8)
+        }
+        else
+        {
+          cw_times.symspace_avg = cw_times.symspace_avg + (t - cw_times.symspace_avg) / 4.0; // New EQ, to assist calculating Rate
+        }
+      }
+    }
+
+    progress = ring_idx_increment(progress,CW_SIG_BUFSIZE);                                // Increment progress counter
+  }
+}
+
+//------------------------------------------------------------------
+//
+// Spike Cancel function
+//
+// Optionally selectable in CWReceive.h, used by Data Recognition
+// function to identify and ignore spikes of short duration.
+//
+//------------------------------------------------------------------
+
+bool CwDecoder_IsSpike(uint32_t t)
+{
+  bool retval = false;
+
+  if (cw_decoder_config.spikecancel == CW_SPIKECANCEL_MODE_SPIKE) // SPIKE CANCEL // Squash spikes/transients of short duration
+  {
+    retval = t <= CW_SPIKECANCEL_MAX_DURATION;
+  }
+  else if (cw_decoder_config.spikecancel == CW_SPIKECANCEL_MODE_SHORT) // SHORT CANCEL // Squash spikes shorter than 1/3rd dot duration
+  {
+    retval = (3 * t < cw_times.dot_avg) && (cw_b.initialized == true); // Only do this if we are not initializing dot/dash periods
+  }
+  return retval;
+}
+
+
+float32_t spikeCancel(float32_t t)
+{
+  static bool spike;
+
+  if (cw_decoder_config.spikecancel != CW_SPIKECANCEL_MODE_OFF)
+  {
+    if (CwDecoder_IsSpike(t) == true)
+    {
+      spike = true;
+      sig_outcount = ring_idx_increment(sig_outcount, CW_SIG_BUFSIZE); // If short, then do nothing
+      t = 0.0;
+    }
+    else if (spike == true) // Check if last state was a short Spike or Drop
+    {
+      spike = false;
+      // Add time of last three states together.
+      t =   t
+          + sig[ring_idx_change(sig_outcount, -1, CW_SIG_BUFSIZE)].time
+          + sig[ring_idx_change(sig_outcount, -2, CW_SIG_BUFSIZE)].time;
+    }
+  }
+
+  return t;
+}
+
+//------------------------------------------------------------------
+//
+// Data Recognition Function (non-blocking-style)
+// Decode dots, dashes and spaces and group together
+// into a character.
+//
+// Input is the circular buffer sig[], including in and out counters
+// Variables containing dot, dash and space averages are maintained, and
+// output is a data[] buffer containing decoded dot/dash information, a
+// data_len variable containing length of incoming character data.
+// The function returns true when further calls will not yield a change or a complete new character has been decoded.
+// The bool variable the parameter points to is set to true if a new character has been decoded
+// In addition, cw_b.wspace flag indicates whether long (word) space after char
+//
+//------------------------------------------------------------------
+bool DataRecognitionFunc(bool* new_char_p)
+{
+  bool not_done = false;                  // Return value
+  static bool processed;
+
+  *new_char_p = false;
+
+  //-----------------------------------
+  // Do we have a new state to process?
+  if (sig_outcount != sig_incount)
+  {
+    not_done = true;
+    cw_b.timeout = false;           // Mainly used by Error Correction Function
+
+    const float32_t t = spikeCancel(sig[sig_outcount].time); // Get time of the new state
+    // Squash spikes/transients if enabled
+    // Attention: Side Effect -> sig_outcount has been be incremented inside spikeCancel if result == 0, because of this we increment only if not 0
+
+    if (t > 0) // not a spike (or spike processing not enabled)
+    {
+      const bool is_markstate = sig[sig_outcount].state;
+
+      sig_outcount = ring_idx_increment(sig_outcount, CW_SIG_BUFSIZE); // Update process counter
+      //-----------------------------------
+      // Is it a Mark (keydown)?
+      if (is_markstate == true)
+      {
+        processed = false; // Indicate that incoming character is not processed
+
+        // Determine if Dot or Dash (e.q. 4.10)
+        if ((cw_times.pulse_avg - t) >= 0)                         // It is a Dot
+        {
+          cw_b.dash = false;                           // Clear Dash flag
+          data[data_len].state = 0;                   // Store as Dot
+          cw_times.dot_avg = cw_times.dot_avg + (t - cw_times.dot_avg) / 8.0; // Update cw_times.dot_avg (e.q. 4.6)
+        }
+        //-----------------------------------
+        // Is it a Dash?
+        else
+        {
+          cw_b.dash = true;                              // Set Dash flag
+          data[data_len].state = 1;                   // Store as Dash
+          if (t <= 5 * cw_times.dash_avg)        // Store time if not stuck key
+          {
+            cw_times.dash_avg = cw_times.dash_avg + (t - cw_times.dash_avg) / 8.0; // Update dash_avg (e.q. 4.7)
+          }
+        }
+
+        data[data_len].time = (uint32_t) t;     // Store associated time
+        data_len++;                         // Increment by one dot/dash
+        cw_times.pulse_avg = (cw_times.dot_avg / 4 + cw_times.dash_avg) / 2.0; // Update pulse_avg (e.q. 4.3)
+      }
+
+      //-----------------------------------
+      // Is it a Space?
+      else
+      {
+        bool full_char_detected = true;
+        if (cw_b.dash == true)                // Last character was a dash
+        {
+            cw_b.dash = false;
+            float32_t eq4_12 = t
+                    - (cw_times.pulse_avg
+                            - ((uint32_t) data[data_len - 1].time
+                                    - cw_times.pulse_avg) / 4.0); // (e.q. 4.12, corrected)
+            if (eq4_12 < 0) // Return on symbol space - not a full char yet
+            {
+                cw_times.symspace_avg = cw_times.symspace_avg + (t - cw_times.symspace_avg) / 8.0; // New EQ, to assist calculating Rat
+                full_char_detected = false;
+            }
+            else if (t <= 10 * cw_times.dash_avg) // Current space is not a timeout
+            {
+                float32_t eq4_14 = t
+                        - (cw_times.cwspace_avg
+                                - ((uint32_t) data[data_len - 1].time
+                                        - cw_times.pulse_avg) / 4.0); // (e.q. 4.14)
+                if (eq4_14 >= 0)                   // It is a Word space
+                {
+                    cw_times.w_space = t;
+                    cw_b.wspace = true;
+                }
+            }
+        }
+        else                                 // Last character was a dot
+        {
+          // (e.q. 4.11)
+          if ((t - cw_times.pulse_avg) < 0) // Return on symbol space - not a full char yet
+          {
+            cw_times.symspace_avg = cw_times.symspace_avg + (t - cw_times.symspace_avg) / 8.0; // New EQ, to assist calculating Rate
+            full_char_detected = false;
+          }
+          else if (t <= 10 * cw_times.dash_avg) // Current space is not a timeout
+          {
+            cw_times.cwspace_avg = cw_times.cwspace_avg + (t - cw_times.cwspace_avg) / 8.0; // (e.q. 4.9)
+
+            // (e.q. 4.13)
+            if ((t - cw_times.cwspace_avg) >= 0)        // It is a Word space
+            {
+              cw_times.w_space = t;
+              cw_b.wspace = true;
+            }
+          }
+        }
+        // Process the character
+        if (full_char_detected == true && processed == false)
+        {
+          *new_char_p = true; // Indicate there is a new char to be processed
+        }
+      }
+    }
+  }
+  //-----------------------------------
+  // Long key down or key up
+  else if (cur_time > (10 * cw_times.dash_avg))
+  {
+    // If current state is Key up and Long key up then  Char finalized
+    if (sig[sig_incount].state == false && processed == false)
+    {
+      processed = true;
+      cw_b.wspace = true;
+      cw_b.timeout = true;
+      *new_char_p = true;                         // Process the character
+    }
+  }
+
+  if (data_len > CW_DATA_BUFSIZE - 2)
+  {
+    data_len = CW_DATA_BUFSIZE - 2; // We're receiving garble, throw away
+  }
+
+  if (*new_char_p)       // Update circular buffer pointers for Error function
+  {
+    last_outcount = cur_outcount;
+    cur_outcount = sig_outcount;
+  }
+  return not_done;  // false if all data processed or new character, else true
+}
+
+//------------------------------------------------------------------
+//
+// The Code Generation Function converts the received
+// character to a string code[] of dots and dashes
+//
+//------------------------------------------------------------------
+void CodeGenFunc()
+{
+  uint8_t a;
+  code = 0;
+
+  for (a = 0; a < data_len; a++)
+  {
+    code *= 4;
+    if (data[a].state)
+    {
+      code += 3; // Dash
+    }
+    else
+    {
+      code += 2; // Dit
+    }
+  }
+  data_len = 0;                               // And make ready for a new Char
+}
+
+
+void lcdLineScrollPrint(char c)
+{
+  //UiDriver_TextMsgPutChar(c);
+  termPutChar(c);
+}
+
+
+//------------------------------------------------------------------
+//
+// The Print Character Function prints to LCD and Serial (USB)
+//
+//------------------------------------------------------------------
+void PrintCharFunc(uint8_t c)
+{
+  //--------------------------------------
+
+  //--------------------------------------
+  // Print Characters to LCD
+
+  //--------------------------------------
+  // Prosigns
+  if (c == '}')
+  {
+    lcdLineScrollPrint('c');
+    lcdLineScrollPrint('t');
+  }
+  else if (c == '(')
+  {
+    lcdLineScrollPrint('k');
+    lcdLineScrollPrint('n');
+  }
+  else if (c == '&')
+  {
+    lcdLineScrollPrint('a');
+    lcdLineScrollPrint('s');
+  }
+  else if (c == '~')
+  {
+    lcdLineScrollPrint('s');
+    lcdLineScrollPrint('n');
+  }
+  else if (c == '>')
+  {
+    lcdLineScrollPrint('s');
+    lcdLineScrollPrint('k');
+  }
+  else if (c == '+')
+  {
+    lcdLineScrollPrint('a');
+    lcdLineScrollPrint('r');
+  }
+  else if (c == '^')
+  {
+    lcdLineScrollPrint('b');
+    lcdLineScrollPrint('k');
+  }
+  else if (c == '{')
+  {
+    lcdLineScrollPrint('c');
+    lcdLineScrollPrint('l');
+  }
+  else if (c == '^')
+  {
+    lcdLineScrollPrint('a');
+    lcdLineScrollPrint('a');
+  }
+  else if (c == '%')
+  {
+    lcdLineScrollPrint('n');
+    lcdLineScrollPrint('j');
+  }
+  else if (c == 0x7f)
+  {
+    lcdLineScrollPrint('e');
+    lcdLineScrollPrint('r');
+    lcdLineScrollPrint('r');
+  }
+
+  //--------------------------------------
+  // # is our designated ERROR Symbol
+  else if (c == 0xff)
+  {
+    lcdLineScrollPrint('#');
+  }
+
+  //--------------------------------------
+  // Normal Characters
+
+
+ //   if (c == 0xfe || c == 0xff)
+ // {
+ //   lcdLineScrollPrint('#');
+ // }
+   
+  else
+  {
+    lcdLineScrollPrint(c);
+  }
+}
+
+//------------------------------------------------------------------
+//
+// The Word Space Function takes care of Word Spaces
+// to LCD and Serial (USB).
+// Word Space Correction is applied if certain characters, which
+// are less likely to be at the end of a word, are received
+// The characters tested are applicable to the English language
+//
+//------------------------------------------------------------------
+void WordSpaceFunc(uint8_t c)
+{
+  if (cw_b.wspace == true)                             // Print word space
+  {
+    cw_b.wspace = false;
+
+    // Word space correction routine - longer space required if certain characters
+    if ((c == 'I') || (c == 'J') || (c == 'Q') || (c == 'U') || (c == 'V')
+        || (c == 'Z'))
+    {
+      int16_t x = (cw_times.cwspace_avg + cw_times.pulse_avg) - cw_times.w_space;      // (e.q. 4.15)
+      if (x < 0)
+      {
+        lcdLineScrollPrint(' ');
+      }
+    }
+    else
+    {
+      lcdLineScrollPrint(' ');
+    }
+  }
+
+}
+
+#define CW_SPACE_CHAR    1
+
+// The vertical listing permits easier direct comparison of code vs. character in
+// editors by placing both in vertically split window
+const uint32_t cw_char_codes[] =
+{
+    CW_SPACE_CHAR,    //    -> ' '
+    2,    // .    -> 'E'
+    3,    // -    -> 'T'
+    10,   // ..   -> 'I'
+    11,   // .-   -> 'A'
+    14,   // -.   -> 'N'
+    15,   // --   -> 'M'
+    42,   // ...  -> 'S'
+    43,   // ..-  -> 'U'
+    46,   // .-.  -> 'R'
+    47,   // .--  -> 'W'
+    58,   // -..  -> 'D'
+    59,   // -.-  -> 'K'
+    62,   // --.  -> 'G'
+    63,   // ---  -> 'O'
+    170,  // .... -> 'H'
+    171,  // ...- -> 'V'
+    174,  // ..-. -> 'F'
+    186,  // .-.. -> 'L'
+    190,  // .--. -> 'P'
+    191,  // .--- -> 'J'
+    234,  // -... -> 'B'
+    235,  // -..- -> 'X'
+    238,  // -.-. -> 'C'
+    239,  // -.-- -> 'Y'
+    250,  // --.. -> 'Z'
+    251,  // --.- -> 'Q'
+    682,  // .....  -> '5'
+    683,  // ....-  -> '4'
+    687,  // ...--  -> '3'
+    703,  // ..---  -> '2'
+    767,  // .----  -> '1'
+    938,  // -....  -> '6'
+    939,  // -...-  -> '='
+    942,  // -..-.  -> '/'
+    1002, // --...  -> '7'
+    1018, // ---..  -> '8'
+    1022, // ----.  -> '9'
+    1023, // -----  -> '0'
+    2810, // ..--.. -> '?'
+    2990, // .-..-. -> '_' / '"'
+    3003, // .-.-.- -> '.'
+    3054, // .--.-. -> '@'
+    3070, // .----. -> '\''
+    3755, // -....- -> '-'
+    4015, // --..-- -> ','
+    4074  // ---... -> ':'
+};
+
+#define CW_CHAR_CODES (sizeof(cw_char_codes)/sizeof(*cw_char_codes))
+const char cw_char_chars[CW_CHAR_CODES] =
+{
+    ' ',
+    'E',
+    'T',
+    'I',
+    'A',
+    'N',
+    'M',
+    'S',
+    'U',
+    'R',
+    'W',
+    'D',
+    'K',
+    'G',
+    'O',
+    'H',
+    'V',
+    'F',
+    'L',
+    'P',
+    'J',
+    'B',
+    'X',
+    'C',
+    'Y',
+    'Z',
+    'Q',
+    '5',
+    '4',
+    '3',
+    '2',
+    '1',
+    '6',
+    '=',
+    '/',
+    '7',
+    '8',
+    '9',
+    '0',
+    '?',
+    '"',
+    '.',
+    '@',
+    '\'',
+    '-',
+    ',',
+    ':'
+};
+
+const uint32_t cw_sign_codes[] =
+{
+    187, //   <AA>
+    750, //   <AR>
+    746, //   <AS>
+    61114, // <CL>
+    955, //   <CT>
+    43690, // <HH>
+    958, //   <KN>
+    3775, //  <NJ>
+    2747, //  <SK>
+    686 //    <SN>
+};
+
+#define CW_SIGN_CODES (sizeof(cw_sign_codes)/sizeof(*cw_sign_codes))
+const char* cw_sign_chars[CW_SIGN_CODES] =
+{
+    "AA",
+    "AR",
+    "AS",
+    "CL",
+    "CT",
+    "HH",
+    "KN",
+    "NJ",
+    "SK",
+    "SN"
+};
+
+const char cw_sign_onechar[CW_SIGN_CODES] =
+{
+    '^', // AA
+    '+', // AR
+    '&', // AS
+    '{', // CL
+    '}', // CT
+    0x7f, // HH
+    '(', // KN
+    '%', // NJ
+    '>', // SK
+    '~' // SN
+};
+
+//------------------------------------------------------------------
+//
+// The Character Identification Function applies dot/dash pattern
+// recognition to identify the received character.
+//
+// The function returns the ASCII code for the character received,
+// or 0xff if pattern was not recognized.
+//
+//------------------------------------------------------------------
+uint8_t CwGen_CharacterIdFunc(uint32_t code)
+{
+  uint8_t out = 0xff; // 0xff selected to indicate ERROR
+  // Should never happen - Empty, spike suppression or similar
+  if (code == 0)
+  {
+    out = 0xfe;
+  }
+
+  for (int i = 0; i<CW_CHAR_CODES; i++)
+  {
+    if (cw_char_codes[i] == code) {
+      out = cw_char_chars[i];
+      break;
+    }
+  }
+
+  if (out == 0xff)
+  {
+    for (int i = 0; i<CW_SIGN_CODES; i++)
+    {
+      if (cw_sign_codes[i] == code) {
+        out = cw_sign_onechar[i];
+
+        break;
+      }
+    }
+  }
+
+  return out;
+}
+
+
+
+
+//------------------------------------------------------------------
+//
+// Error Correction Function has three parts
+// 1) Exits with Error if character is too long (DATA_BUFSIZE-2)
+// 2) If a dot duration is determined to be less than half expected,
+// then this dot is eliminated by adding it and the two spaces on
+// either side to for a new space duration, then new code is generated
+// for pattern parsing.
+// 3) If not 2) then separate two run-on characters caused by
+// a short character space - Extend the char space and reprocess
+//
+// If not able to resolve anything, then return false
+// Return true if something was resolved.
+//
+//------------------------------------------------------------------
+bool ErrorCorrectionFunc(void)
+{
+  bool result = false; // Result of Error resolution - false if nothing resolved
+
+  if (data_len >= CW_DATA_BUFSIZE - 2)     // Too long char received
+  {
+    PrintCharFunc(0xff);              // Print Error to LCD and Serial (USB)
+    WordSpaceFunc(0xff); // Print Word Space to LCD and Serial when required
+  }
+
+  else
+  {
+    cw_b.wspace = false;
+    //-----------------------------------------------------
+    // Find the location of pulse with shortest duration
+    // and the location of symbol space of longest duration
+    int32_t temp_outcount = last_outcount; // Grab a copy of endpos for last successful decode
+    int32_t slocation = last_outcount; // Long symbol space duration and location
+    int32_t plocation = last_outcount; // Short pulse duration and location
+    uint32_t pduration = UINT32_MAX; // Very high number to decrement for min pulse duration
+    uint32_t sduration = 0; // and a zero to increment for max symbol space duration
+
+    // if cur_outcount is < CW_SIG_BUFSIZE, loop must terminate after CW_SIG_BUFSIZE -1 steps
+    while (temp_outcount != cur_outcount)
+    {
+      //-----------------------------------------------------
+      // Find shortest pulse duration. Only test key-down states
+      if (sig[temp_outcount].state)
+      {
+        bool is_shortest_pulse = sig[temp_outcount].time < pduration;
+        // basic test -> shorter than all previously seen ones
+
+        bool is_not_spike = CwDecoder_IsSpike(sig[temp_outcount].time) == false;
+
+        if (is_shortest_pulse == true && is_not_spike == true)
+        {
+          pduration = sig[temp_outcount].time;
+          plocation = temp_outcount;
+        }
+      }
+
+      //-----------------------------------------------------
+      // Find longest symbol space duration. Do not test first state
+      // or last state and only test key-up states
+      if ((temp_outcount != last_outcount)
+          && (temp_outcount != (cur_outcount - 1))
+          && (!sig[temp_outcount].state))
+      {
+        if (sig[temp_outcount].time > sduration)
+        {
+          sduration = sig[temp_outcount].time;
+          slocation = temp_outcount;
+        }
+      }
+
+      temp_outcount = ring_idx_increment(temp_outcount,CW_SIG_BUFSIZE);
+    }
+
+    uint8_t decoded[] = { 0xff, 0xff };
+
+    //-----------------------------------------------------
+    // Take corrective action by dropping shortest pulse
+    // if shorter than half of cw_times.dot_avg
+    // This can result in one or more valid characters - or Error
+    if ((pduration < cw_times.dot_avg / 2) && (plocation != temp_outcount))
+    {
+      // Add up duration of short pulse and the two spaces on either side,
+      // as space at pulse location + 1
+      sig[ring_idx_change(plocation, +1, CW_SIG_BUFSIZE)].time =
+          sig[ring_idx_change(plocation, -1, CW_SIG_BUFSIZE)].time
+          + sig[plocation].time
+          + sig[ring_idx_change(plocation, +1, CW_SIG_BUFSIZE)].time;
+
+      // Shift the preceding data forward accordingly
+      temp_outcount = ring_idx_change(plocation, -2 ,CW_SIG_BUFSIZE);
+
+      // if last_outcount is < CW_SIG_BUFSIZE, loop must terminate after CW_SIG_BUFSIZE -1 steps
+      while (temp_outcount != last_outcount)
+      {
+        sig[ring_idx_change(temp_outcount, +2, CW_SIG_BUFSIZE)].time =
+            sig[temp_outcount].time;
+
+        sig[ring_idx_change(temp_outcount, +2, CW_SIG_BUFSIZE)].state =
+            sig[temp_outcount].state;
+
+
+        temp_outcount = ring_idx_decrement(temp_outcount,CW_SIG_BUFSIZE);
+      }
+      // And finally shift the startup pointer similarly
+      sig_outcount = ring_idx_change(last_outcount, +2,CW_SIG_BUFSIZE);
+      //
+      // Now we reprocess
+      //
+      // Pull out a character, using the adjusted sig[] buffer
+      // Process character delimited by character or word space
+      bool dummy;
+      while (DataRecognitionFunc(&dummy))
+      {
+        // nothing
+      }
+
+      CodeGenFunc();                 // Generate a dot/dash pattern string
+      decoded[0] = CwGen_CharacterIdFunc(code); // Convert dot/dash data into a character
+      if (decoded[0] != 0xff)
+      {
+        PrintCharFunc(decoded[0]);
+        result = true;                // Error correction had success.
+      }
+      else
+      {
+        PrintCharFunc(0xff);
+      }
+    }
+    //-----------------------------------------------------
+    // Take corrective action by converting the longest symbol space to character space
+    // This will result in two valid characters - or Error
+    else
+    {
+      // Split char in two by adjusting time of longest sym space to a char space
+      sig[slocation].time =
+          ((cw_times.cwspace_avg - 1) >= 1 ? cw_times.cwspace_avg - 1 : 1); // Make sure it is always larger than 0
+      sig_outcount = last_outcount; // Set circ buffer reference to the start of previous failed decode
+      //
+      // Now we reprocess
+      //
+      // Debug - If timing is out of whack because of noise, with rate
+      // showing at >99 WPM, then DataRecognitionFunc() occasionally fails.
+      // Not found out why, but millis() is used to guards against it.
+
+      // Process first character delimited by character or word space
+      bool dummy;
+      while (DataRecognitionFunc(&dummy))
+      {
+        // nothing
+      }
+
+      CodeGenFunc();                 // Generate a dot/dash pattern string
+      decoded[0] = CwGen_CharacterIdFunc(code); // Convert dot/dash pattern into a character
+      // Process second character delimited by character or word space
+
+      while (DataRecognitionFunc(&dummy))
+      {
+        // nothing
+      }
+      CodeGenFunc();                 // Generate a dot/dash pattern string
+      decoded[1] = CwGen_CharacterIdFunc(code); // Convert dot/dash pattern into a character
+
+      if ((decoded[0] != 0xff) && (decoded[1] != 0xff)) // If successful error resolution
+      {
+        PrintCharFunc(decoded[0]);
+        PrintCharFunc(decoded[1]);
+        result = true;                // Error correction had success.
+      }
+      else
+      {
+        PrintCharFunc(0xff);
+      }
+    }
+  }
+  return result;
+}
+
+//------------------------------------------------------------------
+//
+// CW Decode manages all the decode Functions.
+// It establishes dot/dash/space periods through the Initialization
+// function, and when initialized (or if excessive time when not fully
+// initialized), then it runs DataRecognition, CodeGen and CharacterId
+// functions to decode any incoming data.  If not successful decode
+// then ErrorCorrection is attempted, and if that fails, then
+// Initialization is re-performed.
+//
+//------------------------------------------------------------------
+void CW_Decode(void)
+{
+  //-----------------------------------
+  // Initialize pulse_avg, dot_avg, cw_times.dash_avg, cw_times.symspace_avg, cwspace_avg
+  if (cw_b.initialized == false)
+  {
+    InitializationFunc();
+  }
+
+  //-----------------------------------
+  // Process the works once initialized - or if timeout
+  if ((cw_b.initialized == true) || (cur_time >= ONE_SECOND * CW_TIMEOUT)) //
+  {
+    bool received;                       // True on a symbol received
+    DataRecognitionFunc(&received);      // True if new character received
+    if (received && (data_len > 0))      // also make sure it is not a spike
+    {
+      CodeGenFunc();                  // Generate a dot/dash pattern string
+
+      uint8_t decoded = CwGen_CharacterIdFunc(code);
+      // Identify the Character
+      // 0xff if char not recognized
+
+      if (decoded < 0xfe)        // 0xfe = spike suppression, 0xff = error
+      {
+        PrintCharFunc(decoded);         // Print to LCD and Serial (USB)
+        WordSpaceFunc(decoded);     // Print Word Space to LCD and Serial when required
+      }
+      else if (decoded == 0xff)                // Attempt Error Correction
+      {
+        // If Error Correction function cannot resolve, then reinitialize speed
+        if (ErrorCorrectionFunc() == false)
+        {
+          cw_b.initialized = false;
+        }
+      }
+    }
+  }
+}
+
+void CwDecoder_WpmDisplayClearOrPrepare(bool prepare)
+{
+/*    uint16_t color1 = prepare?White:Black;
+    uint16_t color2 = prepare?Green:Black;
+
+    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y," --",color1,Black,0);
+    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x + 27, ts.Layout->CW_DECODER_WPM.y, "wpm", color2, Black, 4);
+
+    if (prepare == true)
+    {
+        CwDecoder_WpmDisplayUpdate(true);
+    }
+*/
+}
+
+void CwDecoder_WpmDisplayUpdate(bool force_update)
+{/*
+  static uint8_t old_speed = 0;
+
+  if(cw_decoder_config.speed != old_speed || force_update == true)
+  {
+      char WPM_str[10];
+
+      snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
+
+    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
+  }
+*/
+}
+
+//*********************************************************************** 
+#define termChrXwidth 9 
+//#define termChrYwidth 9 
+#define termChrYwidth 10 
+//#define termNrows 20 
+//#define termNrows 16 
+#define termNrows 4  // 15 
+#define termNcols 28 // 34 
+#define CW_x_start spectrum_x + 2 // 1
+#define CW_y_start spectrum_y - 1 // 55
+#define font Arial_6
+int termCursorXpos ;
+int termCursorYpos ;
+uint16_t termColor ;
+
+char termCharStore[termNcols][termNrows] ;
+int16_t termCharColorStore[termNcols][termNrows] ;
+
+void termDrawChr(int x, int y, int c) {
+  tft.setFont(Arial_8);
+  tft.setTextColor(ILI9341_GREEN);
+  x=CW_x_start+termChrXwidth*x ;
+  y=CW_y_start+termChrYwidth*y ;
+  tft.fillRect(x,y,termChrXwidth,termChrYwidth,ILI9341_BLACK) ;
+  tft.setCursor(x,y);
+  tft.printf("%c",c);
+  }
+
+void termScroll(){
+  int lastColor=0x10000 ;
+  for(int row=0 ; row<termNrows-1 ; row++){
+    for(int col=0 ; col<termNcols ; col++){
+      termCharStore[col][row]=termCharStore[col][row+1] ;
+      termCharColorStore[col][row]=termCharColorStore[col][row+1] ;
+      if( termCharColorStore[col][row] != lastColor){
+        tft.setTextColor(termCharColorStore[col][row]) ;
+        lastColor=termCharColorStore[col][row];
+        }
+      //tft.setTextColor(termCharColorStore[col][row]) ;  
+      termDrawChr(col,row,termCharStore[col][row]) ;
+      }
+    }
+  int row=termNrows-1 ;
+  for(int col=0 ; col<termNcols ; col++){
+    termCharStore[col][row]=' ' ;
+    termDrawChr(col,row,termCharStore[col][row]) ;
+    }
+  tft.setTextColor(termColor) ;  
+  }
+
+
+void termCrlf(){
+  termCursorXpos=0 ;
+  termCursorYpos++ ;
+  if( termCursorYpos>=termNrows ){
+    termCursorYpos=termNrows-1 ;
+    termScroll() ;
+    }
+  }
+
+  
+void termPutChar(int c){
+  if(c==10){ // 10 is \n
+    termCrlf() ;
+    return ;
+    }
+  termDrawChr( termCursorXpos , termCursorYpos, c) ; 
+  termCharStore[termCursorXpos][termCursorYpos]=c ;
+  termCharColorStore[termCursorXpos][termCursorYpos]=termColor ;
+  termCursorXpos++ ;
+  if( termCursorXpos>=termNcols ){
+    termCursorXpos=0 ;
+    termCursorYpos++ ;
+    if( termCursorYpos>=termNrows ){
+      //termCursorYpos=0 ;
+      termCursorYpos=termNrows-1 ;
+      termScroll() ;
+      }
+    }
+  }
+
+
+void termSetColor(int16_t color){
+  if(color !=termColor){
+    termColor=color ;
+    tft.setTextColor(color) ;
+    }
+  }
+  
+void termPutStr(char *cp){
+  while(*cp){
+    termPutChar(*cp++) ;
+    }
+  }
+
+//********************************************************************
+
+
