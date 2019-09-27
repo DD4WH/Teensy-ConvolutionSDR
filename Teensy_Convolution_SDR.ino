@@ -12560,11 +12560,13 @@ static void CW_Decode_exe(void)
   CW_mag = siglevel;
   CW_env = decayavg(CW_env, CW_mag, (CW_mag > CW_env)?
       //        (CW_ONE_BIT_SAMPLE_COUNT / 4) : (CW_ONE_BIT_SAMPLE_COUNT * 16));
-        (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 16));
+//        (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 16));
+        (cw_decoder_config.thresh / 4) : (cw_decoder_config.thresh * 16));
 
   CW_noise = decayavg(CW_noise, CW_mag, (CW_mag < CW_noise)?
       //(CW_ONE_BIT_SAMPLE_COUNT / 4) : (CW_ONE_BIT_SAMPLE_COUNT * 48));
-      (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 48));
+//      (cw_decoder_config.thresh /1000 / 4) : (cw_decoder_config.thresh /1000 * 48));
+      (cw_decoder_config.thresh / 4) : (cw_decoder_config.thresh * 48));
 
   CW_clipped = CW_mag > CW_env? CW_env: CW_mag;
 
@@ -12639,6 +12641,7 @@ static void CW_Decode_exe(void)
     prevstate = cw_state;                            // Update state
   }
 
+  CwDecoderDisplayState(cw_state);
   Serial.println(cw_state);
 
   //----------------
@@ -13601,14 +13604,13 @@ void CwDecoder_WpmDisplayClearOrPrepare(bool prepare)
 void CwDecoder_WpmDisplayUpdate(bool force_update)
 {
   static uint8_t old_speed = 0;
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setFont(Arial_11);
+  tft.fillRect(WPM_display_x, WPM_display_y, 27, 12, ILI9341_BLACK);
+  tft.setCursor(WPM_display_x, WPM_display_y);
 
   if(cw_decoder_config.speed != old_speed || force_update == true)
   {
-      char WPM_str[10];
-    tft.setTextColor(ILI9341_WHITE);
-    tft.setFont(Arial_11);
-    tft.fillRect(WPM_display_x, WPM_display_y, 27, 12, ILI9341_BLACK);
-    tft.setCursor(WPM_display_x, WPM_display_y);
     if(cw_decoder_config.speed > 0)
     {
       tft.printf("%3u", cw_decoder_config.speed);
@@ -13617,9 +13619,16 @@ void CwDecoder_WpmDisplayUpdate(bool force_update)
     {
       tft.printf(" --");
     }
- //     snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
- //   UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
+       //     snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
+       //   UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
   }
+}
+
+void CwDecoderDisplayState(uint8_t state)
+{
+    int color = ILI9341_BLACK; 
+    if(state) color = ILI9341_RED;
+    tft.fillRect(270, 58, 6, 6, color);    
 }
 
 //*********************************************************************** 
@@ -13629,7 +13638,7 @@ void CwDecoder_WpmDisplayUpdate(bool force_update)
 //#define termNrows 20 
 //#define termNrows 16 
 #define termNrows 4  // 15 
-#define termNcols 28 // 34 
+#define termNcols 27 // 34 
 #define CW_x_start spectrum_x + 2 // 1
 #define CW_y_start spectrum_y - 1 // 55
 #define font Arial_6
@@ -13642,7 +13651,7 @@ int16_t termCharColorStore[termNcols][termNrows] ;
 
 void termDrawChr(int x, int y, int c) {
   tft.setFont(Arial_8);
-  tft.setTextColor(ILI9341_GREEN);
+  tft.setTextColor(ILI9341_ORANGE);
   x=CW_x_start+termChrXwidth*x ;
   y=CW_y_start+termChrYwidth*y ;
   tft.fillRect(x,y,termChrXwidth,termChrYwidth,ILI9341_BLACK) ;
