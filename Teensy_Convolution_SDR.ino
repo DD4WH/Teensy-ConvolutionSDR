@@ -136,6 +136,7 @@
 **
 ** Copyright (c) 2016  Loftur E. Jonasson  (tf3lj [at] arrl [dot] net)
 **
+** https://sites.google.com/site/lofturj/cwreceive#TOC-Take-two-Fast-Fourier-Transform-and-Colour-Graphics
 ** Substantive portions of the methodology used here to decode Morse Code are found in:
 **
 ** "MACHINE RECOGNITION OF HAND-SENT MORSE CODE USING THE PDP-12 COMPUTER"
@@ -285,7 +286,7 @@ typedef struct
 #define CW_SPIKECANCEL_MODE_OFF 0
 #define CW_SPIKECANCEL_MODE_SPIKE 1
 #define CW_SPIKECANCEL_MODE_SHORT 2
-  bool use_3_goertzels;
+  bool atc_enable;
   bool snap_enable;
     bool show_CW_LED; // menu choice whether the user wants the CW LED indicator to be working or not
 } cw_config_t;
@@ -311,7 +312,7 @@ cw_config_t cw_decoder_config =
     //    .AGC_enable = 0,
     .noisecancel_enable = 1,
     .spikecancel = 0,
-    .use_3_goertzels = false,
+    .atc_enable = false,
     .snap_enable = false,
     .show_CW_LED = false // menu choice whether the user wants the CW LED indicator to be working or not
 };
@@ -1308,15 +1309,17 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_NR_USE_KIM                   51
 #define MENU_NR_KIM_K                     52
 #define MENU_LMS_NR_STRENGTH              53
-#define MENU_CW_DECODER_THRESH            54
+#define MENU_CW_DECODER_ATC               54
+#define MENU_CW_DECODER_ENABLE            55
+#define MENU_CW_DECODER_THRESH            56
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
-#define MENU_AGC_HANG_ENABLE              55
-#define MENU_AGC_HANG_TIME                56
-#define MENU_AGC_HANG_THRESH              57
+#define MENU_AGC_HANG_ENABLE              57
+#define MENU_AGC_HANG_TIME                58
+#define MENU_AGC_HANG_THRESH              59
 #define first_menu2                       19
-#define last_menu2                        54
+#define last_menu2                        56
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1388,6 +1391,8 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_NR_USE_KIM, " type ", "  NR ", 1 },
   { MENU_NR_KIM_K, "Kim K ", "  NR ", 1 },
   { MENU_LMS_NR_STRENGTH, " LMS ", "strengt", 1 },
+  { MENU_CW_DECODER_ATC, " CW ", " ATC ", 1 },
+  { MENU_CW_DECODER_ENABLE, " CW ", "decode", 1 },
   { MENU_CW_DECODER_THRESH, " CW ", "thresh", 1 },
   //  { MENU_NR_VAD_ENABLE, " VAD ", "  NR ", 1 },
   //  { MENU_NR_VAD_THRESH, " VAD ", "thresh", 1 },
@@ -7097,7 +7102,9 @@ void show_bandwidth ()
 
 void prepare_spectrum_display()
 {
-  uint16_t base_y = spectrum_y + spectrum_WF_height + 4;
+//  uint16_t base_y = spectrum_y + spectrum_WF_height + 4;
+  uint16_t base_y = spectrum_y - 1;
+
   //    uint16_t b_x = spectrum_x + SR[SAMPLE_RATE].x_offset;
   //    float32_t x_f = SR[SAMPLE_RATE].x_factor;
 
@@ -7190,7 +7197,7 @@ void prepare_spectrum_display()
   FrequencyBarText();
   show_menu();
   show_notch((int)notches[0], bands[current_band].mode);
-  showSpectrumCorners();
+  if(!CW_decoder_enable) showSpectrumCorners();
 
 } // END prepare_spectrum_display
 
@@ -8383,6 +8390,19 @@ void buttons() {
       else NR_use_X = 0;
       show_menu();
     }
+    else if (Menu2 == MENU_CW_DECODER_ENABLE)
+    {
+      if (CW_decoder_enable == 0) CW_decoder_enable = 1;
+      else CW_decoder_enable = 0;
+      prepare_spectrum_display();
+      show_menu();
+    }
+    else if (Menu2 == MENU_CW_DECODER_ATC)
+    {
+      if (cw_decoder_config.atc_enable == 0) cw_decoder_config.atc_enable = 1;
+      else cw_decoder_config.atc_enable = 0;
+      show_menu();
+    }
 
     else if (Menu2 == MENU_NB_IMPULSE_SAMPLES)
     {
@@ -8854,6 +8874,26 @@ void show_menu()
               sprintf(menu_string, "%5.1f", NR_VAD_thresh);
               tft.print(menu_string);
               break; */
+      case MENU_CW_DECODER_ENABLE:
+        if (CW_decoder_enable)
+        {
+          tft.print("YES");
+        }
+        else
+        {
+          tft.print("NO");
+        }
+        break;
+      case MENU_CW_DECODER_ATC:
+        if (cw_decoder_config.atc_enable)
+        {
+          tft.print("YES");
+        }
+        else
+        {
+          tft.print("NO");
+        }
+        break;
       case MENU_NR_PSI:
         tft.setFont(Arial_11);
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
@@ -12513,7 +12553,7 @@ static void CW_Decode_exe(void)
 
 
   // 4b.) automatic threshold correction
-  if(cw_decoder_config.use_3_goertzels)
+  if(cw_decoder_config.atc_enable)
   {
   CW_mag = siglevel;
   CW_env = decayavg(CW_env, CW_mag, (CW_mag > CW_env)?
