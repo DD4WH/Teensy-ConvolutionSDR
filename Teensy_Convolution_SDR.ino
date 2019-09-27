@@ -307,7 +307,7 @@ cw_config_t cw_decoder_config =
 { .sampling_freq = 12000.0, .target_freq = 700, //700.0,
     .speed = 25,
     //    .average = 2,
-    .thresh = 0.9, //32000,
+    .thresh = 2.8, //32000,
     .blocksize = CW_DECODER_BLOCKSIZE_DEFAULT,
     //    .AGC_enable = 0,
     .noisecancel_enable = 1,
@@ -2760,7 +2760,8 @@ void setup() {
   ****************************************************************************************/
 
   CwDecode_Filter_Set();
-  
+  CwDecoder_WpmDisplayClearOrPrepare(1);
+    
   /****************************************************************************************
      Initialize AGC variables
   ****************************************************************************************/
@@ -3936,7 +3937,10 @@ void loop() {
         Display_dbm();
         display_S_meter_or_spectrum_state = 0;
       }
-
+      else if (display_S_meter_or_spectrum_state == 3)
+      {
+        CwDecoder_WpmDisplayUpdate(false);
+      }
       /**********************************************************************************
           Decimation
        **********************************************************************************/
@@ -12355,7 +12359,6 @@ float32_t arm_atan2_f32(float32_t y, float32_t x)
    @} end of atan2 group
 */
 
-
 float32_t AudioFilter_GoertzelEnergy(Goertzel* goertzel)
 {
   float32_t a = (goertzel->buf[1] - (goertzel->buf[2] * goertzel->cos));// calculate energy at frequency
@@ -12381,7 +12384,6 @@ void AudioFilter_CalcGoertzel(Goertzel* g, float32_t freq, const uint32_t size, 
     g->cos = cosf(g->b);
     g->r = 2 * g->cos;
 }
-
 
 void AudioFilter_GoertzelInput(Goertzel* goertzel, float32_t in)
 {
@@ -13569,34 +13571,55 @@ void CW_Decode(void)
   }
 }
 
+const uint16_t WPM_display_x = 202;
+const uint16_t WPM_display_y = 54;
+
 void CwDecoder_WpmDisplayClearOrPrepare(bool prepare)
 {
-/*    uint16_t color1 = prepare?White:Black;
-    uint16_t color2 = prepare?Green:Black;
+    uint16_t color1 = prepare?ILI9341_WHITE:ILI9341_BLACK;
+    uint16_t color2 = prepare?ILI9341_GREEN:ILI9341_BLACK;
 
-    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y," --",color1,Black,0);
-    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x + 27, ts.Layout->CW_DECODER_WPM.y, "wpm", color2, Black, 4);
+    tft.setTextColor(color1);
+    tft.setFont(Arial_11);
+    tft.fillRect(WPM_display_x, WPM_display_y, 27, 12, ILI9341_BLACK);
+    tft.setCursor(WPM_display_x, WPM_display_y);
+    tft.printf(" --");
+    tft.setTextColor(color2);
+    tft.setCursor(WPM_display_x + 27, WPM_display_y);
+    //        tft.printf("%4.0f", offsetDisplayDB);        
+    tft.printf("wpm");
+
+//    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y," --",color1,Black,0);
+//    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x + 27, ts.Layout->CW_DECODER_WPM.y, "wpm", color2, Black, 4);
 
     if (prepare == true)
     {
         CwDecoder_WpmDisplayUpdate(true);
     }
-*/
 }
 
 void CwDecoder_WpmDisplayUpdate(bool force_update)
-{/*
+{
   static uint8_t old_speed = 0;
 
   if(cw_decoder_config.speed != old_speed || force_update == true)
   {
       char WPM_str[10];
-
-      snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
-
-    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(Arial_11);
+    tft.fillRect(WPM_display_x, WPM_display_y, 27, 12, ILI9341_BLACK);
+    tft.setCursor(WPM_display_x, WPM_display_y);
+    if(cw_decoder_config.speed > 0)
+    {
+      tft.printf("%3u", cw_decoder_config.speed);
+    }
+    else
+    {
+      tft.printf(" --");
+    }
+ //     snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
+ //   UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
   }
-*/
 }
 
 //*********************************************************************** 
