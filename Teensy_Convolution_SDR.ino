@@ -7136,6 +7136,42 @@ void show_spectrum()
   }
   tft.drawFastVLine (spectrum_x + 191, spectrum_y, h, ILI9341_MAROON);
 
+/***********************************************************************
+ * 
+ *    draw indicators for 
+ *    - CW decoder 
+ *    - RTTY decoder
+ * 
+ ***********************************************************************/
+// depends on spectrum_zoom factor, USB/LSB, shift frequency
+  int marker_0 = 915; // RTTY_mark
+  int marker_1 = marker_0 + rtty_shifts[rtty_ctrl_config.shift_idx].value;
+  int is_usb_demod = bands[current_band].mode == DEMOD_USB;
+  float hz_per_pixel = (float)SR[SAMPLE_RATE].rate / (float)(1 << spectrum_zoom) / 256.0;
+  float marker_0_offset = 127 + (is_usb_demod * marker_0 / hz_per_pixel);
+  float marker_1_offset = 127 + (is_usb_demod * marker_1 / hz_per_pixel);
+  if(CW_decoder_enable)
+  {
+    marker_0 = 700;
+    marker_0_offset = 127 + (is_usb_demod * marker_0 / hz_per_pixel);
+  }
+  Serial.print("hz_per_pxel "); Serial.println(hz_per_pixel);
+  Serial.print("is_usb_demod "); Serial.println(is_usb_demod);
+  
+  Serial.print("marker_0 "); Serial.println(marker_0_offset);
+  Serial.print("marker_1 "); Serial.println(marker_1_offset);
+  // RTTY
+  if(RTTY_decoder_enable)
+  {
+    tft.drawFastVLine (spectrum_x + marker_0_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
+    tft.drawFastVLine (spectrum_x + marker_1_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
+  }
+  else if (CW_decoder_enable)
+  {
+    tft.drawFastVLine (spectrum_x + marker_0_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
+  }
+/////////////////////////////////////////////////////////////////////////
+
   // ScrollAreaDefinition(uint16_t TopFixedArea, uint16_t VerticalScrollingArea, uint16_t BottomFixedArea)
   // summ must be 320
   //   tft.ScrollAreaDefinition(WATERFALL_TOP, WATERFALL_BOTTOM - WATERFALL_TOP,20);
@@ -9379,7 +9415,7 @@ void show_menu()
             tft.print("  45 ");
             break;
           case RTTY_SPEED_50:
-            tft.print(" 50 ");
+            tft.print("  50 ");
             break;
         }
         break;
@@ -9389,13 +9425,13 @@ void show_menu()
         switch (rtty_ctrl_config.stopbits_idx)
         {
           case RTTY_STOP_1:
-            tft.print("  1 ");
+            tft.print("  1  ");
             break;
           case RTTY_STOP_1_5:
-            tft.print(" 1 & 5 ");
+            tft.print(" 1.5 ");
             break;
           case RTTY_STOP_2:
-            tft.print(" 2 ");
+            tft.print(" 2  ");
             break;
         }
         break;
@@ -14532,39 +14568,6 @@ static void AudioDriver_RxProcessor_Rtty(float32_t * const src, int16_t blockSiz
         Rtty_Demodulator_ProcessSample(src[idx]);
     }
 }
-
-/*
-typedef enum
-{
-  MSK_IDLE = 0,
-  MSK_WAIT_FOR_NEG,
-  MSK_WAIT_FOR_PLUS,
-  MSK_WAIT_FOR_PLUSGRAD, // wait for the values growing towards max
-  MSK_WAIT_FOR_MAX, // wait for the value after max, needs to be done one the growing part of the curve
-} msk_state_t;
-
-typedef struct
-{
-  uint8_t char_bit_idx;
-  uint16_t char_bits;
-  uint32_t char_bit_samples;
-  uint16_t last_bit;
-  int16_t last_value;
-  uint8_t current_bit;
-  msk_state_t msk_state;
-  rtty_charSetMode_t char_mode;
-
-} rtty_tx_encoder_state_t;
-
-rtty_tx_encoder_state_t  rtty_tx =
-{
-    .last_bit = 1,
-    .last_value = INT16_MIN,
-    .char_mode = RTTY_MODE_LETTERS,
-
-};
-*/
-
 
 int32_t change_and_limit_int(volatile int32_t val, int32_t change, int32_t min, int32_t max)
 {
