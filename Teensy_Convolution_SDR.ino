@@ -382,8 +382,6 @@ rtty_ctrl_t rtty_ctrl_config =
     .atc_disable = false
 };
 
-
-
 // bits 0-4 -> baudot, bit 5 1 == LETTER, 0 == NUMBER/FIGURE
 const uint8_t Ascii2Baudot[128] =
 {
@@ -696,6 +694,12 @@ static rtty_lpf_config_t rtty_lp_12khz_50 =
 
 static rtty_mode_config_t  rtty_mode_current_config;
 
+  int RTTY_marker_0 = 915; // RTTY_mark
+  int RTTY_marker_1 = RTTY_marker_0 + rtty_shifts[rtty_ctrl_config.shift_idx].value;
+  int is_usb_demod = 1;
+  float hz_per_pixel = 1.0;
+  float RTTY_marker_0_offset = 127;
+  float RTTY_marker_1_offset = 127;
 
 time_t getTeensy3Time()
 {
@@ -7144,31 +7148,20 @@ void show_spectrum()
  * 
  ***********************************************************************/
 // depends on spectrum_zoom factor, USB/LSB, shift frequency
-  int marker_0 = 915; // RTTY_mark
-  int marker_1 = marker_0 + rtty_shifts[rtty_ctrl_config.shift_idx].value;
-  int is_usb_demod = bands[current_band].mode == DEMOD_USB;
-  float hz_per_pixel = (float)SR[SAMPLE_RATE].rate / (float)(1 << spectrum_zoom) / 256.0;
-  float marker_0_offset = 127 + (is_usb_demod * marker_0 / hz_per_pixel);
-  float marker_1_offset = 127 + (is_usb_demod * marker_1 / hz_per_pixel);
   if(CW_decoder_enable)
   {
-    marker_0 = 700;
-    marker_0_offset = 127 + (is_usb_demod * marker_0 / hz_per_pixel);
+    RTTY_marker_0 = 700;
+    RTTY_marker_0_offset = 127 + (is_usb_demod * RTTY_marker_0 / hz_per_pixel);
   }
-  Serial.print("hz_per_pxel "); Serial.println(hz_per_pixel);
-  Serial.print("is_usb_demod "); Serial.println(is_usb_demod);
-  
-  Serial.print("marker_0 "); Serial.println(marker_0_offset);
-  Serial.print("marker_1 "); Serial.println(marker_1_offset);
   // RTTY
   if(RTTY_decoder_enable)
   {
-    tft.drawFastVLine (spectrum_x + marker_0_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
-    tft.drawFastVLine (spectrum_x + marker_1_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
+    tft.drawFastVLine (spectrum_x + RTTY_marker_0_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
+    tft.drawFastVLine (spectrum_x + RTTY_marker_1_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
   }
   else if (CW_decoder_enable)
   {
-    tft.drawFastVLine (spectrum_x + marker_0_offset, spectrum_y + 20, h - 20, ILI9341_GREEN);
+    tft.drawFastVLine (spectrum_x + RTTY_marker_0_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
   }
 /////////////////////////////////////////////////////////////////////////
 
@@ -7640,7 +7633,7 @@ void prepare_spectrum_display()
   show_menu();
   show_notch((int)notches[0], bands[current_band].mode);
   if(!CW_decoder_enable && !RTTY_decoder_enable) showSpectrumCorners();
-
+  RTTY_update_variables();
 } // END prepare_spectrum_display
 
 void showSpectrumCorners(void)
@@ -14583,6 +14576,14 @@ int32_t change_and_limit_int(volatile int32_t val, int32_t change, int32_t min, 
   return val;
 }
 
-
+void RTTY_update_variables()
+{
+  RTTY_marker_0 = 915; // RTTY_mark
+  RTTY_marker_1 = RTTY_marker_0 + rtty_shifts[rtty_ctrl_config.shift_idx].value;
+  is_usb_demod = ((bands[current_band].mode == DEMOD_USB)? +1.0 : -1.0);
+  hz_per_pixel = (float)SR[SAMPLE_RATE].rate / (float)(1 << spectrum_zoom) / 256.0;
+  RTTY_marker_0_offset = 127 + (is_usb_demod * RTTY_marker_0 / hz_per_pixel);
+  RTTY_marker_1_offset = 127 + (is_usb_demod * RTTY_marker_1 / hz_per_pixel);
+}
 
 
