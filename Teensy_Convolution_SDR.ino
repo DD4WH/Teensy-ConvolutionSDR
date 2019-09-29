@@ -267,17 +267,36 @@ extern "C"
 #define CW_DATA_BUFSIZE      40  // Size of a buffer of accumulated dot/dash information. Max is DATA_BUFSIZE-2
 // Needs to be significantly longer than longest symbol 'sos'= ~30.
 
-uint8_t CW_decoder_enable = 0;
-uint8_t RTTY_decoder_enable = 1;
+
+#define DIGIMODE_OFF    0
+#define CW              1
+#define RTTY            2
+#define EFR             3
+#define RTTY_OSSI       4
+#define DCF77           5
+#define PSK             6
+#define DIGIMODE_LAST   4
+
+uint8_t digimode = 0;
+
+float lastII = 0;
+float lastQQ = 0;
+float RXbit = 0;
+float bitSampleTimer=0;
+float Tsample=1.0 / 12000.0;
+float CP_buffer[256];
+float CP_buffer_old = 0.0;
+// for EFR
+//float bitSamplePeriod=1.0/1000.0 ;
+// for RTTY
+float bitSamplePeriod=1.0/500.0;
+
 
 typedef struct
 {
   float32_t sampling_freq;
   float32_t target_freq;
-//  float32_t speed;
   uint8_t speed;
-//  uint8_t average;
-//  uint32_t thresh;
   float32_t thresh;
   uint8_t blocksize;
 
@@ -337,17 +356,19 @@ typedef struct
 typedef enum {
     RTTY_SPEED_45,
     RTTY_SPEED_50,
+    RTTY_SPEED_200,
     RTTY_SPEED_NUM
 } rtty_speed_t;
 
 typedef enum {
-    RTTY_SHIFT_85,
-    RTTY_SHIFT_170,
+  RTTY_SHIFT_85,
+  RTTY_SHIFT_170,
   RTTY_SHIFT_200,
-    RTTY_SHIFT_425,
+  RTTY_SHIFT_340,
+  RTTY_SHIFT_425,
   RTTY_SHIFT_450,
   RTTY_SHIFT_850,
-    RTTY_SHIFT_NUM
+  RTTY_SHIFT_NUM
 } rtty_shift_t;
 
 typedef struct
@@ -525,6 +546,7 @@ const rtty_speed_item_t rtty_speeds[RTTY_SPEED_NUM] =
 {
     { .id =RTTY_SPEED_45, .value = 45.45, .label = "45" },
     { .id =RTTY_SPEED_50, .value = 50, .label = "50"  },
+    { .id =RTTY_SPEED_200, .value = 200, .label = "200"  },
 };
 
 const rtty_shift_item_t rtty_shifts[RTTY_SHIFT_NUM] =
@@ -532,6 +554,7 @@ const rtty_shift_item_t rtty_shifts[RTTY_SHIFT_NUM] =
     { RTTY_SHIFT_85, 85, " 85" },
     { RTTY_SHIFT_170, 170, "170" },
     { RTTY_SHIFT_200, 200, "200" },
+    { RTTY_SHIFT_340, 340, "340" },
     { RTTY_SHIFT_425, 425, "425" },
     { RTTY_SHIFT_450, 450, "450" },
     { RTTY_SHIFT_850, 850, "850" },
@@ -562,8 +585,6 @@ typedef struct
   float32_t yv[3];
 } rtty_lpf_data_t;
 
-
-
 static float32_t RttyDecoder_bandPassFreq(float32_t sampleIn, const rtty_bpf_config_t* coeffs, rtty_bpf_data_t* data) {
   data->xv[0] = data->xv[1]; data->xv[1] = data->xv[2]; data->xv[2] = data->xv[3]; data->xv[3] = data->xv[4];
   data->xv[4] = sampleIn / coeffs->gain; // gain at centre
@@ -588,14 +609,10 @@ typedef enum {
   RTTY_RUN_STATE_BIT,
 } rtty_run_state_t;
 
-
 typedef enum {
   RTTY_MODE_LETTERS = 0,
   RTTY_MODE_SYMBOLS
 } rtty_charSetMode_t;
-
-
-
 
 typedef struct {
   rtty_bpf_data_t bpfSpaceData;
@@ -653,6 +670,16 @@ static rtty_bpf_config_t rtty_bp_12khz_1115 =
     .gain = 1.513364944e+03,
     .coeffs = { -0.9286270861, 3.1576917276, -4.6112830458, 3.2768349860 },
     .freq = 1115
+};
+
+// for 340Hz shift --> 915 + 340 = 1255Hz
+// order 2 Butterworth, freqs: 1205-1305 Hz, centre: 1255Hz
+// 
+static rtty_bpf_config_t rtty_bp_12khz_1255 =
+{
+    .gain = 1.513364944e+03,
+    .coeffs = { -0.9286270861, 2.9964316664, -4.3440155011, 3.1094904013 },
+    .freq = 1255
 };
 
 // for 85Hz shift --> 915 + 85Hz = space = 1000Hz
@@ -1694,20 +1721,19 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_NR_KIM_K                     52
 #define MENU_LMS_NR_STRENGTH              53
 #define MENU_CW_DECODER_ATC               54
-#define MENU_CW_DECODER_ENABLE            55
-#define MENU_CW_DECODER_THRESH            56
-#define MENU_RTTY_DECODER_ENABLE          57
-#define MENU_RTTY_DECODER_BAUD            58
-#define MENU_RTTY_DECODER_SHIFT           59
-#define MENU_RTTY_DECODER_STOPBIT         60
+#define MENU_CW_DECODER_THRESH            55
+#define MENU_RTTY_DECODER_BAUD            56
+#define MENU_RTTY_DECODER_SHIFT           57
+#define MENU_RTTY_DECODER_STOPBIT         58
+#define MENU_DIGIMODE                     59
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
-#define MENU_AGC_HANG_ENABLE              61
-#define MENU_AGC_HANG_TIME                62
-#define MENU_AGC_HANG_THRESH              63
+#define MENU_AGC_HANG_ENABLE              63
+#define MENU_AGC_HANG_TIME                64
+#define MENU_AGC_HANG_THRESH              65
 #define first_menu2                       19
-#define last_menu2                        60
+#define last_menu2                        59
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1780,12 +1806,11 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_NR_KIM_K, "Kim K ", "  NR ", 1 },
   { MENU_LMS_NR_STRENGTH, " LMS ", "strengt", 1 },
   { MENU_CW_DECODER_ATC, " CW ", " ATC ", 1 },
-  { MENU_CW_DECODER_ENABLE, " CW ", "decode", 1 },
   { MENU_CW_DECODER_THRESH, " CW ", "thresh", 1 },
-  { MENU_RTTY_DECODER_ENABLE, "RTTY", "decode", 1 },
   { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1 },
   { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1 },
   { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1 },
+  { MENU_DIGIMODE, " DIGI- ", " mode ", 1 },
   //  { MENU_NR_VAD_ENABLE, " VAD ", "  NR ", 1 },
   //  { MENU_NR_VAD_THRESH, " VAD ", "thresh", 1 },
   //  { MENU_NR_ENABLE, "spectral", "  NR ", 1 }
@@ -3159,7 +3184,9 @@ void setup() {
   ****************************************************************************************/
 
   Rtty_Modem_Init(96000);
-
+  softUartInit();
+  softUartInitEFR();
+  
   /****************************************************************************************
      Initialize AGC variables
   ****************************************************************************************/
@@ -4700,6 +4727,63 @@ void loop() {
       AGC();
 
       /**********************************************************************************
+          RTTY / ERF decoding Martin Ossmann
+       **********************************************************************************/
+    if(digimode == EFR || digimode == RTTY_OSSI)
+    {
+        bitSamplePeriod = 1.0 / 1000.0;
+        for(unsigned k=0 ; k < FFT_length / 2; k++)
+        {
+            float II = iFFT_buffer[FFT_length + k * 2 + 0];
+            float QQ = iFFT_buffer[FFT_length + k * 2 + 1];
+            float crossProduct = II * lastQQ - QQ * lastII;
+            lastII = II;
+            lastQQ = QQ;
+            const float IQsign = 1.0;
+            if(crossProduct * IQsign > 0) 
+            {
+              CP_buffer[k]=1.0; 
+            }
+            else 
+            {
+              CP_buffer[k]=-1.0;
+            }
+        }
+        CP_buffer[0] = CP_buffer[0] * 0.1 + CP_buffer_old * 0.9;
+        for(unsigned k = 1 ; k < FFT_length / 2; k++)
+        {
+            CP_buffer[k] = CP_buffer[k] * 0.1 + CP_buffer[k - 1] * 0.9; 
+        }
+        CP_buffer_old = CP_buffer[FFT_length / 2 - 1];
+
+//        IIRfilter(&dataFilter, CP_buffer, Ibuffer6);
+        if(digimode == EFR)
+        {
+        for(unsigned k=0 ; k < FFT_length / 2; k++)
+        {
+          double v = CP_buffer[k] ;
+          RXbit=efrSchmittTrigger(v) ;
+          if( efrBitSampleTrigger() ){ 
+            bitSampleEFRuart(RXbit) ;
+            }
+        }
+        }
+        else if(digimode == RTTY_OSSI)
+        {
+          bitSamplePeriod = 1.0 / 500.0;
+            // RTTY
+          for(unsigned k=0 ; k < FFT_length / 2; k++)
+          {
+              float v = CP_buffer[k] ;
+              RXbit=RTTYSchmittTrigger(v) ;                        // get digital signal
+              if( RTTYBitSampleTrigger() )
+              { 
+                RTTYuartSample(RXbit) ;                            // put into soft UART
+              }
+          }
+        }
+    }
+      /**********************************************************************************
           Demodulation
        **********************************************************************************/
 
@@ -5442,7 +5526,7 @@ void loop() {
       /**********************************************************************************
           CW decoding
        **********************************************************************************/
-      if(CW_decoder_enable) 
+      if(digimode == CW) 
       {
         CwDecode_RxProcessor(&float_buffer_L[0], FFT_length / 4);
         CwDecode_RxProcessor(&float_buffer_L[FFT_length / 4], FFT_length / 4);
@@ -5453,7 +5537,7 @@ void loop() {
       /**********************************************************************************
           RTTY decoding
        **********************************************************************************/
-      if(RTTY_decoder_enable) 
+      if(digimode == RTTY) 
       {
           AudioDriver_RxProcessor_Rtty(&float_buffer_L[0], FFT_length / 2);
       }
@@ -7109,7 +7193,7 @@ void show_spectrum()
   // First cut at a plot grid  <PUA>
   int h = spectrum_height + 3;
   tft.drawFastHLine (spectrum_x - 1, spectrum_y - 2, 254, ILI9341_MAROON);
-  if(!CW_decoder_enable && !RTTY_decoder_enable) 
+  if(digimode == DIGIMODE_OFF) 
   {
     tft.drawFastHLine (spectrum_x - 1, spectrum_y + 18, 254, ILI9341_MAROON);
   }
@@ -7122,7 +7206,7 @@ void show_spectrum()
   tft.drawFastVLine (spectrum_x - 1,   spectrum_y, h, ILI9341_MAROON);
   tft.drawFastVLine (spectrum_x + 255, spectrum_y, h, ILI9341_MAROON);
 
-  if(CW_decoder_enable || RTTY_decoder_enable) 
+  if(digimode != DIGIMODE_OFF) 
   {
     spectrum_y = spectrum_y + 40;
     h = h - 40;
@@ -7148,18 +7232,18 @@ void show_spectrum()
  * 
  ***********************************************************************/
 // depends on spectrum_zoom factor, USB/LSB, shift frequency
-  if(CW_decoder_enable)
+  if(digimode == CW)
   {
     RTTY_marker_0 = 700;
     RTTY_marker_0_offset = 127 + (is_usb_demod * RTTY_marker_0 / hz_per_pixel);
   }
   // RTTY
-  if(RTTY_decoder_enable)
+  if(digimode == RTTY)
   {
     tft.drawFastVLine (spectrum_x + RTTY_marker_0_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
     tft.drawFastVLine (spectrum_x + RTTY_marker_1_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
   }
-  else if (CW_decoder_enable)
+  else if (digimode == CW)
   {
     tft.drawFastVLine (spectrum_x + RTTY_marker_0_offset, spectrum_y + 20, h - 20, ILI9341_YELLOW);
   }
@@ -7312,7 +7396,7 @@ void show_spectrum()
     if(WF_cnt > 40) WF_cnt = 0;
   */
   //  showSpectrumCorners();
-    if(CW_decoder_enable || RTTY_decoder_enable) 
+    if(digimode != DIGIMODE_OFF) 
   {
     spectrum_y = spectrum_y - 40;
     h = h + 40;
@@ -7632,13 +7716,13 @@ void prepare_spectrum_display()
   FrequencyBarText();
   show_menu();
   show_notch((int)notches[0], bands[current_band].mode);
-  if(!CW_decoder_enable && !RTTY_decoder_enable) showSpectrumCorners();
+  if(digimode == DIGIMODE_OFF) showSpectrumCorners();
   RTTY_update_variables();
 } // END prepare_spectrum_display
 
 void showSpectrumCorners(void)
 {
-  if(!CW_decoder_enable && !RTTY_decoder_enable)
+  if(digimode == DIGIMODE_OFF)
   {
     tft.fillRect(12, spectrum_y + 3, 33, 10, ILI9341_BLACK);
     tft.setCursor(12, spectrum_y + 3);
@@ -8826,10 +8910,14 @@ void buttons() {
       else NR_use_X = 0;
       show_menu();
     }
-    else if (Menu2 == MENU_CW_DECODER_ENABLE)
+    else if (Menu2 == MENU_DIGIMODE)
     {
-      if (CW_decoder_enable == 0) CW_decoder_enable = 1;
-      else CW_decoder_enable = 0;
+      digimode++;
+      if(digimode > DIGIMODE_LAST)
+      {
+        digimode = 0;
+      }
+      Rtty_Modem_Init(96000);
       prepare_spectrum_display();
       show_menu();
     }
@@ -8837,13 +8925,6 @@ void buttons() {
     {
       if (cw_decoder_config.atc_enable == 0) cw_decoder_config.atc_enable = 1;
       else cw_decoder_config.atc_enable = 0;
-      show_menu();
-    }
-    else if (Menu2 == MENU_RTTY_DECODER_ENABLE)
-    {
-      if (RTTY_decoder_enable == 0) RTTY_decoder_enable = 1;
-      else RTTY_decoder_enable = 0;
-      prepare_spectrum_display();
       show_menu();
     }
     else if (Menu2 == MENU_RTTY_DECODER_SHIFT)
@@ -9344,28 +9425,30 @@ void show_menu()
               sprintf(menu_string, "%5.1f", NR_VAD_thresh);
               tft.print(menu_string);
               break; */
-      case MENU_CW_DECODER_ENABLE:
-        if (CW_decoder_enable)
+      case MENU_DIGIMODE:
+        tft.setFont(Arial_10);
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+        switch (digimode)
         {
-          tft.print("YES");
-        }
-        else
-        {
-          tft.print("NO");
+          case DIGIMODE_OFF:
+            tft.print("  OFF");
+            break;
+          case CW:
+            tft.print(" CW ");
+            break;
+          case RTTY:
+            tft.print(" RTTY ");
+            break;
+          case RTTY_OSSI:
+            tft.print(" Ossi ");
+            break;
+          case EFR:
+            tft.print(" EFR ");
+            break;
         }
         break;
       case MENU_CW_DECODER_ATC:
         if (cw_decoder_config.atc_enable)
-        {
-          tft.print("YES");
-        }
-        else
-        {
-          tft.print("NO");
-        }
-        break;
-      case MENU_RTTY_DECODER_ENABLE:
-        if (RTTY_decoder_enable)
         {
           tft.print("YES");
         }
@@ -9390,6 +9473,9 @@ void show_menu()
             break;
           case RTTY_SHIFT_425:
             tft.print(" 425 ");
+            break;
+          case RTTY_SHIFT_340:
+            tft.print(" 340 ");
             break;
           case RTTY_SHIFT_450:
             tft.print(" 450 ");
@@ -13187,7 +13273,7 @@ static void CW_Decode_exe(void)
   cur_time = sig_timer;
 
   //    7.) CW Decode
-  if(CW_decoder_enable)
+  if(digimode == CW)
   {
     CW_Decode();                                     // Do all the heavy lifting
   }
@@ -14168,7 +14254,7 @@ void CwDecoderDisplayState(uint8_t state)
 //#define termNrows 20 
 //#define termNrows 16 
 #define termNrows 4  // 15 
-#define termNcols 27 // 34 
+#define termNcols 28 // 34 
 #define CW_x_start spectrum_x + 2 // 1
 #define CW_y_start spectrum_y - 1 // 55
 #define font Arial_6
@@ -14181,7 +14267,7 @@ int16_t termCharColorStore[termNcols][termNrows] ;
 
 void termDrawChr(int x, int y, int c) {
   tft.setFont(Arial_8);
-  tft.setTextColor(ILI9341_ORANGE);
+//  tft.setTextColor(ILI9341_ORANGE);
   x=CW_x_start+termChrXwidth*x ;
   y=CW_y_start+termChrYwidth*y ;
   tft.fillRect(x,y,termChrXwidth,termChrYwidth,ILI9341_BLACK) ;
@@ -14242,7 +14328,6 @@ void termPutChar(int c){
     }
   }
 
-
 void termSetColor(int16_t color){
   if(color !=termColor){
     termColor=color ;
@@ -14286,6 +14371,9 @@ void Rtty_Modem_Init(uint32_t output_sample_rate)
     break;
   case 425:
     rttyDecoderData.bpfSpaceConfig = &rtty_bp_12khz_1340;
+    break;
+  case 340:
+    rttyDecoderData.bpfSpaceConfig = &rtty_bp_12khz_1255;
     break;
   case 450:
     rttyDecoderData.bpfSpaceConfig = &rtty_bp_12khz_1365; // this is space or '0'
@@ -14585,5 +14673,429 @@ void RTTY_update_variables()
   RTTY_marker_0_offset = 127 + (is_usb_demod * RTTY_marker_0 / hz_per_pixel);
   RTTY_marker_1_offset = 127 + (is_usb_demod * RTTY_marker_1 / hz_per_pixel);
 }
+
+//**************************************************************************************************************
+
+
+int EFRuartShiftReg=0 ;
+int EFRuartTimer=0 ;
+int EFRgapCount=0 ;
+int EFRparityIsOdd=0 ;    
+int EFRuartBitCount=0 ; 
+int EFRwaitingForGap=0 ;
+
+void softUartInitEFR(){
+  EFRuartShiftReg=0 ;
+  EFRuartTimer=0 ;
+  EFRgapCount=0 ;
+  EFRparityIsOdd=0 ; 
+  EFRuartBitCount=0 ; 
+  EFRwaitingForGap=0 ;
+  }
+
+#define uartFullTime 5
+#define uartHalfTime 4
+
+void checkForStartBit(uint8_t input){
+  if ( input != 0) { 
+    EFRuartTimer=uartHalfTime ;
+    EFRuartBitCount=0 ; 
+    EFRuartShiftReg=0 ; 
+    EFRparityIsOdd=0 ; 
+    }
+  }
+
+void bitSampleEFRuart(uint8_t input){
+  // sampling with 1000 samples/sec
+  if (input!=0){
+    EFRgapCount=0 ;
+    } 
+   else { 
+    EFRgapCount++ ; 
+    if (EFRgapCount==50) { EFRwaitingForGap=0 ; }
+    }
+  if (EFRuartTimer==0) {
+    checkForStartBit(input) ;
+    }
+   else { 
+    EFRuartTimer++ ;
+    }
+  if (EFRuartTimer > uartFullTime) {
+    EFRuartTimer -= uartFullTime ;
+    if ( input == 0) { 
+      EFRuartShiftReg=EFRuartShiftReg+(1 << EFRuartBitCount) ; 
+      EFRparityIsOdd ^= 1 ;
+      }
+    EFRuartBitCount++ ;
+    if (EFRuartBitCount==10) {
+      EFRuartShiftReg=(EFRuartShiftReg >> 1) & 0xFF  ; // eliminate stop-bit and parity bit
+      msgFSMchar(EFRuartShiftReg,EFRparityIsOdd) ;
+      }
+    if (EFRuartBitCount>10) {
+      EFRuartBitCount=0 ; 
+      EFRuartTimer=0 ; 
+      }
+    }
+  }
+
+
+//**************************************************************************************************************
+
+
+
+void uartPutc(int c){
+  Serial.printf("%c",(char)c) ;
+  termPutChar(c) ;
+  }
+
+void uartBlank() {
+  Serial.printf(" ") ;
+  termPutChar(' ') ;
+  }
+//**************************************************************************************************************
+
+#define msgBufferLength 32 
+uint8_t EFRmsgBuffer[msgBufferLength] ;
+
+void showDayOfWeek(uint8_t weekday){
+  if ( weekday==1) {  Serial.printf("MONDAY   ") ; termPutStr("MONDAY   ") ;}  
+  if ( weekday==2) {  Serial.printf("TUESDAY  ") ; termPutStr("TUESDAY  ") ;}
+  if ( weekday==3) {  Serial.printf("WEDNESDAY") ; termPutStr("WEDNESDAY") ;}
+  if ( weekday==4) {  Serial.printf("THURSDAY ") ; termPutStr("THURSDAY ") ;}
+  if ( weekday==5) {  Serial.printf("FRIDAY   ") ; termPutStr("FRIDAY   ") ; }
+  if ( weekday==6) {  Serial.printf("SATURDAY ") ; termPutStr("SATURDAY ") ; }
+  if ( weekday==7) {  Serial.printf("SUNDAY   ") ; termPutStr("SUNDAY   ") ;}
+  }
+
+void dec2out(uint8_t k){
+  uartPutc( ((k/10) )+48 ) ;
+  uartPutc( (k % 10)+48 ) ;
+  }
+
+void decodeCP56() {
+
+  termSetColor(ILI9341_WHITE);
+  
+  termPutChar('\n') ;
+  //termPutChar('\n') ;
+//  termPutChar('<') ;
+  termPutChar('<') ;
+  
+  uint16_t milliSeconds=EFRmsgBuffer[4] ;
+  milliSeconds=milliSeconds*256 ;
+  uint8_t seconds=milliSeconds/1000 ;
+
+  uint8_t minutes=EFRmsgBuffer[5] ;
+  uint8_t hours=EFRmsgBuffer[6] & 0x7F ;
+
+  uint8_t dayOfMonth=EFRmsgBuffer[7] & 0x1F ;
+  uint8_t dayOfWeek=EFRmsgBuffer[7] >> 5 ;
+
+  uint8_t month=EFRmsgBuffer[8] & 0x0F ;
+  uint8_t year=EFRmsgBuffer[9] & 0x7F;
+
+//  uartBlank() ;
+  dec2out(hours) ;
+  uartPutc(':') ;
+  dec2out(minutes) ;
+  uartPutc(':') ;
+  dec2out(seconds) ;
+  uartPutc(' ') ;
+  dec2out(dayOfMonth) ;
+  uartPutc('.') ;
+  dec2out(month) ;
+  uartPutc('.') ;
+  dec2out(year) ;
+  uartBlank() ;
+  showDayOfWeek(dayOfWeek) ;
+//  uartBlank() ;
+//  termPutChar('>') ;
+//  termPutChar('>') ;
+ //termSetColor(ILI9341_GREEN);
+  termSetColor(ILI9341_MAGENTA);
+  }
+
+
+//**************************************************************************************************************
+char text[64] ;
+
+#define msgFSMresetState 0
+#define msgFSMfirst68scanned 1
+#define msgFSMfirstLengthscanned 2
+#define msgFSMsecondLengthscanned 3
+#define msgFSMsecond68scanned 4
+
+int EFRmsgFSMstate =0 ;
+int EFRpayloadBytes=0 ;
+uint8_t EFRchkSum=0 ;
+int EFRokCount=0 ;
+int EFRfirstLength=0 ;
+int EFRsecondLength=0 ;  
+
+void msgFSMreset1(){
+  EFRmsgFSMstate =msgFSMresetState ;
+  EFRpayloadBytes=0 ;
+  EFRchkSum=0 ;
+  }
+
+void msgFSMinit() {
+  EFRokCount=0 ;
+  msgFSMreset1() ;
+  }
+
+#define parityERROR 1
+#define wrongStartERROR 2
+#define lengthMatchERROR 3
+#define missingSecond68ERROR 4
+#define chksumERROR 5
+#define missing16ERROR 6
+#define msgLengthERROR 7
+
+#define errorOut
+
+void msgFSMerror(uint8_t errorNumber){
+  EFRwaitingForGap=1 ;
+  EFRgapCount=0 ;
+#ifdef errorOut
+  uartPutc('e') ;
+  Serial.printf("%02X",errorNumber) ;
+  sprintf(text,"%02X",errorNumber) ;
+  termPutStr(text) ;
+  
+  uartBlank() ;
+#endif
+  msgFSMreset1() ;
+  }
+
+#define debugOut
+
+void exeFSMresetState(char theChar){
+  EFRchkSum=0 ;
+  if (  theChar==0x68){ 
+    EFRmsgFSMstate =msgFSMfirst68scanned ;
+    // uartPutc('!') ;
+    return ; 
+    }
+   else{ msgFSMerror(wrongStartERROR) ; return ; }
+  }
+
+void exeFSMfirst68scanned(char theChar){
+  EFRfirstLength= theChar ;
+  EFRmsgFSMstate =msgFSMfirstLengthscanned ; 
+  return ; 
+  }
+
+void exeFSMfirstLengthscanned(char theChar) {
+  EFRsecondLength= theChar ;
+  EFRmsgFSMstate =msgFSMsecondLengthscanned ; 
+  return ; 
+  }
+
+void exeFSMsecondLengthscanned(char theChar) {  
+  if ( theChar==0x68){ 
+    EFRmsgFSMstate =msgFSMsecond68scanned ; 
+    EFRpayloadBytes=0 ; 
+    if (  EFRfirstLength != EFRsecondLength ){  msgFSMerror(lengthMatchERROR) ; return ; }
+    //uartPutc('#') ; 
+    return ; 
+    }
+   else{ 
+    msgFSMerror(missingSecond68ERROR) ;  
+    return ; 
+    }
+  }
+
+void exeFSMsecond68scanned(char theChar){
+  // if length==10 there are 16 bytes in total, 4 have already been received here
+  // length+2 bytes have to come in here
+  EFRmsgBuffer[EFRpayloadBytes]=theChar ;
+  EFRpayloadBytes++ ;
+  if ( EFRpayloadBytes<=EFRfirstLength){ EFRchkSum=EFRchkSum+theChar ; }
+  if (EFRpayloadBytes==EFRfirstLength+1){
+    //uartPutsPgm(PSTR("=?=")) ; ;uartByte(chkSum) ; uartBlank() ;
+    if (EFRchkSum!=theChar){  
+      #ifdef debugOut
+      Serial.printf("\n chkSum err %08XH %08XH \n",EFRchkSum,theChar) ; 
+      #endif
+      msgFSMerror(chksumERROR) ;
+      }
+    }
+  if (EFRpayloadBytes==EFRfirstLength+2){
+    if (theChar != 0x16 ) { msgFSMerror(missing16ERROR) ;return ; }
+    EFRmsgFSMstate =msgFSMresetState ;
+    EFRokCount++ ;
+    Serial.printf("\n: len=") ;  Serial.printf("%i",EFRfirstLength) ; uartBlank() ;
+    //uartCrlf() ; 
+    Serial.printf(" [") ;
+    for(uint8_t k=0 ; k<EFRpayloadBytes ; k++){
+      Serial.printf("%02X",EFRmsgBuffer[k]) ;
+      //Serial.printf(" %c",EFRmsgBuffer[k] & 0x7F) ;
+     
+      sprintf(text,"%02X",EFRmsgBuffer[k]) ;
+      termPutStr(text) ;
+      uartPutc('_') ;
+      }
+    Serial.printf("] ") ;
+    if(EFRfirstLength==10){  decodeCP56() ; }
+    return ;  
+    }
+  if (EFRpayloadBytes>EFRfirstLength+2){ 
+    msgFSMerror(msgLengthERROR) ;
+    return ;  
+    }
+  }
+
+void msgFSMchar(uint8_t theChar, uint8_t parity){
+  //uartByte(theChar) ; 
+  //if (parity==0){ uartPutc('+') ; } else { uartPutc('-') ; }
+  if (  EFRwaitingForGap ) { return ; }
+  
+  if ( parity != 0) {  
+    EFRmsgFSMstate =msgFSMresetState ;
+    msgFSMerror(parityERROR) ;
+    return ; 
+    }
+    
+  if ( EFRmsgFSMstate==msgFSMresetState ){ exeFSMresetState(theChar) ; return ; }
+  if ( EFRmsgFSMstate==msgFSMfirst68scanned ){ exeFSMfirst68scanned(theChar) ; return ; }
+  if ( EFRmsgFSMstate==msgFSMfirstLengthscanned ){ exeFSMfirstLengthscanned(theChar) ; return ; }
+  if ( EFRmsgFSMstate==msgFSMsecondLengthscanned  ){ exeFSMsecondLengthscanned(theChar) ; return ; }
+  if ( EFRmsgFSMstate==msgFSMsecond68scanned  ){ exeFSMsecond68scanned(theChar) ; return ; }
+  }
+
+// for EFR
+//float bitSamplePeriod=1.0/1000.0 ;
+// for RTTY
+//float bitSamplePeriod=1.0/500.0 ;
+
+int efrBitSampleTrigger(){
+  bitSampleTimer += Tsample ;
+  if( bitSampleTimer > bitSamplePeriod ){ 
+    bitSampleTimer -= bitSamplePeriod ;
+    return 1 ;
+    }
+  return 0 ;
+  }
+
+int efrSchmittTrigger(float v){
+  int RXbit1 ;
+  float threshold=0.2 ;
+  if(v> threshold){ RXbit1=0 ; }
+  if(v<-threshold){ RXbit1=1 ; }
+  return RXbit1 ;
+  }
+//**************************************************************************************************************
+
+
+
+int RTTYBitSampleTrigger(){
+  bitSampleTimer += Tsample ;
+  if( bitSampleTimer > bitSamplePeriod ){ 
+    bitSampleTimer -= bitSamplePeriod ;
+    return 1 ;
+    }
+  return 0 ;
+  }
+
+int RTTYrxBit1 ;
+
+int RTTYSchmittTrigger(float v){
+  float threshold=0.2 ;
+  if(v> threshold){ RTTYrxBit1=0 ; }
+  if(v<-threshold){ RTTYrxBit1=1 ; }
+  return RTTYrxBit1 ;
+  }
+
+//**************************************************************************************************************
+//
+// software uart for BAUDOT code
+//
+
+#define LFcode 10
+#define CRcode 13
+#define UU     'y'
+
+// 'x' = who-is-there
+// 'y' = unused
+// 130=ltrs 131=figs 
+
+uint8_t RTTYbaudotTable []={
+  'o'    , 'E', LFcode , 'A', ' ', 'S', 'I', 'U',
+  CRcode , 'D', 'R'    , 'J', 'N', 'F', 'C', 'K',
+  'T'    , 'Z', 'L'    , 'W', 'H', 'Y', 'P', 'Q',
+  'O'    , 'B', 'G'    , 130, 'M', 'X', 'V', 131, 
+  'o'    , '3', LFcode , '1', ' ', '"', '8', '7',
+  CRcode , 'x', '4'    , 'b', ',',  UU, ':', '(',
+  '5'    , '+', ')'    , '2',  UU, '6', '0', '1',
+  '9'    , '?', '&'    , 130, '.', '/', '=', 131 } ;
+
+uint8_t RTTYuartTimer ;
+uint8_t RTTYuartShiftReg ;
+uint8_t RTTYuartBitCount ;
+uint8_t RTTYuartBaudotShift ;
+
+void RTTYbaudotPrint(uint8_t baudotChar){
+   uint8_t AsciiChar ;
+   AsciiChar= RTTYbaudotTable [ baudotChar+(RTTYuartBaudotShift<<5) ] ;
+   if ( AsciiChar==131) { 
+     RTTYuartBaudotShift=0 ; 
+     AsciiChar=0 ; 
+     }
+    else if ( AsciiChar==130 ) {
+     RTTYuartBaudotShift=1 ; 
+     AsciiChar=0 ; 
+     }
+   if (AsciiChar!=0) { 
+     // display only printable characters
+     Serial.printf("%c",AsciiChar) ;
+     termPutChar(AsciiChar) ; 
+   }
+  }
+
+void softUartInit(){
+  RTTYuartShiftReg=0 ;
+  RTTYuartTimer=0 ;
+  RTTYuartBaudotShift=0 ;
+  }
+
+#define RTTYuartFullTime 10
+#define RTTYuartHalfTime 6
+
+void RTTYuartCheckForStartBit(uint8_t input){
+  if ( input != 0) { 
+    RTTYuartTimer=RTTYuartHalfTime ;
+    RTTYuartBitCount=0 ; 
+    RTTYuartShiftReg=0 ; 
+    }
+  }
+
+void RTTYuartSample(uint8_t input){
+  if (RTTYuartTimer==0) {
+    RTTYuartCheckForStartBit(input) ;
+    }
+   else { 
+    RTTYuartTimer++ ;
+    }
+  if (RTTYuartTimer>RTTYuartFullTime) {
+    // a full bit time has elapsed again
+    RTTYuartTimer -= RTTYuartFullTime ;
+    // shift input into shiftregister
+    if ( input == 0) { 
+    RTTYuartShiftReg=RTTYuartShiftReg+(1 << RTTYuartBitCount) ; 
+    }
+    // count bits
+    RTTYuartBitCount++ ;
+    if (RTTYuartBitCount==6) {
+    // we have enough bits
+      RTTYuartShiftReg=RTTYuartShiftReg >>1  ; // eliminate stop-bit
+      RTTYbaudotPrint(RTTYuartShiftReg) ;
+      }
+    if (RTTYuartBitCount>6) {
+      // too many bits, restart 
+      RTTYuartBitCount=0 ; 
+      RTTYuartTimer=0 ; 
+      }
+    }
+  }
 
 
