@@ -291,6 +291,31 @@ float CP_buffer_old = 0.0;
 // for RTTY
 float bitSamplePeriod=1.0/500.0;
 
+// print stuff for text terminal
+#define termChrXwidth 9 
+//#define termChrYwidth 9 
+#define termChrYwidth 10 
+//#define termNrows 20 
+//#define termNrows 16 
+#define termNrows 4  // 15 
+#define termNcols 28 // 34 
+#define CW_x_start spectrum_x + 2 // 1
+#define CW_y_start spectrum_y - 1 // 55
+//#define font Arial_6
+int termCursorXpos = 0;
+int termCursorYpos = 0;
+uint16_t termColor = 0x10000;
+
+char termCharStore[termNcols][termNrows] ;
+int16_t termCharColorStore[termNcols][termNrows] ;
+
+#define RTTYuartFullTime 10
+#define RTTYuartHalfTime 6
+
+#define LFcode 10
+#define CRcode 13
+#define UU     'y'
+
 
 typedef struct
 {
@@ -3186,7 +3211,8 @@ void setup() {
   Rtty_Modem_Init(96000);
   softUartInit();
   softUartInitEFR();
-  
+  termSetColor(ILI9341_ORANGE);
+
   /****************************************************************************************
      Initialize AGC variables
   ****************************************************************************************/
@@ -14248,22 +14274,6 @@ void CwDecoderDisplayState(uint8_t state)
 }
 
 //*********************************************************************** 
-#define termChrXwidth 9 
-//#define termChrYwidth 9 
-#define termChrYwidth 10 
-//#define termNrows 20 
-//#define termNrows 16 
-#define termNrows 4  // 15 
-#define termNcols 28 // 34 
-#define CW_x_start spectrum_x + 2 // 1
-#define CW_y_start spectrum_y - 1 // 55
-#define font Arial_6
-int termCursorXpos ;
-int termCursorYpos ;
-uint16_t termColor ;
-
-char termCharStore[termNcols][termNrows] ;
-int16_t termCharColorStore[termNcols][termNrows] ;
 
 void termDrawChr(int x, int y, int c) {
   tft.setFont(Arial_8);
@@ -14986,8 +14996,6 @@ int efrSchmittTrigger(float v){
   }
 //**************************************************************************************************************
 
-
-
 int RTTYBitSampleTrigger(){
   bitSampleTimer += Tsample ;
   if( bitSampleTimer > bitSamplePeriod ){ 
@@ -14997,9 +15005,8 @@ int RTTYBitSampleTrigger(){
   return 0 ;
   }
 
-int RTTYrxBit1 ;
-
 int RTTYSchmittTrigger(float v){
+  int RTTYrxBit1 ;
   float threshold=0.2 ;
   if(v> threshold){ RTTYrxBit1=0 ; }
   if(v<-threshold){ RTTYrxBit1=1 ; }
@@ -15010,11 +15017,6 @@ int RTTYSchmittTrigger(float v){
 //
 // software uart for BAUDOT code
 //
-
-#define LFcode 10
-#define CRcode 13
-#define UU     'y'
-
 // 'x' = who-is-there
 // 'y' = unused
 // 130=ltrs 131=figs 
@@ -15057,9 +15059,6 @@ void softUartInit(){
   RTTYuartTimer=0 ;
   RTTYuartBaudotShift=0 ;
   }
-
-#define RTTYuartFullTime 10
-#define RTTYuartHalfTime 6
 
 void RTTYuartCheckForStartBit(uint8_t input){
   if ( input != 0) { 
