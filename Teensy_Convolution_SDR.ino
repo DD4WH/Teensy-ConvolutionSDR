@@ -14279,6 +14279,8 @@ void termDrawChr(int x, int y, int c) {
   tft.setFont(Arial_8);
 //  tft.setTextColor(ILI9341_ORANGE);
   x=CW_x_start+termChrXwidth*x ;
+  if(c == 'W') x = x - 2; // allow for more space with wide character
+  else if (c == 'I') x = x + 4; // allow for nicer (closer) space with narrow character 
   y=CW_y_start+termChrYwidth*y ;
   tft.fillRect(x,y,termChrXwidth,termChrYwidth,ILI9341_BLACK) ;
   tft.setCursor(x,y);
