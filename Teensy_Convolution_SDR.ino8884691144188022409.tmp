@@ -14812,6 +14812,7 @@ void decodeCP56() {
   uint8_t month=EFRmsgBuffer[8] & 0x0F ;
   uint8_t year=EFRmsgBuffer[9] & 0x7F;
 
+  // automatically set internal RTC
   setTime (hours, minutes, seconds, dayOfMonth, month, year);
 
 //  uartBlank() ;
