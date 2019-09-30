@@ -66,7 +66,11 @@ Specifications at the moment:
 * complex FIR filter coefficients implemented --> independent passband tuning with freely adjustable bandwidth now possible for all modes
 * supports newest Arduino and Teensyduino versions 1.8.5 and 1.40
 * state-of-the-art noise blanker by Michael DL2FW integrated
-* added support for SDR hardware by Dante DO7JBH* CW (Morse) decoder from UHSDR implemented* RTTY decoder from UHSDR implemented* alternative RTTY decoder by Martin Ossmann implemented* EFR (European Teleswitching) decoding by Martin Ossmann implemented (can be used to automatically set the RTC to the standard atomic clock time)
+* added support for SDR hardware by Dante DO7JBH
+* CW (Morse) decoder from UHSDR implemented
+* RTTY decoder from UHSDR implemented
+* alternative RTTY decoder by Martin Ossmann implemented
+* EFR (European Teleswitching) decoding by Martin Ossmann implemented (can be used to automatically set the RTC to the standard atomic clock time)
 
 
  
