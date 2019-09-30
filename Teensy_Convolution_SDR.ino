@@ -275,7 +275,7 @@ extern "C"
 #define RTTY_OSSI       4
 #define DCF77           5
 #define PSK             6
-#define DIGIMODE_LAST   4
+#define DIGIMODE_LAST   5
 
 uint8_t digimode = 0;
 
@@ -290,6 +290,9 @@ float CP_buffer_old = 0.0;
 //float bitSamplePeriod=1.0/1000.0 ;
 // for RTTY
 float bitSamplePeriod=1.0/500.0;
+// for DCF77
+float dcfRefLevel;
+#define withterm 1
 
 // print stuff for text terminal
 #define termChrXwidth 9 
@@ -3212,6 +3215,7 @@ void setup() {
   softUartInit();
   softUartInitEFR();
   termSetColor(ILI9341_ORANGE);
+  dcfInit();
 
   /****************************************************************************************
      Initialize AGC variables
@@ -5562,7 +5566,7 @@ void loop() {
 //        CwDecode_RxProcessor(&float_buffer_L[FFT_length / 4], FFT_length / 8);
 //        CwDecode_RxProcessor(&float_buffer_L[FFT_length / 8 * 3], FFT_length / 8);
       }
-
+      else 
       /**********************************************************************************
           RTTY decoding
        **********************************************************************************/
@@ -5570,7 +5574,34 @@ void loop() {
       {
           AudioDriver_RxProcessor_Rtty(&float_buffer_L[0], FFT_length / 2);
       }
-
+      else
+      /**********************************************************************************
+          DCF77 decoding
+       **********************************************************************************/
+      if(digimode == DCF77)
+      { 
+        // AM demodulation has already been performed
+          for(unsigned k = 1 ; k < FFT_length / 2; k++)
+          {
+            CP_buffer[k] = float_buffer_L[k];
+          }
+          bitSamplePeriod = 1.0 / 1000.0;
+          CP_buffer[0] = CP_buffer[0] * 0.1 + CP_buffer_old * 0.9;
+          for(unsigned k = 1 ; k < FFT_length / 2; k++)
+          {
+              CP_buffer[k] = CP_buffer[k] * 0.1 + CP_buffer[k - 1] * 0.9; 
+          }
+          CP_buffer_old = CP_buffer[FFT_length / 2 - 1];
+          for(unsigned k = 0; k < FFT_length / 2; k++)
+          {
+            double v = CP_buffer[k] ;
+            if(bitSampleTrigger())
+            { 
+              dcfSample(v) ;
+            }
+          }
+      }
+      
       /**********************************************************************************
           INTERPOLATION
        **********************************************************************************/
@@ -9473,6 +9504,9 @@ void show_menu()
             break;
           case EFR:
             tft.print(" EFR ");
+            break;
+          case DCF77:
+            tft.print(" DCF77 ");
             break;
         }
         break;
@@ -14812,6 +14846,7 @@ void decodeCP56() {
   uint8_t month=EFRmsgBuffer[8] & 0x0F ;
   uint8_t year=EFRmsgBuffer[9] & 0x7F;
 
+  // automatically set internal RTC
   setTime (hours, minutes, seconds, dayOfMonth, month, year);
 
 //  uartBlank() ;
@@ -15108,5 +15143,168 @@ void RTTYuartSample(uint8_t input){
       }
     }
   }
+
+//**************************************************************************************************************
+float dcfSum ;
+int   dcfCount ;
+float dcfMean ;
+
+int dcfLevel ;
+int dcfSilenceTimer ;
+int dcfTheSecond ;
+int dcfPulseTime ;
+uint8_t dcfParityBit ;
+
+void dcfInit()
+{
+  dcfCount=0 ;
+  dcfSum=0 ;
+  dcfRefLevel=1 ;
+}
+
+uint8_t dcfTheBits[60] ;
+
+void dcfPutBit(uint TheSecond , int TheBit)
+{
+  if (TheSecond<60) { dcfTheBits[TheSecond]=TheBit ; }
+}
+
+uint8_t getBCD(uint BitPos , uint BitCount)
+{
+  uint8_t value ;
+  uint8_t k,q ;
+  value=0 ;
+  q=1 ;
+  for (k=0 ; k<BitCount ; k++ ) 
+  { 
+    if ( dcfTheBits[BitPos++] ) 
+    { 
+      value += q ; dcfParityBit ^= 1 ; 
+    }
+    q=2*q ;
+    }
+  return value ;
+}
+
+void dcfDisplayTime(){
+  uint8_t P1,P2,P3 ;
+  uint8_t min1 ;
+  uint8_t min10 ;
+  uint8_t hrs1 ;
+  uint8_t hrs10 ;
+  uint8_t day1 ;
+  uint8_t day10 ;
+  uint8_t month1 ;
+  uint8_t month10 ;
+  uint8_t weekday ;
+  uint8_t year1 ;
+  uint8_t year10 ;
+  char textBuf[64] ;
+  
+  dcfParityBit=0 ;
+  min1=getBCD(21,4) ;
+  min10=getBCD(25,3) ;
+  P1=dcfParityBit ^ dcfTheBits[28] ;
+
+  dcfParityBit=0 ;       
+  hrs1=getBCD(29,4) ;
+  hrs10=getBCD(33,2) ;
+  P2=dcfParityBit ^ dcfTheBits[35] ;
+           
+  dcfParityBit=0 ;     
+  day1=getBCD(36,4) ;
+  day10=getBCD(40,2) ;
+  weekday=getBCD(42,3) ;
+  month1=getBCD(45,4) ;
+  month10=getBCD(49,1) ;
+  year1=getBCD(50,4) ;
+  year10=getBCD(54,4) ;
+  P3=dcfParityBit ^ dcfTheBits[58] ;
+  Serial.printf("\n") ;
+  Serial.printf("  %2i:%2i ",10*hrs10+hrs1,10*min10+min1 ) ;
+  Serial.printf("%2i.%2i.",10*day10+day1,10*month10+month1) ;
+  Serial.printf("20%2i ",10*year10+year1) ;
+  Serial.printf("P:%1i%1i%1i ",P1,P2,P3) ;
+
+  sprintf(textBuf,"\n%2i:%2i %2i.%2i.20%2i P:%1i%1i%1i " ,10*hrs10+hrs1,10*min10+min1,10*day10+day1,10*month10+month1,10*year10+year1,P1,P2,P3) ;
+  if(withterm){ termPutStr(textBuf) ; }
+  if(withterm){
+    if ( weekday==1) { termPutStr("MONDAY   ") ; }  
+    if ( weekday==2) { termPutStr("TUESDAY  ") ; }
+    if ( weekday==3) { termPutStr("WEDNESDAY") ; }
+    if ( weekday==4) { termPutStr("THURSDAY ") ; }
+    if ( weekday==5) { termPutStr("FRIDAY   ") ; }
+    if ( weekday==6) { termPutStr("SATURDAY ") ; }
+    if ( weekday==7) { termPutStr("SUNDAY   ") ; }
+    }
+
+  if ( weekday==1) { Serial.printf("MONDAY   ") ; }  
+  if ( weekday==2) { Serial.printf("TUESDAY  ") ; }
+  if ( weekday==3) { Serial.printf("WEDNESDAY") ; }
+  if ( weekday==4) { Serial.printf("THURSDAY ") ; }
+  if ( weekday==5) { Serial.printf("FRIDAY   ") ; }
+  if ( weekday==6) { Serial.printf("SATURDAY ") ; }
+  if ( weekday==7) { Serial.printf("SUNDAY   ") ; }
+}
+
+void dcfCheckForGap(){
+  dcfSilenceTimer++ ;
+  if (dcfLevel==0 )  { 
+    dcfSilenceTimer=0 ;
+    }
+  if ( dcfSilenceTimer>1500 ) {
+    if (withterm){ Serial.printf("\n\rGAP ") ; }
+    //fprintf(stderr,"\n\r GAP %5i ",SilenceTimer) ;
+    dcfSilenceTimer=0 ;
+    dcfDisplayTime() ;
+    dcfTheSecond=0 ;
+    }
+  }
+
+void dcfEmitBit(int TheBit){
+  dcfPutBit(dcfTheSecond,TheBit) ; 
+  Serial.printf("%c",'0'+TheBit) ;
+  termSetColor(ILI9341_RED);
+   if (withterm){termPutChar('0'+TheBit) ;}
+  termSetColor(ILI9341_WHITE);
+  if (dcfTheSecond<58) { dcfTheSecond++ ; }
+  }
+
+void dcfCheckPulse(){
+  if ( dcfLevel==1 ){ 
+    if( dcfPulseTime>150) { dcfEmitBit(1) ; }
+      else if (dcfPulseTime>50 ) { dcfEmitBit(0) ; }
+      dcfPulseTime=0 ;
+      }
+   else {
+    if ( dcfPulseTime<400 ) { dcfPulseTime++ ; }
+    }
+  }
+
+void dcfSample(float signal){
+  dcfSum+=signal ;
+  dcfCount++ ;
+  if(dcfCount==5000){
+    dcfCount=0 ;
+    dcfMean=dcfSum/5000.0 ;
+    dcfRefLevel=dcfMean ;
+    dcfSum=0 ;
+    }
+  if ( signal >0.7*dcfRefLevel) { dcfLevel=1 ; } else { dcfLevel=0 ; }
+  dcfCheckForGap() ;
+  dcfCheckPulse() ;
+  }
+
+  int bitSampleTrigger(){
+  bitSampleTimer += Tsample ;
+  if( bitSampleTimer > bitSamplePeriod ){ 
+    bitSampleTimer -= bitSamplePeriod ;
+    return 1 ;
+    }
+  return 0 ;
+  }
+//**************************************************************************************************************
+
+
 
 
