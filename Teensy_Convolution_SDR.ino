@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_09_30
+   (c) Frank DD4WH 2019_10_02
 
    "TEENSY CONVOLUTION SDR"
 
@@ -95,13 +95,15 @@
    - bugfix: only use local loop variables
    - bugfix: software now usable on different hardware versions: DO7JBH, DD4WH
    - CW decoder (modified version of Lofturs excellent implementation) taken from UHSDR
+   - RTTY decoder: taken from UHSDR
+   - alternative RTTY decoder (Martin Ossmann)
+   - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
 
    TODO:
    - ABANDONED UNTIL RELIABLE AUDIO AVAILABLE: get this software to run on the T4 with software switches, so we can use ONE software for T3.6 AND T4.0 
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
-   - RTTY decoder
    - BPSK decoder
    - UKW DX filters for WFM prior to FM demodulation (110kHz, 80kHz, 57kHz)
    - test dBm measurement according to filter passband
@@ -119,6 +121,7 @@
    wdsp (Warren Pratt): http://svn.tapr.org/repos_sdr_hpsdr/trunk/W5WC/PowerSDR_HPSDR_mRX_PS/Source/wdsp/ [GNU GPL]
    Wheatley (2011): cuteSDR https://github.com/satrian/cutesdr-se [BSD]
    Robert Dick (1999): Tune SSB Automatically. in QEX: http://www.arrl.org/files/file/QEX%20Binaries/1999/ssbtune.zip ["code is in the public domain . . .", thus I assume GNU GPL]
+   Martin Ossmann: unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin!
    sample-rate-change-on-the-fly code by Frank Bösing [MIT]
    GREAT THANKS FOR ALL THE HELP AND INPUT BY WALTER, WMXZ !
    Audio queue optimized by Pete El Supremo 2016_10_27, thanks Pete!
@@ -171,11 +174,14 @@
 /*  If you use the hardware made by Frank DD4WH uncomment the next line */
 //#define HARDWARE_DD4WH
 
+/*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
+#define HARDWARE_DD4WH_T4
+
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
-#define HARDWARE_DO7JBH
+//#define HARDWARE_DO7JBH
 
 /* only for debugging */
 //#define DEBUG
@@ -187,7 +193,7 @@
 /*  only for support of the hardware RF frontend filters designed by Bob Larkin, W7PUA
     http://www.janbob.com/electron/FilterBP1/FiltBP1.html
     adjust cutoff frequencies according to your needs in function setfreq */
-#define USE_BOBS_FILTER
+//#define USE_BOBS_FILTER
 
 /*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
     recommendation: leave this uncommented */
@@ -201,7 +207,7 @@
     recommendation: leave this uncommented */
 #define USE_ATAN2FAST
 
-#define MP3 1
+//#define MP3 
 
 #if defined(__IMXRT1062__)
 #define T4
@@ -225,6 +231,13 @@ extern "C"
 #include <arm_const_structs.h>
 #include <si5351.h>
 #include <Encoder.h>
+#if defined(HARDWARE_DD4WH_T4)
+#include <ILI9341_t3n.h>
+#include <ili9341_t3n_font_Arial.h>
+#elif
+#include <ILI9341_t3.h>
+#include "font_Arial.h"
+#endif
 #if defined(MP3)
 #include <play_sd_mp3.h> //mp3 decoder by Frank B
 #include <play_sd_aac.h> // AAC decoder by Frank B
@@ -232,13 +245,9 @@ extern "C"
 #include <util/crc16.h> //mdrhere
 
 #if defined(T4)
-#include <SPIN.h>
-#include <ILI9341_t3n.h>
-#include <ili9341_t3n_font_Arial.h>
+#include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
 #else
 #include <EEPROM.h>
-#include <ILI9341_t3.h>
-#include "font_Arial.h"
 #endif
 
 
@@ -782,6 +791,7 @@ long calibration_constant = 0;
 //long calibration_constant = 108000; // this is for the Elektor PCB !
 unsigned long long hilfsf = 1000000000;
 
+
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
 Encoder tune      (16, 17);
@@ -857,6 +867,44 @@ Encoder encoder3  (15, 16); //(26, 28);
 #define TFT_TOUCH_CS    6
 #define LED_PIN         13
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+#elif defined(HARDWARE_DD4WH_T4)
+Si5351 si5351;
+#define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
+
+#define BACKLIGHT_PIN   6  // unfortunately connected to 3V3 in DO7JBHs PCB 
+#define TFT_DC          9
+#define TFT_CS          10
+#define TFT_RST         255  // 255 = unused. connect to 3.3V
+#define TFT_MOSI        11
+#define TFT_SCLK        13
+#define TFT_MISO        12
+
+ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+
+Encoder tune      (16, 17);
+Encoder filter    (14, 15);
+Encoder encoder3  (4, 5); //(26, 28);
+
+#define   BUTTON_1_PIN      24 // encoder2 button = button3SW
+#define   BUTTON_2_PIN      26 // BAND+ = button2SW
+#define   BUTTON_3_PIN      28 // ???
+#define   BUTTON_4_PIN      30 //
+#define   BUTTON_5_PIN      25 // this is the pushbutton pin of the tune encoder
+#define   BUTTON_6_PIN      27 // this is the pushbutton pin of the filter encoder
+#define   BUTTON_7_PIN      32 // this is the menu button pin
+#define   BUTTON_8_PIN      29  //27 // this is the pushbutton pin of encoder 3
+
+Bounce button1 = Bounce(BUTTON_1_PIN, 50);
+Bounce button2 = Bounce(BUTTON_2_PIN, 50);
+Bounce button3 = Bounce(BUTTON_3_PIN, 50);
+Bounce button4 = Bounce(BUTTON_4_PIN, 50);
+Bounce button5 = Bounce(BUTTON_5_PIN, 50);
+Bounce button6 = Bounce(BUTTON_6_PIN, 50);
+Bounce button7 = Bounce(BUTTON_7_PIN, 50);
+Bounce button8 = Bounce(BUTTON_8_PIN, 50);
+
+float DD4WH_RF_gain = 6.0;
 
 #else
 // Optical Encoder connections
@@ -973,7 +1021,9 @@ AudioConnection          patchCord8(playAac, 1, mixright, 2);
 AudioConnection          patchCord9(mixleft, 0,  i2s_out, 1);
 AudioConnection          patchCord10(mixright, 0, i2s_out, 0);
 
+#if (!defined(HARDWARE_DD4WH_T4))
 AudioControlSGTL5000     sgtl5000_1;
+#endif
 
 int idx_t = 0;
 //int idx = 0;
@@ -988,13 +1038,13 @@ float32_t FFT_spec[256];
 float32_t FFT_spec_old[256];
 int16_t pixelnew[256];
 int16_t pixelold[256];
-float32_t LPF_spectrum = 0.2;
-float32_t spectrum_display_scale = 30.0; // 30.0
+float32_t LPF_spectrum = 0.42;
+float32_t spectrum_display_scale = 50.0; // 30.0
 uint8_t show_spectrum_flag = 1;
 uint8_t display_S_meter_or_spectrum_state = 0;
 uint8_t bitnumber = 16; // test, how restriction to twelve bit alters sound quality
 
-int16_t spectrum_brightness = 255;
+int16_t spectrum_brightness = 84;
 uint8_t spectrum_mov_average = 0;
 uint16_t SPECTRUM_DELETE_COLOUR = ILI9341_BLACK;
 uint16_t SPECTRUM_DRAW_COLOUR = ILI9341_WHITE;
@@ -1142,7 +1192,7 @@ uint8_t autotune_wait = 10;
 #define FIRST_BAND   BAND_VLF
 #define LAST_BAND    BAND_UKW
 #define NUM_BANDS    22
-#define STARTUP_BAND BAND_80M
+#define STARTUP_BAND BAND_VLF
 
 //Added band limits and band type, gain correction on a band basis    <PUA>
 // f, f_low, f_high, band_name, mode_number, HiCut, LoCut, RFgain, band_type
@@ -1169,28 +1219,28 @@ struct band {
 #define WFM_BAND 3
 
 struct band bands[NUM_BANDS] = {
-  7700000,    1200000,   14000000, "VLF", DEMOD_USB, 800, 100, 0, MISC_BAND,      6.0,     30,    2,
+  13560000,    1200000,   14000000, "VLF", DEMOD_USB, 800, 100, 0, MISC_BAND,      6.0,     30,    22,
   22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,     30,    2,
-  100000000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,     30,    2,
+  63900000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,     30,    42,
   185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,     30,    2,
   370000000,  350000000,  380000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,     30,    2,
   399500000,  390000000,  400000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
   485000000,  475000000,  510000000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
-  607000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,     30,    2,
+  584000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,     30,    22,
   710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,     30,    2,
   735000000,  720000000,  745000000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,     30,    2,
-  960000000,  940000000,  990000000, "31M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,     30,    2,
+  952000000,  940000000,  990000000, "31M", DEMOD_SAM, 4900, -4900, 0, BROADCAST_BAND, 4.0,     30,    52,
   1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       4.0,     30,    2,
-  1180000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,     30,    2,
+  1167000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,     30,    42,
   1367000000, 1357000000, 1387000000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, 7.0,     30,    2,
   1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       7.0,     30,    2,
-  1514500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,     30,    2,
-  1770000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,     30,    2,
+  1580500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,     30,    42,
+  1778000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,     30,    42,
   1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
   2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
   2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
   2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
-  3500807200, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    2
+  3500807300, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42
 };
 
 //
@@ -1253,7 +1303,7 @@ int current_band = STARTUP_BAND;
 
 ulong samp_ptr = 0;
 
-const int myInput = AUDIO_INPUT_LINEIN;
+//const int myInput = AUDIO_INPUT_LINEIN;
 
 float32_t IQ_amplitude_correction_factor = 1.0038;
 float32_t IQ_phase_correction_factor =  0.0058;
@@ -1328,7 +1378,7 @@ float32_t midbass = 0.0;
 float32_t mid = 0.0;
 float32_t midtreble = -0.1;
 float32_t treble = - 0.4;
-float32_t stereo_factor = 500.0;
+float32_t stereo_factor = 0.0;
 uint8_t half_clip = 0;
 uint8_t quarter_clip = 0;
 uint8_t auto_codec_gain = 1;
@@ -1362,6 +1412,7 @@ const uint8_t WFM_BLOCKS = 6;
 // tau = 50µsec in Europe --> alpha = 0.099
 // tau = 75µsec in the US -->
 //
+//FIXME
 float32_t dt = 1.0 / 234000.0;
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
@@ -1474,6 +1525,7 @@ float32_t FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1];
   };*/
 
 // läuft !
+//FIXME - sample rate !
 const float32_t FIR_WFM_Coef[] =
 { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 120kHz, Kaiser beta 4.4, 36 taps, transition width 0.1
@@ -2029,7 +2081,7 @@ struct dispSc displayScale[] =
   "1 dB/",  200.0, 40, 200, 0.05
 };
 
-float32_t offsetDisplayDB = 0.0;
+float32_t offsetDisplayDB = 10.0;
 //int16_t offsetPixels = 0;
 
 #define YTOP_LEVEL_DISP 73
@@ -2673,7 +2725,7 @@ const uint16_t gradient[] = {
   , 0xF88F
   , 0xF88F
 };
-
+/*
 PROGMEM
 void flexRamInfo(void)
 {
@@ -2721,8 +2773,7 @@ void flexRamInfo(void)
   Serial.println();
 #endif
 }
-
-PROGMEM
+*/
 void setup() {
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
@@ -2745,7 +2796,7 @@ void setup() {
   // get TIME from real time clock with 3V backup battery
   setSyncProvider(getTeensy3Time);
 
-  flexRamInfo();
+//  flexRamInfo();
 
 #if defined(MP3)
   // initialize SD card slot
@@ -2812,6 +2863,7 @@ void setup() {
    ****************************************************************************************/
   // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
   EEPROM_LOAD();
+#if (!defined(HARDWARE_DD4WH_T4))
   // Enable the audio shield. select input. and enable output
   sgtl5000_1.enable();
   sgtl5000_1.inputSelect(myInput);
@@ -2827,9 +2879,10 @@ void setup() {
   //  sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
   //  sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
+  sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
+#endif  
   mixleft.gain(0, 1.0);
   mixright.gain(0, 1.0);
-  sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
 
 #if defined(HARDWARE_FRANKB)
   Wire.beginTransmission(PCF8574_ADR);
@@ -2854,8 +2907,10 @@ void setup() {
   pinMode(BUTTON_8_PIN, INPUT_PULLUP);
 #endif
 
+#if (!defined(HARDWARE_DD4WH_T4))
   pinMode(Band1, OUTPUT);  // LPF switches
   pinMode(Band2, OUTPUT);  //
+#endif
 
 #ifdef HARDWARE_DD4WH
   pinMode(Band3, OUTPUT);  //
@@ -2911,9 +2966,11 @@ void setup() {
   tft.fillScreen(ILI9341_BLACK);
   tft.setCursor(10, 1);
   tft.setTextSize(2);
-  tft.setTextColor(ILI9341_ORANGE);
+  tft.setTextColor(ILI9341_GREEN);
   tft.setFont(Arial_14);
-  tft.print("Teensy Convolution SDR");
+  tft.print("T 4.0"); 
+  tft.setTextColor(ILI9341_ORANGE);
+  tft.print(" Convolution SDR");
   tft.setFont(Arial_10);
   prepare_spectrum_display();
   Init_Display_Clock();
@@ -3205,7 +3262,7 @@ void setup() {
   ****************************************************************************************/
 
   CwDecode_Filter_Set();
-  CwDecoder_WpmDisplayClearOrPrepare(1);
+  if(digimode == CW) CwDecoder_WpmDisplayClearOrPrepare(1);
 
   /****************************************************************************************
      Initialize RTTY variables
@@ -3518,7 +3575,7 @@ void loop() {
       FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
 #else
-      FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+      FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
 #endif
       for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
@@ -3530,7 +3587,7 @@ void loop() {
         FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                         float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 #else
-        FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+        FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                         float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 #endif
       }
@@ -3703,9 +3760,15 @@ void loop() {
         {
           //            spectrum_zoom == SPECTRUM_ZOOM_1;
           zoom_display = 1;
-          //            calc_256_magn();
-          Zoom_FFT_prep();
-          Zoom_FFT_exe(WFM_BLOCKS * BUFFER_SIZE);
+          if(spectrum_zoom == SPECTRUM_ZOOM_1)
+          {
+            calc_256_magn();
+          }
+          else
+          {
+            Zoom_FFT_prep();
+            Zoom_FFT_exe(WFM_BLOCKS * BUFFER_SIZE);
+          }
         }
         else if (WFM_spectrum_flag >= 4)
         {
@@ -3888,6 +3951,11 @@ void loop() {
         Q_in_R.freeBuffer();
         //     blocks_read ++;
       }
+
+#if defined(HARDWARE_DD4WH_T4)
+      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+#endif
 
       /*      // this is supposed to prevent overfilled queue buffers
             // rarely the Teensy audio queue gets a hickup
@@ -4764,7 +4832,7 @@ void loop() {
        **********************************************************************************/
     if(digimode == EFR || digimode == RTTY_OSSI)
     {
-        bitSamplePeriod = 1.0 / 1000.0;
+        bitSamplePeriod = 1.0 / 1000.0 * (SR[SAMPLE_RATE].rate / 96000.0);
         for(unsigned k=0 ; k < FFT_length / 2; k++)
         {
             float II = iFFT_buffer[FFT_length + k * 2 + 0];
@@ -4803,7 +4871,7 @@ void loop() {
         }
         else if(digimode == RTTY_OSSI)
         {
-          bitSamplePeriod = 1.0 / 500.0;
+          bitSamplePeriod = 1.0 / 500.0  * (SR[SAMPLE_RATE].rate / 96000.0);
             // RTTY
           for(unsigned k=0 ; k < FFT_length / 2; k++)
           {
@@ -5581,15 +5649,16 @@ void loop() {
       if(digimode == DCF77)
       { 
         // AM demodulation has already been performed
-          for(unsigned k = 1 ; k < FFT_length / 2; k++)
+          for(unsigned k = 0 ; k < FFT_length / 2; k++)
           {
             CP_buffer[k] = float_buffer_L[k];
           }
           bitSamplePeriod = 1.0 / 1000.0;
-          CP_buffer[0] = CP_buffer[0] * 0.1 + CP_buffer_old * 0.9;
+          // lowpass at 15Hz
+          CP_buffer[0] = CP_buffer[0] * 0.08 + CP_buffer_old * 0.92;
           for(unsigned k = 1 ; k < FFT_length / 2; k++)
           {
-              CP_buffer[k] = CP_buffer[k] * 0.1 + CP_buffer[k - 1] * 0.9; 
+              CP_buffer[k] = CP_buffer[k] * 0.08 + CP_buffer[k - 1] * 0.92; 
           }
           CP_buffer_old = CP_buffer[FFT_length / 2 - 1];
           for(unsigned k = 0; k < FFT_length / 2; k++)
@@ -6216,7 +6285,9 @@ void AGC()
 void filter_bandwidth()
 {
   AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
   sgtl5000_1.dacVolume(0.0);
+#endif
   calc_cplx_FIR_coeffs (FIR_Coef_I, FIR_Coef_Q, m_NumTaps, (float32_t)bands[current_band].FLoCut, (float32_t)bands[current_band].FHiCut, (float)SR[SAMPLE_RATE].rate / DF);
   init_filter_mask();
 
@@ -6233,8 +6304,9 @@ void filter_bandwidth()
   set_dec_int_filters();
 
   show_bandwidth ();
-
+#if (!defined(HARDWARE_DD4WH_T4))
   sgtl5000_1.dacVolume(1.0);
+#endif
   delay(1);
   AudioInterrupts();
 
@@ -6577,35 +6649,13 @@ void setI2SFreq(int freq) {
   int n1 = 4; //SAI prescaler 4 => (n1*n2) = multiple of 4
   int n2 = 1 + (24000000 * 27) / (freq * 256 * n1);
   double C = ((double)freq * 256 * n1 * n2) / 24000000;
-
-  int nfact = C;
-  int ndiv = 10000;
-  int nmult = C * ndiv - (nfact * ndiv);
-
-  CCM_ANALOG_PLL_AUDIO = 0;
-  CCM_ANALOG_PLL_AUDIO |= CCM_ANALOG_PLL_AUDIO_ENABLE
-                          | CCM_ANALOG_PLL_AUDIO_POST_DIV_SELECT(2) // 2: 1/4; 1: 1/2; 0: 1/1
-                          | CCM_ANALOG_PLL_AUDIO_DIV_SELECT(nfact);
-
-  CCM_ANALOG_PLL_AUDIO_NUM   = nmult & CCM_ANALOG_PLL_AUDIO_NUM_MASK;
-  CCM_ANALOG_PLL_AUDIO_DENOM = ndiv & CCM_ANALOG_PLL_AUDIO_DENOM_MASK;
-  while (!(CCM_ANALOG_PLL_AUDIO & CCM_ANALOG_PLL_AUDIO_LOCK)) {}; //Wait for pll-lock
-
-  const int div_post_pll = 1; // other values: 2,4
-  CCM_ANALOG_MISC2 &= ~(CCM_ANALOG_MISC2_DIV_MSB | CCM_ANALOG_MISC2_DIV_LSB);
-  if (div_post_pll > 1) CCM_ANALOG_MISC2 |= CCM_ANALOG_MISC2_DIV_LSB;
-  if (div_post_pll > 3) CCM_ANALOG_MISC2 |= CCM_ANALOG_MISC2_DIV_MSB;
-
-  CCM_CSCMR1 = (CCM_CSCMR1 & ~(CCM_CSCMR1_SAI1_CLK_SEL_MASK))
-               | CCM_CSCMR1_SAI1_CLK_SEL(2); // &0x03 // (0,1,2): PLL3PFD0, PLL5, PLL4
+  int c0 = C;
+  int c2 = 10000;
+  int c1 = C * c2 - (c0 * c2);
+  set_audioClock(c0, c1, c2, true);
   CCM_CS1CDR = (CCM_CS1CDR & ~(CCM_CS1CDR_SAI1_CLK_PRED_MASK | CCM_CS1CDR_SAI1_CLK_PODF_MASK))
-               | CCM_CS1CDR_SAI1_CLK_PRED(n1 - 1) // &0x07
-               | CCM_CS1CDR_SAI1_CLK_PODF(n2 - 1); // &0x3f
-
-  IOMUXC_GPR_GPR1 = (IOMUXC_GPR_GPR1 & ~(IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL_MASK))
-                    | (IOMUXC_GPR_GPR1_SAI1_MCLK_DIR | IOMUXC_GPR_GPR1_SAI1_MCLK1_SEL(0));	//Select MCLK
-
-  //Serial.printf("n1:%d n2:%d C:%f c0:%d c1:%d c2:%d\n",  n1, n2, C, nfact, nmult, ndiv);
+       | CCM_CS1CDR_SAI1_CLK_PRED(n1-1) // &0x07
+       | CCM_CS1CDR_SAI1_CLK_PODF(n2-1); // &0x3f 
 #else
   typedef struct {
     uint8_t mult;
@@ -6953,7 +7003,9 @@ void codec_gain()
         }
         timer = 0;  // reset the adjustment timer
         AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
         sgtl5000_1.lineInLevel(bands[current_band].RFgain);
+#endif
         AudioInterrupts();
         if (Menu2 == MENU_RF_GAIN) show_menu();
       }
@@ -6970,7 +7022,9 @@ void codec_gain()
         bands[current_band].RFgain = 15;
       }
       AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
+#endif
       AudioInterrupts();
       if (Menu2 == MENU_RF_GAIN) show_menu();
     }
@@ -7666,10 +7720,20 @@ void show_bandwidth ()
   tft.setFont(Arial_9);
   tft.setTextColor(ILI9341_WHITE);
   tft.print(DEMOD[bands[current_band].mode].text);
+#if defined (HARDWARE_DD4WH_T4)
+  tft.drawFloat((bands[current_band].mode != DEMOD_SAM_USB) ? (float)(bands[current_band].FLoCut / 1000.0f) : 0.0f, 1, 70, 25); 
+  tft.print(" kHz");
+#else
   tft.setCursor(70, 25);
   tft.printf("%02.1f kHz", (bands[current_band].mode != DEMOD_SAM_USB) ? (float)(bands[current_band].FLoCut / 1000.0f) : 0.0f);
+#endif
+#if defined (HARDWARE_DD4WH_T4)
+  tft.drawFloat((bands[current_band].mode != DEMOD_SAM_LSB) ? (float)(float)(bands[current_band].FHiCut / 1000.0f) : 0.0f, 1, 130, 25); 
+  tft.print(" kHz");
+#else
   tft.setCursor(130, 25);
   tft.printf("%02.1f kHz", (bands[current_band].mode != DEMOD_SAM_LSB) ? (float)(float)(bands[current_band].FHiCut / 1000.0f) : 0.0f);
+#endif
   tft.setCursor(180, 25);
   //tft.print("   SR: ");
   tft.print("  ");
@@ -7773,6 +7837,7 @@ void prepare_spectrum_display()
   tft.print("9");
   tft.setCursor(pos_x_smeter + 120, pos_y_smeter - 15);
   tft.print("+20dB");
+//  Serial.println("HERE BUG2");
   FrequencyBarText();
   show_menu();
   show_notch((int)notches[0], bands[current_band].mode);
@@ -7796,7 +7861,11 @@ void showSpectrumCorners(void)
     tft.setFont(Arial_8);
     //tft.print(display_offset);
   //  tft.printf("%4.1f", offsetDisplayDB);
+#if defined (HARDWARE_DD4WH_T4)
+  tft.drawNumber(bands[current_band].pixel_offset, 240, spectrum_y + 3);
+#else
     tft.printf("%4d", bands[current_band].pixel_offset);
+#endif
   }
 }
 
@@ -7810,11 +7879,6 @@ void FrequencyBarText()
   int centerIdx;
   const int pos_grat_y = 20;
   grat = (float)(SR[SAMPLE_RATE].rate / 8000.0) / (float)(1 << spectrum_zoom); // 1, 2, 4, 8, 16, 32, 64 . . . 4096
-
-  /*    if(spectrum_zoom == SPECTRUM_SUPER_ZOOM)
-      {
-          grat = (float)((SR[SAMPLE_RATE].rate / 8000.0) / 4096); //
-      } */
 
   tft.setTextColor(ILI9341_WHITE);
   tft.setFont(Arial_8);
@@ -7893,7 +7957,6 @@ void FrequencyBarText()
 
     tft.setCursor(spectrum_x + i, spectrum_y + spectrum_WF_height + pos_grat_y);
     tft.print(txt);
-
     /**************************************************************************************************
        PRINT ALL OTHER FREQUENCIES (NON-CENTER)
      **************************************************************************************************/
@@ -7938,6 +8001,7 @@ void FrequencyBarText()
       }
     }
   }
+
   tft.setFont(Arial_10);
 
   //**************************************************************************
@@ -8603,7 +8667,9 @@ void buttons() {
       if (current_band < FIRST_BAND) current_band = LAST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
       AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(0.0);
+#endif
       //setup_mode(bands[current_band].mode);
       freq_flag[1] = 0;
       set_band();
@@ -8634,7 +8700,9 @@ void buttons() {
         }
       }
       delay(1);
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(1.0);
+#endif
       AudioInterrupts();
     }
   }
@@ -8652,7 +8720,9 @@ void buttons() {
       current_band++;
       if (current_band > LAST_BAND) current_band = FIRST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(0.0);
+#endif
       //setup_mode(bands[current_band].mode);
       freq_flag[1] = 0;
       set_band();
@@ -8682,7 +8752,9 @@ void buttons() {
           set_samplerate();
         }
       }
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(1.0);
+#endif
       delay(1);
       AudioInterrupts();
     }
@@ -8699,7 +8771,9 @@ void buttons() {
       bands[current_band].mode++;
       if (bands[current_band].mode > DEMOD_MAX) bands[current_band].mode = DEMOD_MIN; // cycle thru demod modes
       AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(0.0);
+#endif
       setup_mode(bands[current_band].mode);
       show_frequency(bands[current_band].freq, 1);
       control_filter_f();
@@ -8740,7 +8814,9 @@ void buttons() {
       idx_t = 0;
       delay(10);
       AudioInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(1.0);
+#endif      
     }
   }
   if ( button4.fallingEdge()) {
@@ -9081,29 +9157,48 @@ void show_menu()
         break;
       case MENU_IQ_AMPLITUDE:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(IQ_amplitude_correction_factor, 3, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%01.3f", IQ_amplitude_correction_factor);
+#endif
         break;
       case MENU_IQ_PHASE:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(IQ_phase_correction_factor, 3, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%01.3f", IQ_phase_correction_factor);
-        //                tft.print(IQ_phase_correction_factor);
+#endif
         break;
       case MENU_CALIBRATION_FACTOR:
         tft.setFont(Arial_8);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber((int)(calibration_factor / 1000), spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+#else
         tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
         tft.printf("%9d", (int)(calibration_factor / 1000));
+#endif
         break;
       case MENU_CALIBRATION_CONSTANT:
         tft.setFont(Arial_8);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber((int)(calibration_constant), spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+#else
         tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
         tft.printf("%9d", (int)(calibration_constant));
+#endif
         break;
       case MENU_LPF_SPECTRUM:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(LPF_spectrum, 4, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%01.4f", LPF_spectrum);
+#endif
         break;
       case MENU_SPECTRUM_DISPLAY_SCALE:
         tft.setFont(Arial_11);
@@ -9112,9 +9207,12 @@ void show_menu()
         break;
       case MENU_SPECTRUM_OFFSET:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(bands[current_band].pixel_offset, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
+#else
         tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
-//        tft.printf("%4.0f", offsetDisplayDB);        
         tft.printf("%4d", bands[current_band].pixel_offset);
+#endif
         break;
       case MENU_SAVE_EEPROM:
         if (eeprom_saved)
@@ -9160,7 +9258,11 @@ void show_menu()
         break;
       case MENU_SPECTRUM_BRIGHTNESS:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(spectrum_brightness, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
+#else
         tft.printf("%3d", spectrum_brightness);
+#endif
         break;
       case MENU_SHOW_SPECTRUM:
         if (show_spectrum_flag)
@@ -9186,12 +9288,20 @@ void show_menu()
     {
       case MENU_RF_GAIN:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat((float)(bands[current_band].RFgain * 1.5), 1, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
         tft.printf("%02.1fdB", (float)(bands[current_band].RFgain * 1.5));
+#endif
         break;
       case MENU_RF_ATTENUATION:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(RF_attenuation, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%2ddB", RF_attenuation);
+#endif
         break;
       case MENU_VOLUME:
         tft.print(audio_volume);
@@ -9200,33 +9310,58 @@ void show_menu()
         tft.print(zeta);
         break;
       case MENU_TREBLE:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(treble * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.0f", treble * 100.0);
+#endif
         break;
       case MENU_MIDTREBLE:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(midtreble * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.0f", midtreble * 100.0);
+#endif
         break;
       case MENU_BASS:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(bass * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.0f", bass * 100.0);
+#endif
         break;
       case MENU_MIDBASS:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(midbass * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.0f", midbass * 100.0);
+#endif
         break;
       case MENU_MID:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(mid * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.0f", mid * 100.0);
+#endif
         break;
       case MENU_SAM_OMEGA:
-        //                tft.setFont(Arial_11);
-        //                tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(omegaN, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%3.0f", omegaN);
+#endif
         break;
       case MENU_SAM_CATCH_BW:
         tft.setFont(Arial_12);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(pll_fmax, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", pll_fmax);
+#endif
         break;
       case MENU_NOTCH_1:
         tft.setFont(Arial_12);
-        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         if (notches_on[0])
         {
           tft.setTextColor(ILI9341_RED);
@@ -9235,14 +9370,23 @@ void show_menu()
         {
           tft.setTextColor(ILI9341_WHITE);
         }
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(notches[0], 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", notches[0]);
+#endif
         break;
       case MENU_NOTCH_1_BW:
         tft.setFont(Arial_12);
-        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         BW_help = (float32_t)notches_BW[0] * bin_BW * 1000.0 * 2.0;
         BW_help = roundf(BW_help / 10) / 100 ; // round  frequency to the nearest 10Hz
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(BW_help, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%3.0f", BW_help);
+#endif
         break;
       /*            case MENU_NOTCH_2:
                       tft.setFont(Arial_12);
@@ -9293,13 +9437,25 @@ void show_menu()
         }
         break;
       case MENU_AGC_THRESH:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(bands[current_band].AGC_thresh, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%3d", bands[current_band].AGC_thresh);
+#endif
         break;
       case MENU_AGC_DECAY:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(agc_decay / 10, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%3d", agc_decay / 10);
+#endif
         break;
       case MENU_AGC_SLOPE:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(agc_slope, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%3d", agc_slope);
+#endif
         break;
       case MENU_ANR_NOTCH:
         tft.setTextColor(ANR_colour);
@@ -9317,27 +9473,42 @@ void show_menu()
         break;
       case MENU_ANR_TAPS:
         tft.setTextColor(ANR_colour);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(ANR_taps, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%3d", ANR_taps);
+#endif
         break;
       case MENU_ANR_DELAY:
         tft.setTextColor(ANR_colour);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(ANR_delay, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%3d", ANR_delay);
+#endif
         break;
       case MENU_ANR_MU:
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(ANR_two_mu * 1000.0, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.3f", ANR_two_mu * 1000.0);
+#endif
         break;
       case MENU_ANR_GAMMA:
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(ANR_gamma * 1000.0, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", ANR_gamma * 1000.0);
+#endif        
         break;
       case MENU_NB_THRESH:
         tft.setFont(Arial_12);
-        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         if (NB_on)
         {
           tft.setTextColor(ILI9341_RED);
@@ -9346,7 +9517,12 @@ void show_menu()
         {
           tft.setTextColor(ILI9341_WHITE);
         }
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(NB_thresh, 1, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%2.1f", NB_thresh);
+#endif
         break;
       case MENU_NB_TAPS:
         tft.setFont(Arial_12);
@@ -9359,7 +9535,11 @@ void show_menu()
         {
           tft.setTextColor(ILI9341_WHITE);
         }
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(NB_taps, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%2d", NB_taps);
+#endif
         break;
       case MENU_NB_IMPULSE_SAMPLES:
         tft.setFont(Arial_12);
@@ -9377,15 +9557,27 @@ void show_menu()
         {
           tft.setTextColor(ILI9341_WHITE);
         }
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(NB_impulse_samples, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%2d", NB_impulse_samples);
+#endif
         break;
       case MENU_STEREO_FACTOR:
         tft.setFont(Arial_10);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(stereo_factor, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%5.0f", stereo_factor);
+#endif
         break;
       case MENU_BIT_NUMBER:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(bitnumber, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%2d", bitnumber);
+#endif
         break;
       /*      case MENU_NR_ENABLE:
               tft.setFont(Arial_10);
@@ -9460,24 +9652,44 @@ void show_menu()
               break; */
       case MENU_NR_ALPHA:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(NR_alpha, 4, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.4f", NR_alpha);
+#endif
         break;
       case MENU_NR_BETA:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(NR_beta, 4, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.4f", NR_beta);
+#endif
         break;
       case MENU_NR_KIM_K:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(NR_KIM_K, 4, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.4f", NR_KIM_K);
+#endif
         break;
       case MENU_LMS_NR_STRENGTH:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(LMS_nr_strength, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+#else
         tft.printf("%2d", LMS_nr_strength);
+#endif
         break;
       case MENU_CW_DECODER_THRESH:
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(cw_decoder_config.thresh, 1, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.printf("%2.1f", cw_decoder_config.thresh);
+#endif        
         break;
       /*      case MENU_NR_VAD_THRESH:
               tft.setFont(Arial_11);
@@ -9506,7 +9718,7 @@ void show_menu()
             tft.print(" EFR ");
             break;
           case DCF77:
-            tft.print(" DCF77 ");
+            tft.print("DCF77 ");
             break;
         }
         break;
@@ -9582,8 +9794,12 @@ void show_menu()
         break;
       case MENU_NR_PSI:
         tft.setFont(Arial_11);
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawFloat(NR_PSI, 1, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+#else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.1f", NR_PSI);
+#endif
         break;
     }
   }
@@ -9825,7 +10041,9 @@ void set_band () {
   //         show_band(bands[current_band].name); // show new band
   old_demod_mode = -99; // used in setup_mode and when changing bands, so that LoCut and HiCut are not changed!
   setup_mode(bands[current_band].mode);
+#if (!defined(HARDWARE_DD4WH_T4))
   sgtl5000_1.lineInLevel(bands[current_band].RFgain, bands[current_band].RFgain);
+#endif
   //         setup_RX(bands[current_band].mode, bands[current_band].bandwidthU, bands[current_band].bandwidthL);  // set up the audio chain for new mode
   setfreq();
   show_frequency(bands[current_band].freq, 1);
@@ -10210,7 +10428,9 @@ void encoders () {
       {
         bands[current_band].RFgain = 15;
       }
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
+#endif      
     }
     else if (Menu2 == MENU_VOLUME)
     {
@@ -10218,8 +10438,9 @@ void encoders () {
       if (audio_volume < 0) audio_volume = 0;
       else if (audio_volume > 100) audio_volume = 100;
       //      AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.volume((float32_t)audio_volume / 100.0);
-
+#endif
     }
     else if (Menu2 == MENU_RF_ATTENUATION)
     {
@@ -10342,37 +10563,47 @@ void encoders () {
       bass = bass + (float32_t)encoder3_change / 80.0;
       if (bass > 1.0) bass = 1.0;
       else if (bass < -1.0) bass = -1.0;
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
       //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
+#endif
     }
     else if (Menu2 == MENU_MIDBASS)
     {
       midbass = midbass + (float32_t)encoder3_change / 80.0;
       if (midbass > 1.0) midbass = 1.0;
       else if (midbass < -1.0) midbass = -1.0;
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
+#endif
     }
     else if (Menu2 == MENU_MID)
     {
       mid = mid + (float32_t)encoder3_change / 80.0;
       if (mid > 1.0) mid = 1.0;
       else if (mid < -1.0) mid = -1.0;
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
+#endif
     }
     else if (Menu2 == MENU_MIDTREBLE)
     {
       midtreble = midtreble + (float32_t)encoder3_change / 80.0;
       if (midtreble > 1.0) midtreble = 1.0;
       else if (midtreble < -1.0) midtreble = -1.0;
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
+#endif      
     }
     else if (Menu2 == MENU_TREBLE)
     {
       treble = treble + (float32_t)encoder3_change / 80.0;
       if (treble > 1.0) treble = 1.0;
       else if (treble < -1.0) treble =  -1.0;
+#if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
       //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
+#endif
     }
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
@@ -10758,6 +10989,7 @@ void displayDate() {
   tft.setTextColor(ILI9341_ORANGE);
   tft.setFont(Arial_12);
   tft.setCursor(pos_x_date, pos_y_date);
+  //FIXME
   tft.printf("%s, %02d.%02d.%04d", Days[weekday() % 7], day(), month(), year());
 } // end function displayDate
 
@@ -11139,9 +11371,13 @@ void Display_dbm()
     tft.fillRect(pos_x_dbm, pos_y_dbm, 100, 16, ILI9341_BLACK);
     // Added tenths of a dB and moved "dBm" right 10 oixels  <PUA>
     tft.setFont(Arial_14);
-    tft.setCursor(pos_x_dbm, pos_y_dbm);
     tft.setTextColor(ILI9341_WHITE);
+#if defined(HARDWARE_DD4WH_T4)
+    tft.drawFloat(val_dbm, 1, pos_x_dbm, pos_y_dbm);
+#else
+    tft.setCursor(pos_x_dbm, pos_y_dbm);
     tft.printf("%03.1f", val_dbm);
+#endif
     tft.setFont(Arial_9);
     tft.setCursor(pos_x_dbm + 56, pos_y_dbm + 5);
     tft.setTextColor(ILI9341_GREEN);
@@ -11508,6 +11744,7 @@ void printConfig_t(struct config_t *c) { //print some of the values for testing
 void reset_codec ()
 {
   AudioNoInterrupts();
+#if (!defined(HARDWARE_DD4WH_T4))
   sgtl5000_1.disable();
   delay(10);
   sgtl5000_1.enable();
@@ -11523,8 +11760,8 @@ void reset_codec ()
   sgtl5000_1.dacVolumeRamp();
   sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
   twinpeaks_tested = 3;
+#endif
   AudioInterrupts();
-
 }
 
 void setAttenuator(int value)
@@ -11570,6 +11807,39 @@ void show_analog_gain()
   // automatic RF gain indicated by different colors??
   if ((((bands[current_band].RFgain != RF_gain_old) || (RF_attenuation != RF_att_old)) && twinpeaks_tested == 1) || write_analog_gain)
   {
+#if defined (HARDWARE_DD4WH_T4)
+    tft.setFont(Arial_8);
+    tft.setTextColor(ILI9341_BLACK);
+    tft.drawFloat((float)(RF_gain_old * 1.5), 1, pos_x_time - 40, pos_y_time + 26); 
+    tft.print("dB -");
+//    tft.setCursor(pos_x_time - 40, pos_y_time + 26);
+    tft.setTextColor(col);
+    tft.drawFloat((float)(bands[current_band].RFgain * 1.5), 1, pos_x_time - 40, pos_y_time + 26); 
+    tft.print("dB -");
+//    tft.printf("%02.1fdB -", (float)(bands[current_band].RFgain * 1.5));
+    //tft.setCursor(pos_x_time, pos_y_time + 26);
+    tft.setTextColor(ILI9341_BLACK);
+  //  tft.drawFloat((float)(bands[current_band].RFgain * 1.5), 1, pos_x_time - 40, pos_y_time + 26); 
+    tft.drawNumber(RF_att_old, pos_x_time, pos_y_time + 26);
+    tft.print("dB");
+ //  tft.printf(" %2ddB", RF_att_old);
+//    tft.setCursor(pos_x_time, pos_y_time + 26);
+    tft.setTextColor(col);
+    tft.drawNumber(RF_attenuation, pos_x_time, pos_y_time + 26);
+    tft.print("dB = ");
+    //tft.printf(" %2ddB = ", RF_attenuation);
+//    tft.setCursor(pos_x_time + 40, pos_y_time + 24);
+    tft.setFont(Arial_9);
+    tft.setTextColor(ILI9341_BLACK);
+  //  tft.printf("%02.1fdB", (float)(RF_gain_old * 1.5) - (float)RF_att_old);
+    tft.drawFloat((float)(RF_gain_old * 1.5) - (float)RF_att_old, 1, pos_x_time + 40, pos_y_time + 24); 
+    tft.print("dB");
+//    tft.setCursor(pos_x_time + 40, pos_y_time + 24);
+    tft.setTextColor(ILI9341_WHITE);
+//    tft.printf("%02.1fdB", (float)(bands[current_band].RFgain * 1.5) - (float)RF_attenuation);
+    tft.drawFloat((float)(bands[current_band].RFgain * 1.5) - (float)RF_attenuation, 1, pos_x_time + 40, pos_y_time + 24); 
+    tft.print("dB");
+#else
     tft.setCursor(pos_x_time - 40, pos_y_time + 26);
     tft.setFont(Arial_8);
     tft.setTextColor(ILI9341_BLACK);
@@ -11590,6 +11860,7 @@ void show_analog_gain()
     tft.setCursor(pos_x_time + 40, pos_y_time + 24);
     tft.setTextColor(ILI9341_WHITE);
     tft.printf("%02.1fdB", (float)(bands[current_band].RFgain * 1.5) - (float)RF_attenuation);
+#endif
     RF_gain_old = bands[current_band].RFgain;
     RF_att_old = RF_attenuation;
     write_analog_gain = 0;
@@ -14268,11 +14539,11 @@ void CwDecoder_WpmDisplayClearOrPrepare(bool prepare)
     tft.setFont(Arial_11);
     tft.fillRect(WPM_display_x, WPM_display_y, 27, 12, ILI9341_BLACK);
     tft.setCursor(WPM_display_x, WPM_display_y);
-    tft.printf(" --");
+    tft.print(" --");
     tft.setTextColor(color2);
     tft.setCursor(WPM_display_x + 27, WPM_display_y);
     //        tft.printf("%4.0f", offsetDisplayDB);        
-    tft.printf("wpm");
+    tft.print("wpm");
 
 //    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y," --",color1,Black,0);
 //    UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x + 27, ts.Layout->CW_DECODER_WPM.y, "wpm", color2, Black, 4);
@@ -14285,6 +14556,8 @@ void CwDecoder_WpmDisplayClearOrPrepare(bool prepare)
 
 void CwDecoder_WpmDisplayUpdate(bool force_update)
 {
+  if(digimode == CW)
+  {
   static uint8_t old_speed = 0;
   tft.setTextColor(ILI9341_WHITE);
   tft.setFont(Arial_11);
@@ -14295,14 +14568,19 @@ void CwDecoder_WpmDisplayUpdate(bool force_update)
   {
     if(cw_decoder_config.speed > 0)
     {
+#if defined(HARDWARE_DD4WH_T4)
+      tft.drawNumber(cw_decoder_config.speed, WPM_display_x, WPM_display_y);
+#else
       tft.printf("%3u", cw_decoder_config.speed);
+#endif      
     }
     else
     {
-      tft.printf(" --");
+      tft.print(" --");
     }
        //     snprintf(WPM_str, 10, cw_decoder_config.speed > 0? "%3u" : " --", cw_decoder_config.speed);
        //   UiLcdHy28_PrintText(ts.Layout->CW_DECODER_WPM.x, ts.Layout->CW_DECODER_WPM.y, WPM_str,White,Black,0);
+  }
   }
 }
 
@@ -15247,6 +15525,7 @@ void dcfDisplayTime(){
   if ( weekday==7) { Serial.printf("SUNDAY   ") ; }
 }
 
+
 void dcfCheckForGap(){
   dcfSilenceTimer++ ;
   if (dcfLevel==0 )  { 
@@ -15260,7 +15539,35 @@ void dcfCheckForGap(){
     dcfTheSecond=0 ;
     }
   }
-
+/*
+void dcfCheckForGap(){
+  static uint32_t max = 0;
+  static uint32_t alltime_max = 0;
+  dcfSilenceTimer++ ;
+  if (dcfLevel==0 )  
+  { 
+  if(max < dcfSilenceTimer) 
+  {
+    max = dcfSilenceTimer;
+  }
+  else 
+  {
+    if(max > alltime_max) alltime_max = max;
+    Serial.print("dcfSilenceTimer = "); Serial.println(max);
+    Serial.print("dto alltime max = "); Serial.println(alltime_max);
+    max = 0;
+  }
+    dcfSilenceTimer=0 ;
+  }
+  if ( dcfSilenceTimer>1500 ) {
+    if (withterm){ Serial.printf("\n\rGAP ") ; }
+    //fprintf(stderr,"\n\r GAP %5i ",SilenceTimer) ;
+    dcfSilenceTimer=0 ;
+    dcfDisplayTime() ;
+    dcfTheSecond=0 ;
+    }
+  }
+*/
 void dcfEmitBit(int TheBit){
   dcfPutBit(dcfTheSecond,TheBit) ; 
   Serial.printf("%c",'0'+TheBit) ;
@@ -15304,7 +15611,3 @@ void dcfSample(float signal){
   return 0 ;
   }
 //**************************************************************************************************************
-
-
-
-
