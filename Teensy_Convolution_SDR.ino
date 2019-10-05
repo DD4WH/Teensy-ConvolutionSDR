@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_02
+   (c) Frank DD4WH 2019_10_05
 
    "TEENSY CONVOLUTION SDR"
 
@@ -9,7 +9,7 @@
    - simple quadrature sampling detector board producing baseband IQ signals (Softrock, Elektor SDR etc.)
    (IQ boards with up to 192kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
    - Teensy audio board
-   - Teensy 3.6 (No, Teensy 3.1/3.2/3.5/4.0 not supported)
+   - Teensy 3.6 or Teensy 4.0 (No, Teensy 3.1/3.2/3.5 not supported)
    HARDWARE OPTIONAL:
    - Preselection: switchable RF lowpass or bandpass filter
    - digital step attenuator: PE4306 used in my setup
@@ -98,9 +98,9 @@
    - RTTY decoder: taken from UHSDR
    - alternative RTTY decoder (Martin Ossmann)
    - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
+   - now runs on Teensy 4.0
 
    TODO:
-   - ABANDONED UNTIL RELIABLE AUDIO AVAILABLE: get this software to run on the T4 with software switches, so we can use ONE software for T3.6 AND T4.0 
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
@@ -205,7 +205,7 @@
 
 /*  use faster atan2f calculation
     recommendation: leave this uncommented */
-#define USE_ATAN2FAST
+//#define USE_ATAN2FAST
 
 //#define MP3 
 
@@ -213,11 +213,14 @@
 #define T4
 #endif
 
-/*  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  */
+//  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  
+//  obsolete for the T4 which has double precision FPU
+#if (!defined(T4))
 extern "C"
 {
   void sincosf(float err, float *s, float *c);
 }
+#endif
 
 #include <Audio.h>
 #include <Time.h>
@@ -246,6 +249,7 @@ extern "C"
 
 #if defined(T4)
 #include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
+//#include <EEPROM.h>
 #else
 #include <EEPROM.h>
 #endif
@@ -1084,8 +1088,9 @@ int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
 #define SAMPLE_RATE_176K              12
 #define SAMPLE_RATE_192K              13
 #define SAMPLE_RATE_234K              14
-#define SAMPLE_RATE_281K              15
-#define SAMPLE_RATE_353K              16 // does not work !
+#define SAMPLE_RATE_256K              15
+#define SAMPLE_RATE_281K              16 // ??
+#define SAMPLE_RATE_353K              17 // does not work !
 #define SAMPLE_RATE_MAX               15
 
 //uint8_t sr =                     SAMPLE_RATE_96K;
@@ -1106,7 +1111,7 @@ typedef struct SR_Descriptor
 } SR_Desc;
 
 
-const SR_Descriptor SR [17] =
+const SR_Descriptor SR [18] =
 { // x_factor, x_offset and f1 to f4 are NOT USED ANYMORE !!!
   //   SR_n , rate, text, f1, f2, f3, f4, x_factor = pixels per f1 kHz in spectrum display
   {  SAMPLE_RATE_8K, 8000,  "  8k", " 1", " 2", " 3", " 4", 64.0, 11}, // not OK
@@ -1124,6 +1129,7 @@ const SR_Descriptor SR [17] =
   {  SAMPLE_RATE_176K, 176400,  "176k", "40", "40", "80", "120", 58.05, 6}, // OK
   {  SAMPLE_RATE_192K, 192000,  "192k", "40", "40", "80", "120", 53.33, 12}, // not OK
   {  SAMPLE_RATE_234K, 234375,  "234k", "40", "40", "80", "120", 53.33, 12}, // NOT OK
+  {  SAMPLE_RATE_256K, 256000,  "256k", "40", "40", "80", "120", 53.33, 12}, // NOT OK
   {  SAMPLE_RATE_281K, 281000,  "281k", "40", "40", "80", "120", 53.33, 12}, // NOT OK
   {  SAMPLE_RATE_353K, 352800,  "353k", "40", "40", "80", "120", 53.33, 12} // NOT OK
 };
@@ -1240,7 +1246,11 @@ struct band bands[NUM_BANDS] = {
   2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
   2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
   2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
-  3500807300, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42
+#if defined(HARDWARE_DD4WH_T4)
+  3173600000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 95.4MHz
+#else
+  3500807300, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 105.2MHz
+#endif        
 };
 
 //
@@ -4898,10 +4908,15 @@ void loop() {
 
         for (unsigned i = 0; i < FFT_length / 2; i++)
         {
+          
+#if defined (T4)
+          double Sin, Cos;
+          Sin = sin(phzerror);
+          Cos = cos(phzerror);
+#else
           float32_t Sin, Cos;
           sincosf(phzerror, &Sin, &Cos);
-          //Sin = sinf(phzerror);
-          //Cos = cosf(phzerror);
+#endif          
           ai = Cos * iFFT_buffer[FFT_length + i * 2];
           bi = Sin * iFFT_buffer[FFT_length + i * 2];
           aq = Cos * iFFT_buffer[FFT_length + i * 2 + 1];
@@ -4985,13 +5000,12 @@ void loop() {
 #ifdef USE_ATAN2FAST
           det = arm_atan2_f32(corr[1], corr[0]);
 #else
+#if defined (T4)
+          det = atan2(corr[1], corr[0]);
+#else
+#endif          
           det = atan2f(corr[1], corr[0]);
 #endif
-          //            Serial.println(corr[1] * 100000);
-          //            Serial.println(corr[0] * 100000);
-          // is not at all faster than atan2f !
-          //            det = atan2_fast(corr[1], corr[0]);
-
           del_out = fil_out;
           omega2 = omega2 + g2 * det;
           if (omega2 < omega_min) omega2 = omega_min;
@@ -7856,14 +7870,12 @@ void showSpectrumCorners(void)
     tft.print(displayScale[currentScale].dbText);
   
     tft.fillRect(240, spectrum_y + 3, 20, 10, ILI9341_BLACK);
-    tft.setCursor(240, spectrum_y + 3);
     tft.setTextColor(ILI9341_WHITE);
     tft.setFont(Arial_8);
-    //tft.print(display_offset);
-  //  tft.printf("%4.1f", offsetDisplayDB);
 #if defined (HARDWARE_DD4WH_T4)
   tft.drawNumber(bands[current_band].pixel_offset, 240, spectrum_y + 3);
 #else
+    tft.setCursor(240, spectrum_y + 3);
     tft.printf("%4d", bands[current_band].pixel_offset);
 #endif
   }
@@ -8297,7 +8309,7 @@ int ExtractDigit(unsigned long long int n, int k) {
 }
 
 // show frequency
-void show_frequency(unsigned long long freq, uint8_t text_size) {
+void show_frequency(double freq, uint8_t text_size) {
   // text_size 0 --> small display
   // text_size 1 --> large main display
   int color = ILI9341_WHITE;
@@ -8308,7 +8320,7 @@ void show_frequency(unsigned long long freq, uint8_t text_size) {
   {
     // old undersampling 5 times MODE, now switched to 3 times undersampling
     //        freq = freq * 5 + 1.25 * SR[SAMPLE_RATE].rate; // undersampling of f/5 and correction, because no IF is used in WFM mode
-    freq = freq * 3 + 0.75 * (unsigned long long)SR[SAMPLE_RATE].rate; // undersampling of f/3 and correction, because no IF is used in WFM mode
+    freq = 10.0 * round((freq * 3.0 + 0.75 * (double)SR[SAMPLE_RATE].rate) / 10 ); // undersampling of f/3 and correction, because no IF is used in WFM mode
     erase_flag = 1;
   }
   if (text_size == 0) // small SAM carrier display
@@ -8684,8 +8696,11 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
+#if defined(HARDWARE_DD4WH_T4)
+        SAMPLE_RATE = SAMPLE_RATE_256K;
+#else
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        //setI2SFreq(SAMPLE_RATE);
+#endif        
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -8695,7 +8710,6 @@ void buttons() {
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
         }
       }
@@ -8737,8 +8751,11 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
+#if defined(HARDWARE_DD4WH_T4)
+        SAMPLE_RATE = SAMPLE_RATE_256K;
+#else
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        //setI2SFreq(SAMPLE_RATE);
+#endif        
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -8787,8 +8804,11 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
+#if defined(HARDWARE_DD4WH_T4)
+        SAMPLE_RATE = SAMPLE_RATE_256K;
+#else
         SAMPLE_RATE = SAMPLE_RATE_234K;
-        //setI2SFreq(SAMPLE_RATE);
+#endif        
         set_samplerate();
         show_frequency(bands[current_band].freq, 1);
       }
@@ -9176,7 +9196,7 @@ void show_menu()
       case MENU_CALIBRATION_FACTOR:
         tft.setFont(Arial_8);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber((int)(calibration_factor / 1000), spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+        tft.drawNumber((calibration_factor / 1000), spectrum_x + 256 + 4, spectrum_y + 31 + 31 + 7);
 #else
         tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
         tft.printf("%9d", (int)(calibration_factor / 1000));
@@ -9185,7 +9205,7 @@ void show_menu()
       case MENU_CALIBRATION_CONSTANT:
         tft.setFont(Arial_8);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber((int)(calibration_constant), spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
+        tft.drawNumber((calibration_constant), spectrum_x + 256 + 4, spectrum_y + 31 + 31 + 7);
 #else
         tft.setCursor(spectrum_x + 256 + 1, spectrum_y + 31 + 31 + 7);
         tft.printf("%9d", (int)(calibration_constant));
@@ -9289,7 +9309,8 @@ void show_menu()
       case MENU_RF_GAIN:
         tft.setFont(Arial_11);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat((float)(bands[current_band].RFgain * 1.5), 1, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); 
+        tft.drawFloat((float)(bands[current_band].RFgain * 1.5), 1, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
+        tft.print("dB");
 #else
         tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
         tft.printf("%02.1fdB", (float)(bands[current_band].RFgain * 1.5));
@@ -9298,7 +9319,8 @@ void show_menu()
       case MENU_RF_ATTENUATION:
         tft.setFont(Arial_11);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(RF_attenuation, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(RF_attenuation, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); 
+        tft.print("dB");
 #else
         tft.printf("%2ddB", RF_attenuation);
 #endif
@@ -9311,42 +9333,42 @@ void show_menu()
         break;
       case MENU_TREBLE:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(treble * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(treble * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%2.0f", treble * 100.0);
 #endif
         break;
       case MENU_MIDTREBLE:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(midtreble * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(midtreble * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%2.0f", midtreble * 100.0);
 #endif
         break;
       case MENU_BASS:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(bass * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(bass * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%2.0f", bass * 100.0);
 #endif
         break;
       case MENU_MIDBASS:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(midbass * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(midbass * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%2.0f", midbass * 100.0);
 #endif
         break;
       case MENU_MID:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(mid * 100.0, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(mid * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%2.0f", mid * 100.0);
 #endif
         break;
       case MENU_SAM_OMEGA:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(omegaN, 0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(omegaN, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%3.0f", omegaN);
 #endif
@@ -9354,7 +9376,7 @@ void show_menu()
       case MENU_SAM_CATCH_BW:
         tft.setFont(Arial_12);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(pll_fmax, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(pll_fmax, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", pll_fmax);
@@ -9371,7 +9393,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(notches[0], 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(notches[0], spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", notches[0]);
@@ -9382,7 +9404,7 @@ void show_menu()
         BW_help = (float32_t)notches_BW[0] * bin_BW * 1000.0 * 2.0;
         BW_help = roundf(BW_help / 10) / 100 ; // round  frequency to the nearest 10Hz
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(BW_help, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(BW_help, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%3.0f", BW_help);
@@ -9438,21 +9460,21 @@ void show_menu()
         break;
       case MENU_AGC_THRESH:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(bands[current_band].AGC_thresh, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(bands[current_band].AGC_thresh, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); 
 #else
         tft.printf("%3d", bands[current_band].AGC_thresh);
 #endif
         break;
       case MENU_AGC_DECAY:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(agc_decay / 10, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(agc_decay / 10, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%3d", agc_decay / 10);
 #endif
         break;
       case MENU_AGC_SLOPE:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(agc_slope, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(agc_slope, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%3d", agc_slope);
 #endif
@@ -9474,7 +9496,7 @@ void show_menu()
       case MENU_ANR_TAPS:
         tft.setTextColor(ANR_colour);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(ANR_taps, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(ANR_taps, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%3d", ANR_taps);
 #endif
@@ -9482,7 +9504,7 @@ void show_menu()
       case MENU_ANR_DELAY:
         tft.setTextColor(ANR_colour);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(ANR_delay, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(ANR_delay, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%3d", ANR_delay);
 #endif
@@ -9491,7 +9513,7 @@ void show_menu()
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(ANR_two_mu * 1000.0, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(ANR_two_mu * 1000.0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%1.3f", ANR_two_mu * 1000.0);
@@ -9501,7 +9523,7 @@ void show_menu()
         tft.setTextColor(ANR_colour);
         tft.setFont(Arial_11);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(ANR_gamma * 1000.0, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(ANR_gamma * 1000.0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%4.0f", ANR_gamma * 1000.0);
@@ -9536,7 +9558,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(NB_taps, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(NB_taps, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%2d", NB_taps);
 #endif
@@ -9558,7 +9580,7 @@ void show_menu()
           tft.setTextColor(ILI9341_WHITE);
         }
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(NB_impulse_samples, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(NB_impulse_samples, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%2d", NB_impulse_samples);
 #endif
@@ -9566,7 +9588,7 @@ void show_menu()
       case MENU_STEREO_FACTOR:
         tft.setFont(Arial_10);
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawFloat(stereo_factor, 0, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(stereo_factor, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); 
 #else
         tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.printf("%5.0f", stereo_factor);
@@ -9574,7 +9596,7 @@ void show_menu()
         break;
       case MENU_BIT_NUMBER:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(bitnumber, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(bitnumber, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%2d", bitnumber);
 #endif
@@ -9679,7 +9701,7 @@ void show_menu()
         break;
       case MENU_LMS_NR_STRENGTH:
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(LMS_nr_strength, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7); tft.print("dB");
+        tft.drawNumber(LMS_nr_strength, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
 #else
         tft.printf("%2d", LMS_nr_strength);
 #endif
@@ -10023,6 +10045,12 @@ void show_tunestep() {
   tft.setFont(Arial_9);
   tft.setTextColor(ILI9341_GREEN);
   //tft.print("Step: ");
+  if (bands[current_band].mode == DEMOD_WFM)
+  {
+    tft.print("100k");
+    return;
+  }
+
   if (tunestep == 9000)
   {
     tft.print("9k");
@@ -10196,20 +10224,22 @@ void encoders () {
       if (encoder_change <= 4 && encoder_change > 0) encoder_change = 4;
       else if (encoder_change >= -4 && encoder_change < 0) encoder_change = - 4;
     }
-    long long tune_help1;
+    double tune_help1;
     if (bands[current_band].mode == DEMOD_WFM)
     { // hopefully tunes FM stations in 25kHz steps ;-)
       // 25000000 / 3 = 833333.3333f
       //
-      tune_help1 = (long long)(833333.3333 * round((double)encoder_change / 4.0));
+//      tune_help1 = (double)(833333.3333 * ((double)encoder_change / 4.0));
+      // tunestep in FM = 100kHz
+      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change / 4.0));
     }
     else
     {
-      tune_help1 = (long long)tunestep  * SI5351_FREQ_MULT * (long long)round((double)encoder_change / 4.0);
+      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change / 4.0);
     }
     //    long long tune_help1 = tunestep  * SI5351_FREQ_MULT * encoder_change;
     old_freq = bands[current_band].freq;
-    bands[current_band].freq += (long long)tune_help1;  // tune the master vfo
+    bands[current_band].freq += tune_help1;  // tune the master vfo
     if (bands[current_band].freq > F_MAX) bands[current_band].freq = F_MAX;
     if (bands[current_band].freq < F_MIN) bands[current_band].freq = F_MIN;
     if (bands[current_band].freq != old_freq)
