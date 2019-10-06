@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_05
+   (c) Frank DD4WH 2019_10_06
 
    "TEENSY CONVOLUTION SDR"
 
@@ -220,6 +220,10 @@ extern "C"
 {
   void sincosf(float err, float *s, float *c);
 }
+#else
+extern "C" uint32_t set_arm_clock(uint32_t frequency);
+// lowering this from 600MHz to 200MHz makes power consumption @5 Volts in about 40mA less -> 200mWatts less
+#define T4_CPU_FREQUENCY    600000000 
 #endif
 
 #include <Audio.h>
@@ -2788,6 +2792,10 @@ void setup() {
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
   digitalWrite (On_set, HIGH);      // Hold switch on
+#endif
+
+#if defined(T4)
+  set_arm_clock(T4_CPU_FREQUENCY);
 #endif
 
   Serial.begin(115200);
