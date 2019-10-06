@@ -1029,10 +1029,10 @@ AudioConnection          patchCord10(mixright, 0, i2s_out, 0);
 AudioControlSGTL5000     sgtl5000_1;
 #endif
 
-int idx_t = 0;
+double elapsed_micros_idx_t = 0;
 //int idx = 0;
-int32_t sum;
-float32_t mean;
+double elapsed_micros_sum;
+double elapsed_micros_mean;
 int n_L;
 int n_R;
 long int n_clear;
@@ -3348,11 +3348,10 @@ void setup() {
 
 } // END SETUP
 
-
+elapsedMicros usec = 0;
 
 void loop() {
   //  asm(" wfi"); // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
-  elapsedMicros usec = 0;
   static float32_t phaseLO = 0.0;
   uint16_t xx;
   static uint16_t barGraphUpdate = 0;
@@ -3375,6 +3374,7 @@ void loop() {
   {
     if (Q_in_L.available() > 6 && Q_in_R.available() > 6 && Menu_pointer != MENU_PLAYER)
     {
+      usec = 0;
       // get audio samples from the audio  buffers and convert them to float
       for (int i = 0; i < WFM_BLOCKS; i++)
       {
@@ -3485,6 +3485,13 @@ void loop() {
         Q_in_L.freeBuffer();
         Q_in_R.freeBuffer();
       }
+
+#if defined(HARDWARE_DD4WH_T4)
+//      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+//      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+#endif
 
       /*************************************************************************************************************************************
 
@@ -3607,9 +3614,47 @@ void loop() {
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
 
 #endif
-
+#define NEW_STEREO_PATH
       if (stereo_factor > 0.1f)
       {
+
+#ifdef NEW_STEREO_PATH
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//    1   generate complex signal pair of I and Q
+
+      // Hilbert BP 10 - 75kHz 
+
+//    2   BPF 19kHz for pilote tone in both, I & Q
+
+//    3   PLL for pilot tone in order to determine the phase of the pilot tone 
+
+//    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+
+ //   5   lowpass filter 15kHz
+
+ //   6   notch filter 19kHz to eliminate pilot tone from audio
+
+
+//    1   generate complex signal pair of I and Q
+
+
+
+//    2   BPF 19kHz for pilote tone in both, I & Q
+
+//    3   PLL for pilot tone in order to determine the phase of the pilot tone 
+
+//    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+
+ //   5   lowpass filter 15kHz
+
+ //   6   notch filter 19kHz to eliminate pilot tone from audio
+
+ 
+
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#else
         /*******************************************************************************************************
 
            STEREO first trial
@@ -3691,7 +3736,7 @@ void loop() {
         // Left channel: lowpass filter with 15kHz Fstop & deemphasis
         rawFM_old_L = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, SR[SAMPLE_RATE].rate, rawFM_old_L);
         arm_biquad_cascade_df1_f32 (&biquad_WFM_R, FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-
+#endif
       }
       //*****END of STEREO***********************************************************************************************************
 
@@ -3749,10 +3794,11 @@ void loop() {
         Decimate-by-2 (8ksps, Nyquist 4k)
         Decode baseband RDS signal
       */
-
-      //      arm_scale_f32(float_buffer_L, 3.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-      //      arm_scale_f32(iFFT_buffer, 3.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-
+#if defined (HARDWARE_DD4WH_T4)
+      // VOLUME control for WFM reception
+      arm_scale_f32(float_buffer_L, audio_volume / 100.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32(iFFT_buffer, audio_volume / 100.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+#endif
       for (int i = 0; i < WFM_BLOCKS; i++)
       {
         sp_L = Q_out_L.getBuffer();
@@ -3790,20 +3836,21 @@ void loop() {
         }
       }
 
-      sum = sum + usec;
-      idx_t++;
+      elapsed_micros_sum = elapsed_micros_sum + usec;
+      elapsed_micros_idx_t++;
 
-      if (idx_t > 1000)
+//      if (elapsed_micros_idx_t > 1000)
+if(0)
         //          if (five_sec.check() == 1)
       {
         tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
         tft.setCursor(227, 5);
         tft.setTextColor(ILI9341_GREEN);
         tft.setFont(Arial_9);
-        mean = sum / idx_t;
-        if (mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS < 100.0)
+        elapsed_micros_mean = elapsed_micros_sum / elapsed_micros_idx_t;
+        if (elapsed_micros_mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS < 100.0)
         {
-          tft.print (mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);
+          tft.drawFloat (elapsed_micros_mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS, 1, 227, 5);
           tft.print("%");
         }
         else
@@ -3812,8 +3859,8 @@ void loop() {
           tft.print("100%");
         }
         //          tft.print (mean/29.0 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);tft.print("%");
-        idx_t = 0;
-        sum = 0;
+        elapsed_micros_idx_t = 0;
+        elapsed_micros_sum = 0;
         //          Serial.print(" n_clear = "); Serial.println(n_clear);
         //          Serial.print ("1 - Alpha = "); Serial.println(onem_deemp_alpha);
         //          Serial.print ("Alpha = "); Serial.println(deemp_alpha);
@@ -3831,6 +3878,7 @@ void loop() {
     // are there at least N_BLOCKS buffers in each channel available ?
     if (Q_in_L.available() > N_BLOCKS + 0 && Q_in_R.available() > N_BLOCKS + 0 && Menu_pointer != MENU_PLAYER)
     {
+      usec = 0;
       // get audio samples from the audio  buffers and convert them to float
       // read in 32 blocks á 128 samples in I and Q
       for (unsigned i = 0; i < N_BLOCKS; i++)
@@ -3963,28 +4011,32 @@ void loop() {
       }
 
 #if defined(HARDWARE_DD4WH_T4)
-      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
-      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+//      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+//      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1.0, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1.0, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+
 #endif
 
-      /*      // this is supposed to prevent overfilled queue buffers
-            // rarely the Teensy audio queue gets a hickup
-            // in that case this keeps the whole audio chain running smoothly
-            if (Q_in_L.available() >  5)
+            // this is to prevent overfilled queue buffers
+            // during each switching event (band change, mode change, frequency change, the audio chain runs and fills the buffers
+            // if the buffers are full, the Teensy needs much more time
+            // in that case, we clear the buffers to keep the whole audio chain running smoothly
+            if (Q_in_L.available() >  25)
             {
               AudioNoInterrupts();
               Q_in_L.clear();
-              n_clear ++; // just for debugging to check how often this occurs [about once in an hour of playing . . .]
+              n_clear ++; // just for debugging to check how often this occurs 
               AudioInterrupts();
             }
-            if (Q_in_R.available() >  5)
+            if (Q_in_R.available() >  25)
             {
               AudioNoInterrupts();
               Q_in_R.clear();
-              n_clear ++; // just for debugging to check how often this occurs [about once in an hour of playing . . .]
+              n_clear ++; // just for debugging to check how often this occurs 
               AudioInterrupts();
             }
-      */
+      
       /***********************************************************************************************
           just for checking: plotting min/max and mean of the samples
        ***********************************************************************************************/
@@ -5701,11 +5753,17 @@ void loop() {
       arm_fir_interpolate_f32(&FIR_int2_Q, FFT_buffer, float_buffer_R, BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF1));
 
       // scale after interpolation
+      // and VOLUME control
       //      float32_t interpol_scale = 8.0;
       //      if(bands[current_band].mode == DEMOD_LSB || bands[current_band].mode == DEMOD_USB) interpol_scale = 16.0;
       //      if(bands[current_band].mode == DEMOD_USB) interpol_scale = 16.0;
+#if defined (HARDWARE_DD4WH_T4)
+      arm_scale_f32(float_buffer_L, DF * audio_volume / 100.0, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32(float_buffer_R, DF * audio_volume / 100.0, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+#else
       arm_scale_f32(float_buffer_L, DF, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
       arm_scale_f32(float_buffer_R, DF, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+#endif
 
 #ifdef USE_ADC_DAC_display
       /**********************************************************************
@@ -5768,41 +5826,6 @@ void loop() {
       }
 #endif
 
-      /**********************************************************************************
-          PRINT ROUTINE FOR ELAPSED MICROSECONDS
-       **********************************************************************************/
-
-      sum = sum + usec;
-      idx_t++;
-      if (idx_t > 40) {
-        tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
-        tft.setCursor(227, 5);
-        tft.setTextColor(ILI9341_GREEN);
-        tft.setFont(Arial_9);
-        mean = sum / idx_t;
-        if (mean / 29.00 / N_BLOCKS * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT < 100.0)
-        {
-          tft.print (mean / 29.00 / N_BLOCKS * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT);
-          tft.print("%");
-        }
-        else
-        {
-          tft.setTextColor(ILI9341_RED);
-          tft.print("100%");
-        }
-#ifdef DEBUG
-        Serial.print (mean);
-        Serial.print (" microsec for ");
-        Serial.print (N_BLOCKS);
-        Serial.print ("  stereo blocks    ");
-        Serial.println();
-        Serial.print (" n_clear    ");
-        Serial.println(n_clear);
-#endif
-        idx_t = 0;
-        sum = 0;
-        tft.setTextColor(ILI9341_WHITE);
-      }
       /*
           if(zoom_display)
           {
@@ -5818,6 +5841,8 @@ void loop() {
       {
         codec_gain();
       }
+      elapsed_micros_sum = elapsed_micros_sum + usec;
+      elapsed_micros_idx_t++;
     } // end of if(audio blocks available)
 
   /**********************************************************************************
@@ -5839,7 +5864,59 @@ void loop() {
     //      eeprom_saved = 0;
     //      eeprom_loaded = 0;
   }
-  //    show_spectrum();
+
+      /**********************************************************************************
+          PRINT ELAPSED MICROSECONDS
+       **********************************************************************************/
+      if (elapsed_micros_idx_t >  (50 * SR[SAMPLE_RATE].rate / 48000) )
+      {
+        tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
+        tft.setCursor(227, 5);
+        tft.setTextColor(ILI9341_GREEN);
+        tft.setFont(Arial_9);
+        elapsed_micros_mean = elapsed_micros_sum / elapsed_micros_idx_t;
+        // one audio block is 128 samples
+        // the time for this in seconds is:
+        double block_time = 128.0 / (double)SR[SAMPLE_RATE].rate; 
+        // block_time is equivalent to 100% processor load for ONE block processing
+        // if we have more blocks to process:
+        if(bands[current_band].mode == DEMOD_WFM)
+        {
+          block_time = block_time * WFM_BLOCKS;
+        }
+        else
+        {
+          block_time = block_time * N_BLOCKS;
+        }
+        block_time *= 1000000.0; // now in µseconds
+        // take audio processing time and divide by block_time, convert to %
+        double processor_load = elapsed_micros_mean / block_time * 100; 
+        if(processor_load >= 100.0) 
+        {
+          processor_load = 100.0;
+          tft.setTextColor(ILI9341_RED);
+        }
+        else 
+        {
+          tft.setTextColor(ILI9341_GREEN);
+        }
+        tft.drawFloat(processor_load, 1, 227,5);
+        tft.print("%");      
+
+#ifdef DEBUG
+        Serial.print (mean);
+        Serial.print (" microsec for ");
+        Serial.print (N_BLOCKS);
+        Serial.print ("  stereo blocks    ");
+        Serial.println();
+        Serial.print (" n_clear    ");
+        Serial.println(n_clear);
+#endif
+        elapsed_micros_idx_t = 0;
+        elapsed_micros_sum = 0;
+        elapsed_micros_mean = 0;
+        tft.setTextColor(ILI9341_WHITE);
+      }
 
   if (encoder_check.check() == 1)
   {
@@ -8831,7 +8908,7 @@ void buttons() {
         prepareLevelDisplay();
 #endif
 
-      idx_t = 0;
+      //idx_t = 0;
       delay(10);
       AudioInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
