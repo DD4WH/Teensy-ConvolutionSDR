@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_06
+   (c) Frank DD4WH 2019_10_07
 
    "TEENSY CONVOLUTION SDR"
 
@@ -21,8 +21,9 @@
    - spectral NR uses FFT-iFFT overlap-add with 50% overlap
 
    - in floating point 32bit
-   - tested on Teensy 3.6 (using its FPU)
-   - compile with 180MHz F_CPU, other speeds not supported
+   - tested on Teensy 3.6 (using its single precision FPU) and on Teensy 4.0 (with its double precision FPU)
+   - with Teensy 3.6: compile with 180MHz F_CPU, other speeds not supported. Maybe with the newest fix in Teensyduino, higher speeds could work, but this is untested
+   - with Teensy 4.0: compile with "Optimize: Faster", never use "Optimize: smallest code", the latter will not work!
 
    Part of the evolution of this project has been documented here:
    https://forum.pjrc.com/threads/40188-Fast-Convolution-filtering-in-floating-point-with-Teensy-3-6/page2
@@ -226,7 +227,7 @@ extern "C"
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime?
-#define T4_CPU_FREQUENCY    600000000 
+#define T4_CPU_FREQUENCY    528000000 
 #endif
 
 #include <Audio.h>
@@ -1438,8 +1439,6 @@ float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t deemp_alpha = 0.099;
 float32_t onem_deemp_alpha = 1.0 - deemp_alpha;
 uint16_t autotune_counter = 0;
-
-
 
 /* no.of audio samples
  * BUFFER_SIZE * N_BLOCKS / (uint32_t)(DF)
@@ -3361,8 +3360,10 @@ elapsedMicros usec = 0;
 
 void loop() {
   // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
-  // YES !!! 40mA less
-  if(save_energy) asm(" wfi"); 
+  // YES !!! 40mA less, but it seriously slows down reaction of buttons and encoders
+  //asm(" wfi"); 
+  // this does not lower power consumption, but lowers printed processor load!?
+  if(save_energy) asm(" wfi");
   static float32_t phaseLO = 0.0;
   uint16_t xx;
   static uint16_t barGraphUpdate = 0;
@@ -3626,7 +3627,8 @@ void loop() {
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
 
 #endif // KA7OEI
-#define NEW_STEREO_PATH
+
+//#define NEW_STEREO_PATH
 
       if (stereo_factor > 0.1f)
       {
