@@ -99,6 +99,8 @@
    - alternative RTTY decoder (Martin Ossmann)
    - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
    - now runs on Teensy 4.0
+   - bugfix runover audio buffers
+   - flexible T4 CPU frequency setting
 
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -121,7 +123,7 @@
    wdsp (Warren Pratt): http://svn.tapr.org/repos_sdr_hpsdr/trunk/W5WC/PowerSDR_HPSDR_mRX_PS/Source/wdsp/ [GNU GPL]
    Wheatley (2011): cuteSDR https://github.com/satrian/cutesdr-se [BSD]
    Robert Dick (1999): Tune SSB Automatically. in QEX: http://www.arrl.org/files/file/QEX%20Binaries/1999/ssbtune.zip ["code is in the public domain . . .", thus I assume GNU GPL]
-   Martin Ossmann: unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin!
+   Martin Ossmann: unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin, for the permission to include your code here!
    sample-rate-change-on-the-fly code by Frank Bösing [MIT]
    GREAT THANKS FOR ALL THE HELP AND INPUT BY WALTER, WMXZ !
    Audio queue optimized by Pete El Supremo 2016_10_27, thanks Pete!
@@ -222,7 +224,8 @@ extern "C"
 }
 #else
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
-// lowering this from 600MHz to 200MHz makes power consumption @5 Volts in about 40mA less -> 200mWatts less
+// lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
+// should we make this available in the menu to adjust during runtime?
 #define T4_CPU_FREQUENCY    600000000 
 #endif
 
@@ -253,7 +256,7 @@ extern "C" uint32_t set_arm_clock(uint32_t frequency);
 
 #if defined(T4)
 #include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
-//#include <EEPROM.h>
+#include <EEPROM.h>
 #else
 #include <EEPROM.h>
 #endif
@@ -1046,13 +1049,13 @@ float32_t FFT_spec[256];
 float32_t FFT_spec_old[256];
 int16_t pixelnew[256];
 int16_t pixelold[256];
-float32_t LPF_spectrum = 0.42;
+float32_t LPF_spectrum = 0.82;
 float32_t spectrum_display_scale = 50.0; // 30.0
 uint8_t show_spectrum_flag = 1;
 uint8_t display_S_meter_or_spectrum_state = 0;
 uint8_t bitnumber = 16; // test, how restriction to twelve bit alters sound quality
 
-int16_t spectrum_brightness = 84;
+int16_t spectrum_brightness = 255;
 uint8_t spectrum_mov_average = 0;
 uint16_t SPECTRUM_DELETE_COLOUR = ILI9341_BLACK;
 uint16_t SPECTRUM_DRAW_COLOUR = ILI9341_WHITE;
@@ -2880,6 +2883,10 @@ void setup() {
       load saved settings from EEPROM
    ****************************************************************************************/
   // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
+  //Serial.println("EEPROM_LOAD_HERE");
+  //EEPROM.write(1900, 252);  
+  //Serial.println(EEPROM.read(1900));
+  //while(1){};
   EEPROM_LOAD();
 #if (!defined(HARDWARE_DD4WH_T4))
   // Enable the audio shield. select input. and enable output
@@ -3342,6 +3349,7 @@ void setup() {
   /****************************************************************************************
      eePROM check by Mike bicycleguy
   ****************************************************************************************/
+  Serial.println(gEEPROM_current);
   if (gEEPROM_current == false) { //mdrhere
     EEPROM_SAVE();
     gEEPROM_current = true; //future proof, but not used after this
@@ -11727,7 +11735,7 @@ void EEPROM_SAVE() {
   for (int i = 0; i < 4; i++)
     E.version_of_settings[i] = theversion[i];
   E.crc = 0; //will be overwritten
-  //printConfig_t(&E);  //for debugging
+  printConfig_t(&E);  //for debugging
   saveInEEPROM(&E);
 } // end void eeProm SAVE
 
@@ -11776,9 +11784,18 @@ boolean saveInEEPROM(struct config_t *pd) {
   uint8_t thecrc = 0;
   boolean errors = false;
   unsigned int t;
-  for (t = 0; t < (sizeof(config_t) - 2); t++) { // writes to EEPROM
+  //Serial.print("size of config_t: ");
+  //Serial.println(sizeof(config_t));
+
+    for (t = 0; t < (sizeof(config_t) - 2); t++) { // writes to EEPROM
     thecrc = _crc_ibutton_update(thecrc, *((unsigned char*)pd + t) );
-    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ) { //only if changed
+    //Serial.println("after crc_ibutton_update");
+        // EEPROM.write(CONFIG_START + 1, *((unsigned char*)pd + 1));
+        // Serial.println(CONFIG_START + 1);
+        // Serial.println(EEPROM.read(CONFIG_START + 1));
+      //  Serial.print("*((unsigned char*)pd + t) = "); Serial.println(*((unsigned char*)pd + t) );
+    if ( EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t) ) 
+    { //only if changed
       EEPROM.write(CONFIG_START + t, *((unsigned char*)pd + t));
       // and verifies the data
       if (EEPROM.read(CONFIG_START + t) != *((unsigned char*)pd + t))
@@ -11786,11 +11803,12 @@ boolean saveInEEPROM(struct config_t *pd) {
         errors = true; //error writing (or reading) exit
         break;
       } else {
-        //Serial.print("EEPROM ");Serial.println(t);
+        Serial.print("EEPROM ");Serial.println(t);
         byteswritten += 1; //for debuggin
       }
     }
   }
+  //while(1){};
   EEPROM.write(CONFIG_START + t, thecrc);   //write the crc to the end of the data
   if (EEPROM.read(CONFIG_START + t) != thecrc)  //and check it
     errors = true;
