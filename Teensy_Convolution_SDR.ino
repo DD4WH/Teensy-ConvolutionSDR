@@ -802,6 +802,8 @@ long calibration_constant = 0;
 //long calibration_constant = 108000; // this is for the Elektor PCB !
 unsigned long long hilfsf = 1000000000;
 
+uint8_t save_energy = 0;
+uint8_t atan2_approx = 0;
 
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
@@ -1430,7 +1432,7 @@ const uint8_t WFM_BLOCKS = 6;
 // tau = 75µsec in the US -->
 //
 //FIXME
-float32_t dt = 1.0 / 234000.0;
+float32_t dt = 1.0 / 256000.0;
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
 //float32_t deemp_alpha = 0.099;
@@ -1469,24 +1471,24 @@ const uint32_t N_DEC_B = N_B / (uint32_t)DF;
 float32_t float_buffer_L [BUFFER_SIZE * N_B];
 float32_t float_buffer_R [BUFFER_SIZE * N_B];
 
-float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
-float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B];
-float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B];
+float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) ;
+float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B] ;
+float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B] ;
 uint8_t flagg = 0;
 // complex iFFT with the new library CMSIS V4.5
 const static arm_cfft_instance_f32 *iS;
-float32_t iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
+float32_t iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) ;
 
 // FFT instance for direct calculation of the filter mask
 // from the impulse response of the FIR - the coefficients
 const static arm_cfft_instance_f32 *maskS;
-float32_t FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4)));
+float32_t FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4))) ;
 
 const static arm_cfft_instance_f32 *spec_FFT;
-float32_t buffer_spec_FFT [512] __attribute__ ((aligned (4)));
+float32_t buffer_spec_FFT [512] __attribute__ ((aligned (4))) ;
 
 const static arm_cfft_instance_f32 *NR_FFT;
-float32_t NR_FFT_buffer [512] __attribute__ ((aligned (4)));
+float32_t NR_FFT_buffer [512] __attribute__ ((aligned (4))) ;
 
 const static arm_cfft_instance_f32 *NR_iFFT;
 // we dont need this any more, we reuse the NR_FFT_buffer and save 2kbytes ;-)
@@ -1822,7 +1824,9 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_RTTY_DECODER_BAUD            56
 #define MENU_RTTY_DECODER_SHIFT           57
 #define MENU_RTTY_DECODER_STOPBIT         58
-#define MENU_DIGIMODE                     59
+#define MENU_USE_ATAN2                    59
+#define MENU_POWER_SAVE                   60
+#define MENU_DIGIMODE                     61
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
@@ -1830,7 +1834,7 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_AGC_HANG_TIME                64
 #define MENU_AGC_HANG_THRESH              65
 #define first_menu2                       19
-#define last_menu2                        59
+#define last_menu2                        61
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1907,6 +1911,8 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1 },
   { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1 },
   { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1 },
+  { MENU_POWER_SAVE, "Power", " save ", 1 },
+  { MENU_USE_ATAN2, " ATAN2 ", "approx.", 1 },
   { MENU_DIGIMODE, " DIGI- ", " mode ", 1 },
   //  { MENU_NR_VAD_ENABLE, " VAD ", "  NR ", 1 },
   //  { MENU_NR_VAD_THRESH, " VAD ", "thresh", 1 },
@@ -2791,6 +2797,7 @@ void flexRamInfo(void)
 #endif
 }
 */
+PROGMEM
 void setup() {
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
@@ -2802,7 +2809,7 @@ void setup() {
 #endif
 
   Serial.begin(115200);
-  delay(100);
+  while(!Serial);
 
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
@@ -2883,10 +2890,6 @@ void setup() {
       load saved settings from EEPROM
    ****************************************************************************************/
   // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
-  //Serial.println("EEPROM_LOAD_HERE");
-  //EEPROM.write(1900, 252);  
-  //Serial.println(EEPROM.read(1900));
-  //while(1){};
   EEPROM_LOAD();
 #if (!defined(HARDWARE_DD4WH_T4))
   // Enable the audio shield. select input. and enable output
@@ -2951,16 +2954,6 @@ void setup() {
   pinMode(Band_7M3_15M, OUTPUT);
   pinMode(Band_15M_30M, OUTPUT);
 #endif
-
-  // *******  Init latching relays <PUA>   ********
-  /*  digitalWrite (Band1, HIGH); digitalWrite (Band2, HIGH); digitalWrite (Band3, HIGH);
-    digitalWrite (Band4, HIGH); digitalWrite (Band5, HIGH);
-    delay(2000);
-    digitalWrite (Band1, LOW); digitalWrite (Band2, LOW); digitalWrite (Band3, LOW);
-    digitalWrite (Band4, LOW); digitalWrite (Band5, LOW);
-    delay(100);
-    // For latching relays, this leaves all "bypass" in place. Will be set by set_freq()
-  */
 
 #ifdef USE_BOBS_FILTER
   // *******  Init latching relays <PUA>   ********
@@ -3349,7 +3342,7 @@ void setup() {
   /****************************************************************************************
      eePROM check by Mike bicycleguy
   ****************************************************************************************/
-  Serial.println(gEEPROM_current);
+  //Serial.println(gEEPROM_current);
   if (gEEPROM_current == false) { //mdrhere
     EEPROM_SAVE();
     gEEPROM_current = true; //future proof, but not used after this
@@ -3367,7 +3360,9 @@ void setup() {
 elapsedMicros usec = 0;
 
 void loop() {
-  //  asm(" wfi"); // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
+  // does this save battery power ? https://forum.pjrc.com/threads/40315-Reducing-Power-Consumption
+  // YES !!! 40mA less
+  if(save_energy) asm(" wfi"); 
   static float32_t phaseLO = 0.0;
   uint16_t xx;
   static uint16_t barGraphUpdate = 0;
@@ -3601,36 +3596,38 @@ void loop() {
 #endif
 
 #ifdef WFM_KA7OEI
-      //      Serial.println("KA7OEI");
-
-      // KA7OEI
-#ifdef USE_ATAN2FAST
-      FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+      if(atan2_approx)
+      {
+        FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
-#else
-      FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+      }
+      else
+      {
+        FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
-#endif
+      }
       for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
-
-        // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
-
-#ifdef USE_ATAN2FAST
-        FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
-                        float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
-#else
-        FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
-                        float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
-#endif
+          // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
+        if(atan2_approx)
+        {
+          FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+                          float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
+        }
+        else
+        {
+          FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+                          float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
+        }
       }
 
       // take care of last sample of each block
       I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
 
-#endif
+#endif // KA7OEI
 #define NEW_STEREO_PATH
+
       if (stereo_factor > 0.1f)
       {
 
@@ -5065,15 +5062,18 @@ if(0)
             }
             float_buffer_R[i] = audiou;
           }
-#ifdef USE_ATAN2FAST
-          det = arm_atan2_f32(corr[1], corr[0]);
-#else
-#if defined (T4)
-          det = atan2(corr[1], corr[0]);
-#else
-#endif          
-          det = atan2f(corr[1], corr[0]);
-#endif
+          if(atan2_approx)
+          {
+            det = arm_atan2_f32(corr[1], corr[0]);
+          }
+          else
+          {
+  #if defined (T4)
+            det = atan2(corr[1], corr[0]);
+  #else
+            det = atan2f(corr[1], corr[0]);
+  #endif          
+          }
           del_out = fil_out;
           omega2 = omega2 + g2 * det;
           if (omega2 < omega_min) omega2 = omega_min;
@@ -7827,6 +7827,8 @@ void show_bandwidth ()
   tft.setFont(Arial_9);
   tft.setTextColor(ILI9341_WHITE);
   tft.print(DEMOD[bands[current_band].mode].text);
+  if(bands[current_band].mode != DEMOD_WFM)
+  {
 #if defined (HARDWARE_DD4WH_T4)
   tft.drawFloat((bands[current_band].mode != DEMOD_SAM_USB) ? (float)(bands[current_band].FLoCut / 1000.0f) : 0.0f, 1, 70, 25); 
   tft.print(" kHz");
@@ -7841,6 +7843,7 @@ void show_bandwidth ()
   tft.setCursor(130, 25);
   tft.printf("%02.1f kHz", (bands[current_band].mode != DEMOD_SAM_LSB) ? (float)(float)(bands[current_band].FHiCut / 1000.0f) : 0.0f);
 #endif
+  }
   tft.setCursor(180, 25);
   //tft.print("   SR: ");
   tft.print("  ");
@@ -9203,6 +9206,18 @@ void buttons() {
       prepare_spectrum_display();
       show_menu();
     }
+    else if (Menu2 == MENU_USE_ATAN2)
+    {
+      if (atan2_approx == 0) atan2_approx = 1;
+      else atan2_approx = 0;
+      show_menu();
+    }
+    else if (Menu2 == MENU_POWER_SAVE)
+    {
+      if (save_energy == 0) save_energy = 1;
+      else save_energy = 0;
+      show_menu();
+    }
 
     else if (Menu2 == MENU_NB_IMPULSE_SAMPLES)
     {
@@ -9839,6 +9854,26 @@ void show_menu()
         break;
       case MENU_CW_DECODER_ATC:
         if (cw_decoder_config.atc_enable)
+        {
+          tft.print("YES");
+        }
+        else
+        {
+          tft.print("NO");
+        }
+        break;
+      case MENU_POWER_SAVE:
+        if (save_energy)
+        {
+          tft.print("YES");
+        }
+        else
+        {
+          tft.print("NO");
+        }
+        break;
+      case MENU_USE_ATAN2:
+        if (atan2_approx)
         {
           tft.print("YES");
         }
