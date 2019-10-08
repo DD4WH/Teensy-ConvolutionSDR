@@ -101,7 +101,7 @@
    - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
    - now runs on Teensy 4.0
    - bugfix runover audio buffers
-   - flexible T4 CPU frequency setting in menu
+   - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [TFT + ADC + DAC + T4 + QSD hardware < 1 Watt !]
 
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -9856,7 +9856,11 @@ void show_menu()
         }
         break;
       case MENU_CPU_SPEED:
-        if((T4_CPU_FREQUENCY / 1000000) > 900)
+        if((T4_CPU_FREQUENCY / 1000000) > 600)
+        {
+          tft.setTextColor(ILI9341_ORANGE);
+        }
+        if((T4_CPU_FREQUENCY / 1000000) > 860)
         {
           tft.setTextColor(ILI9341_RED);
         }
@@ -10909,7 +10913,7 @@ void encoders () {
     {
       T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 2500000;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
-      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
+      else if (T4_CPU_FREQUENCY > 960000000) T4_CPU_FREQUENCY = 960000000;
       set_arm_clock(T4_CPU_FREQUENCY);
     }
 
