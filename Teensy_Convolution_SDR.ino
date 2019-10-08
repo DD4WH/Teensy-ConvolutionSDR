@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_07
+   (c) Frank DD4WH 2019_10_08
 
    "TEENSY CONVOLUTION SDR"
 
@@ -7,7 +7,7 @@
 
    HARDWARE NEEDED:
    - simple quadrature sampling detector board producing baseband IQ signals (Softrock, Elektor SDR etc.)
-   (IQ boards with up to 192kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
+   (IQ boards with up to 256kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
    - Teensy audio board
    - Teensy 3.6 or Teensy 4.0 (No, Teensy 3.1/3.2/3.5 not supported)
    HARDWARE OPTIONAL:
@@ -101,7 +101,7 @@
    - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
    - now runs on Teensy 4.0
    - bugfix runover audio buffers
-   - flexible T4 CPU frequency setting
+   - flexible T4 CPU frequency setting in menu
 
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -227,7 +227,7 @@ extern "C"
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime?
-#define T4_CPU_FREQUENCY    528000000 
+uint32_t T4_CPU_FREQUENCY  =  600000000; 
 #endif
 
 #include <Audio.h>
@@ -1823,9 +1823,10 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_RTTY_DECODER_BAUD            56
 #define MENU_RTTY_DECODER_SHIFT           57
 #define MENU_RTTY_DECODER_STOPBIT         58
-#define MENU_USE_ATAN2                    59
-#define MENU_POWER_SAVE                   60
-#define MENU_DIGIMODE                     61
+#define MENU_CPU_SPEED                    59
+#define MENU_USE_ATAN2                    60
+#define MENU_POWER_SAVE                   61
+#define MENU_DIGIMODE                     62
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
@@ -1833,7 +1834,7 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_AGC_HANG_TIME                64
 #define MENU_AGC_HANG_THRESH              65
 #define first_menu2                       19
-#define last_menu2                        61
+#define last_menu2                        62
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1910,6 +1911,7 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1 },
   { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1 },
   { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1 },
+  { MENU_CPU_SPEED, " CPU ", " speed ", 1 },
   { MENU_POWER_SAVE, "Power", " save ", 1 },
   { MENU_USE_ATAN2, " ATAN2 ", "approx.", 1 },
   { MENU_DIGIMODE, " DIGI- ", " mode ", 1 },
@@ -2808,8 +2810,7 @@ void setup() {
 #endif
 
   Serial.begin(115200);
-  while(!Serial);
-
+  delay(1000);
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
   //  AudioMemory(130);  // good for 176ksps sample rate, but MP3 playing is not possible
@@ -9854,6 +9855,18 @@ void show_menu()
             break;
         }
         break;
+      case MENU_CPU_SPEED:
+        if((T4_CPU_FREQUENCY / 1000000) > 900)
+        {
+          tft.setTextColor(ILI9341_RED);
+        }
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(T4_CPU_FREQUENCY / 1000000, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+#else
+        tft.printf("%2d", T4_CPU_FREQUENCY / 1000000);
+#endif
+        tft.setTextColor(ILI9341_WHITE);
+        break;
       case MENU_CW_DECODER_ATC:
         if (cw_decoder_config.atc_enable)
         {
@@ -10892,6 +10905,15 @@ void encoders () {
       if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
       else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
+    else if (Menu2 == MENU_CPU_SPEED)
+    {
+      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 2500000;
+      if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
+      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
+      set_arm_clock(T4_CPU_FREQUENCY);
+    }
+
+
     /*    else if (Menu2 == MENU_NR_VAD_THRESH)
       {
       NR_VAD_thresh = NR_VAD_thresh + (float32_t)encoder3_change / 16.0;
