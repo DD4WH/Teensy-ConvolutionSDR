@@ -178,10 +178,10 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Frank DD4WH uncomment the next line */
-#define HARDWARE_DD4WH
+//#define HARDWARE_DD4WH
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
-//#define HARDWARE_DD4WH_T4
+#define HARDWARE_DD4WH_T4
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
@@ -211,7 +211,7 @@
 
 /*  use faster atan2f calculation
     recommendation: leave this uncommented */
-#define USE_ATAN2FAST
+//#define USE_ATAN2FAST
 
 //#define MP3 
 
@@ -2857,7 +2857,7 @@ void setup() {
   delay(100);
 
   // get TIME from real time clock with 3V backup battery
-  //setSyncProvider(getTeensy3Time);
+  setSyncProvider(getTeensy3Time);
 
 //  flexRamInfo();
 
