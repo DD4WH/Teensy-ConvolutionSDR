@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_08
+   (c) Frank DD4WH 2019_10_15
 
    "TEENSY CONVOLUTION SDR"
 
@@ -101,9 +101,12 @@
    - ERF time signal decoder (Martin Ossmann) with automatic adjustment of the real time clock
    - now runs on Teensy 4.0
    - bugfix runover audio buffers
-   - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [TFT + ADC + DAC + T4 + QSD hardware < 1 Watt !]
+   - EEPROM runs fine on T4
+   - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [TFT + ADC + DAC + Teensy 4.0 + QSD hardware < 1 Watt !]
+   - T4: CPU temperature display 
 
    TODO:
+   - bugfix realtime clock in Teensy 4.0
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
@@ -175,10 +178,10 @@
  ************************************************************************************************************************************/
 
 /*  If you use the hardware made by Frank DD4WH uncomment the next line */
-//#define HARDWARE_DD4WH
+#define HARDWARE_DD4WH
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
-#define HARDWARE_DD4WH_T4
+//#define HARDWARE_DD4WH_T4
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
@@ -208,7 +211,7 @@
 
 /*  use faster atan2f calculation
     recommendation: leave this uncommented */
-//#define USE_ATAN2FAST
+#define USE_ATAN2FAST
 
 //#define MP3 
 
@@ -231,7 +234,7 @@ uint32_t T4_CPU_FREQUENCY  =  600000000;
 #endif
 
 #include <Audio.h>
-#include <Time.h>
+//#include <Time.h>
 #include <TimeLib.h>
 #include <Wire.h>
 #include <SPI.h>
@@ -242,13 +245,15 @@ uint32_t T4_CPU_FREQUENCY  =  600000000;
 #include <arm_const_structs.h>
 #include <si5351.h>
 #include <Encoder.h>
+
 #if defined(HARDWARE_DD4WH_T4)
 #include <ILI9341_t3n.h>
 #include <ili9341_t3n_font_Arial.h>
-#elif
+#else
 #include <ILI9341_t3.h>
 #include "font_Arial.h"
 #endif
+
 #if defined(MP3)
 #include <play_sd_mp3.h> //mp3 decoder by Frank B
 #include <play_sd_aac.h> // AAC decoder by Frank B
@@ -260,6 +265,27 @@ uint32_t T4_CPU_FREQUENCY  =  600000000;
 #include <EEPROM.h>
 #else
 #include <EEPROM.h>
+#endif
+
+// temperature stuff
+#if defined(T4)
+#define TEMPMON_ROOMTEMP 25.0f
+static uint32_t s_hotTemp;    /*!< The value of TEMPMON_TEMPSENSE0[TEMP_VALUE] at room temperature .*/
+static uint32_t s_hotCount;   /*!< The value of TEMPMON_TEMPSENSE0[TEMP_VALUE] at the hot temperature.*/
+static uint32_t roomCount;   /*!< The value of TEMPMON_TEMPSENSE0[TEMP_VALUE] at the hot temperature.*/
+static float s_hotT_ROOM;     /*!< The value of s_hotTemp minus room temperature(25¡æ).*/
+static uint32_t s_roomC_hotC; /*!< The value of s_roomCount minus s_hotCount.*/
+#define TMS0_POWER_DOWN_MASK        (0x1U)
+#define TMS0_POWER_DOWN_SHIFT       (0U)
+#define TMS1_MEASURE_FREQ(x)        (((uint32_t)(((uint32_t)(x)) << 0U)) & 0xFFFFU)
+#define TMS0_ALARM_VALUE(x)         (((uint32_t)(((uint32_t)(x)) << 20U)) & 0xFFF00000U)
+#define TMS02_LOW_ALARM_VALUE(x)    (((uint32_t)(((uint32_t)(x)) << 0U)) & 0xFFFU)
+#define TMS02_PANIC_ALARM_VALUE(x)  (((uint32_t)(((uint32_t)(x)) << 16U)) & 0xFFF0000U)
+    uint16_t temp_check_frequency;      /*!< The temperature measure frequency.*/
+    uint32_t highAlarmTemp;  /*!< The high alarm temperature.*/
+    uint32_t panicAlarmTemp; /*!< The panic alarm temperature.*/
+    uint32_t lowAlarmTemp;   /*!< The low alarm */
+    float CPU_temperature = 0.0; 
 #endif
 
 
@@ -804,7 +830,7 @@ long calibration_constant = 0;
 unsigned long long hilfsf = 1000000000;
 
 uint8_t save_energy = 0;
-uint8_t atan2_approx = 0;
+uint8_t atan2_approx = 1;
 
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
@@ -1323,7 +1349,7 @@ int current_band = STARTUP_BAND;
 
 ulong samp_ptr = 0;
 
-//const int myInput = AUDIO_INPUT_LINEIN;
+const int myInput = AUDIO_INPUT_LINEIN;
 
 float32_t IQ_amplitude_correction_factor = 1.0038;
 float32_t IQ_phase_correction_factor =  0.0058;
@@ -1823,10 +1849,18 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_RTTY_DECODER_BAUD            56
 #define MENU_RTTY_DECODER_SHIFT           57
 #define MENU_RTTY_DECODER_STOPBIT         58
+#if defined (T4)
 #define MENU_CPU_SPEED                    59
 #define MENU_USE_ATAN2                    60
 #define MENU_POWER_SAVE                   61
 #define MENU_DIGIMODE                     62
+#define last_menu2                        62
+#else
+#define MENU_USE_ATAN2                    59
+#define MENU_POWER_SAVE                   60
+#define MENU_DIGIMODE                     61
+#define last_menu2                        61
+#endif
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
@@ -1834,7 +1868,6 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_AGC_HANG_TIME                64
 #define MENU_AGC_HANG_THRESH              65
 #define first_menu2                       19
-#define last_menu2                        62
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -1911,7 +1944,9 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1 },
   { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1 },
   { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1 },
+#if defined (T4)
   { MENU_CPU_SPEED, " CPU ", " speed ", 1 },
+#endif
   { MENU_POWER_SAVE, "Power", " save ", 1 },
   { MENU_USE_ATAN2, " ATAN2 ", "approx.", 1 },
   { MENU_DIGIMODE, " DIGI- ", " mode ", 1 },
@@ -2822,7 +2857,7 @@ void setup() {
   delay(100);
 
   // get TIME from real time clock with 3V backup battery
-  setSyncProvider(getTeensy3Time);
+  //setSyncProvider(getTeensy3Time);
 
 //  flexRamInfo();
 
@@ -2986,7 +3021,11 @@ void setup() {
   tft.setTextSize(2);
   tft.setTextColor(ILI9341_GREEN);
   tft.setFont(Arial_14);
-  tft.print("T 4.0"); 
+#if defined (T4)
+  tft.print("T4"); 
+#else
+  tft.print("Teensy"); 
+#endif
   tft.setTextColor(ILI9341_ORANGE);
   tft.print(" Convolution SDR");
   tft.setFont(Arial_10);
@@ -3349,6 +3388,21 @@ void setup() {
   }
 
   /****************************************************************************************
+     Temperature monitor for Teensy 4.0
+  ****************************************************************************************/
+#if defined(T4)
+    temp_check_frequency = 0x03U;      //updates the temp value at a RTC/3 clock rate
+                            //0xFFFF determines a 2 second sample rate period
+    highAlarmTemp   = 85U;  //42 degrees C
+    lowAlarmTemp    = 25U;
+    panicAlarmTemp  = 90U;
+
+    initTempMon(temp_check_frequency, lowAlarmTemp, highAlarmTemp, panicAlarmTemp);
+    // this starts the measurements
+    TEMPMON_TEMPSENSE0 |= 0x2U;
+#endif
+
+  /****************************************************************************************
      begin to queue the audio from the audio library
   ****************************************************************************************/
   delay(100);
@@ -3605,8 +3659,13 @@ void loop() {
       }
       else
       {
+#if defined (T4)
         FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
+#else
+        FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+                      I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
+#endif
       }
       for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
@@ -3618,8 +3677,13 @@ void loop() {
         }
         else
         {
+#if defined (T4)
           FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
+#else
+          FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+                          float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
+#endif
         }
       }
 
@@ -3866,12 +3930,17 @@ if(0)
         elapsed_micros_mean = elapsed_micros_sum / elapsed_micros_idx_t;
         if (elapsed_micros_mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS < 100.0)
         {
+#if defined (T4)          
           tft.drawFloat (elapsed_micros_mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS, 1, 227, 5);
+#else
+          tft.print(elapsed_micros_mean / 29.00 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);
+#endif
           tft.print("%");
         }
         else
         {
           tft.setTextColor(ILI9341_RED);
+          tft.setCursor(227, 5);
           tft.print("100%");
         }
         //          tft.print (mean/29.0 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);tft.print("%");
@@ -5889,7 +5958,11 @@ if(0)
        **********************************************************************************/
       if (elapsed_micros_idx_t >  (50 * SR[SAMPLE_RATE].rate / 48000) )
       {
-        tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
+#if defined (T4)
+        tft.fillRect(189, 5, 74, 20, ILI9341_BLACK);
+#else
+        tft.fillRect(227, 5, 74-38, 20, ILI9341_BLACK);
+#endif
         tft.setCursor(227, 5);
         tft.setTextColor(ILI9341_GREEN);
         tft.setFont(Arial_9);
@@ -5919,8 +5992,32 @@ if(0)
         {
           tft.setTextColor(ILI9341_GREEN);
         }
-        tft.drawFloat(processor_load, 1, 227,5);
-        tft.print("%");      
+#if defined (T4)
+        if(processor_load < 100.0)
+        {
+          tft.drawFloat(processor_load, 1, 235,5); // 227
+          tft.print("%");      
+        }
+        else
+        {
+          tft.setCursor(235,5);
+          tft.print("100%");
+        }
+        CPU_temperature = tGetTemp(); 
+        tft.drawFloat(CPU_temperature, 1, 189,5);
+        tft.print("  C");
+        tft.drawCircle(218, 5, 2, ILI9341_GREEN); 
+#else
+        if(processor_load < 100.0)
+        {
+          tft.print(processor_load); // 227
+          tft.print("%");
+        }
+        else
+        {
+          tft.print("100%");
+        }
+#endif
 
 #ifdef DEBUG
         Serial.print (mean);
@@ -9855,6 +9952,7 @@ void show_menu()
             break;
         }
         break;
+#if defined (T4)
       case MENU_CPU_SPEED:
         if((T4_CPU_FREQUENCY / 1000000) > 600)
         {
@@ -9864,13 +9962,11 @@ void show_menu()
         {
           tft.setTextColor(ILI9341_RED);
         }
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(T4_CPU_FREQUENCY / 1000000, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
-#else
-        tft.printf("%2d", T4_CPU_FREQUENCY / 1000000);
-#endif
+//        tft.drawNumber(T4_CPU_FREQUENCY / 1000000, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+        tft.drawNumber(F_CPU_ACTUAL / 1000000, spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
         tft.setTextColor(ILI9341_WHITE);
         break;
+#endif
       case MENU_CW_DECODER_ATC:
         if (cw_decoder_config.atc_enable)
         {
@@ -10909,14 +11005,16 @@ void encoders () {
       if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
       else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
+#if defined (T4)
     else if (Menu2 == MENU_CPU_SPEED)
     {
-      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 2500000;
+      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 3000000;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
-      else if (T4_CPU_FREQUENCY > 960000000) T4_CPU_FREQUENCY = 960000000;
+//      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
+      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
       set_arm_clock(T4_CPU_FREQUENCY);
     }
-
+#endif
 
     /*    else if (Menu2 == MENU_NR_VAD_THRESH)
       {
@@ -10951,6 +11049,15 @@ void displayClock()
       tft.printf((mesz==0)?"(CET)":"(CEST)");
     }
   */
+
+  Serial.print(hour10);
+  Serial.print(hour1);
+  Serial.print(" : ");
+  Serial.print(minute10);
+  Serial.print(minute1);
+  Serial.print(" : ");
+  Serial.print(second10);
+  Serial.println(second1);
 
   if (!DISPLAY_ANALOG_CLOCK)
   {
@@ -15337,12 +15444,18 @@ void decodeCP56() {
   dec2out(year) ;
   uartBlank() ;
   showDayOfWeek(dayOfWeek);
-  setTime (hours, minutes, seconds, dayOfMonth, month, year);
+//  setTime (hours, minutes, seconds, dayOfMonth, month, year);
 
 //  uartBlank() ;
 //  termPutChar('>') ;
 //  termPutChar('>') ;
  //termSetColor(ILI9341_GREEN);
+  // free audio buffers
+    AudioNoInterrupts();
+    Q_in_L.clear();
+    Q_in_R.clear();
+    n_clear ++; // just for debugging to check how often this occurs 
+    AudioInterrupts();
   termSetColor(ILI9341_MAGENTA);
   }
 
@@ -15807,3 +15920,52 @@ void dcfSample(float signal){
   return 0 ;
   }
 //**************************************************************************************************************
+
+#if defined(T4)
+void initTempMon(uint16_t freq, uint32_t lowAlarmTemp, uint32_t highAlarmTemp, uint32_t panicAlarmTemp)
+{
+  
+  uint32_t calibrationData;
+  uint32_t roomCount;
+  uint32_t mode1;
+      
+  //first power on the temperature sensor - no register change
+  TEMPMON_TEMPSENSE0 &= ~TMS0_POWER_DOWN_MASK;
+
+  //Serial.printf("CCM_ANALOG_PLL_USB1=%08lX\n", n);
+
+  //set monitoring frequency - no register change
+  TEMPMON_TEMPSENSE1 = TMS1_MEASURE_FREQ(freq);
+  
+  //read calibration data - this works
+  calibrationData = HW_OCOTP_ANA1;
+    s_hotTemp = (uint32_t)(calibrationData & 0xFFU) >> 0x00U;
+    s_hotCount = (uint32_t)(calibrationData & 0xFFF00U) >> 0X08U;
+    roomCount = (uint32_t)(calibrationData & 0xFFF00000U) >> 0x14U;
+    s_hotT_ROOM = s_hotTemp - TEMPMON_ROOMTEMP;
+    s_roomC_hotC = roomCount - s_hotCount;
+
+    //time to set alarm temperatures
+//    tSetTempAlarm(highAlarmTemp, kTEMPMON_HighAlarmMode);
+//    tSetTempAlarm(panicAlarmTemp, kTEMPMON_PanicAlarmMode);
+//    tSetTempAlarm(lowAlarmTemp, kTEMPMON_LowAlarmMode);
+}
+
+float tGetTemp()
+{
+    uint32_t nmeas;
+    float tmeas;
+
+    while (!(TEMPMON_TEMPSENSE0 & 0x4U))
+    {
+    }
+
+    /* ready to read temperature code value */
+    nmeas = (TEMPMON_TEMPSENSE0 & 0xFFF00U) >> 8U;
+    /* Calculate temperature */
+    tmeas = s_hotTemp - (float)((nmeas - s_hotCount) * s_hotT_ROOM / s_roomC_hotC);
+
+    return tmeas;
+}
+
+#endif
