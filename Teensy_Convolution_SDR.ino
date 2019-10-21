@@ -3706,7 +3706,6 @@ void loop() {
 #endif
 
 #ifdef WFM_KA7OEI
-      Serial.print("atan2_approx = "); Serial.println(atan2_approx);
       if(atan2_approx)
       {
         FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
