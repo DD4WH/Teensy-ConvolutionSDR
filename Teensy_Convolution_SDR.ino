@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_15
+   (c) Frank DD4WH 2019_10_19
 
    "TEENSY CONVOLUTION SDR"
 
@@ -830,7 +830,7 @@ long calibration_constant = 0;
 unsigned long long hilfsf = 1000000000;
 
 uint8_t save_energy = 0;
-uint8_t atan2_approx = 1;
+uint8_t atan2_approx = 0;
 
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
@@ -1424,7 +1424,7 @@ float32_t midbass = 0.0;
 float32_t mid = 0.0;
 float32_t midtreble = -0.1;
 float32_t treble = - 0.4;
-float32_t stereo_factor = 0.0;
+float32_t stereo_factor = 100.0;
 uint8_t half_clip = 0;
 uint8_t quarter_clip = 0;
 uint8_t auto_codec_gain = 1;
@@ -1450,9 +1450,41 @@ float32_t alt_WFM_audio = 0.0;
 float32_t WFM_phase = 0.1;
 float32_t WFM_lastphase = 0.1;
 float32_t WFM_dphase = 0.1;
+const uint32_t WFM_BLOCKS = 6;
+//const uint32_t WFM_BLOCKS = 2;
+#define FMPLL_RANGE 15000.0  //maximum deviation limit of PLL
+#define VOICE_BANDWIDTH 3000.0
 
+#define FMPLL_BW VOICE_BANDWIDTH  //natural frequency ~loop bandwidth
+#define FMPLL_ZETA 0.707       //PLL Loop damping factor
 
-const uint8_t WFM_BLOCKS = 6;
+#define FMDC_ALPHA 0.001  //time constant for DC removal filter
+#define m_PilotPhaseAdjust  0.0
+float32_t  m_PilotNcoPhase = 0.0;
+float32_t  m_PilotNcoFreq = 0.0;
+//float32_t  m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+//float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+#define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000) //to normalize Hz to radians
+
+float32_t WFM_Sin = 0.0;
+float32_t WFM_Cos = 1.0;
+float32_t WFM_tmp_re = 0.0;
+float32_t WFM_tmp_im = 0.0;
+float32_t WFM_phzerror = 1.0;
+
+  //initialize the PLL
+float32_t  m_PilotNcoLLimit = -FMPLL_RANGE * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
+float32_t  m_PilotNcoHLimit = FMPLL_RANGE * WFM_SAMPLE_RATE_NORM;
+float32_t  m_PilotPllAlpha = 2.0 * FMPLL_ZETA * FMPLL_BW * WFM_SAMPLE_RATE_NORM; // 
+float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * FMPLL_ZETA * FMPLL_ZETA);
+float32_t  m_PhaseErrorMagAve = 0.0;
+float32_t  one_m_m_PhaseErrorMagAlpha = 0.0;
+float32_t  m_PhaseErrorMagAlpha = 1.0;
+
 // T = 1.0/sample_rate;
 // alpha = 1 - e^(-T/tau);
 // tau = 50µsec in Europe --> alpha = 0.099
@@ -1493,32 +1525,40 @@ uint32_t N_BLOCKS = N_B;
 uint32_t BUF_N_DF = BUFFER_SIZE * N_BLOCKS / (uint32_t)DF;
 // decimation by 8 --> 32 / 8 = 4
 const uint32_t N_DEC_B = N_B / (uint32_t)DF;
-float32_t float_buffer_L [BUFFER_SIZE * N_B];
-float32_t float_buffer_R [BUFFER_SIZE * N_B];
+float32_t float_buffer_L [BUFFER_SIZE * N_B] DMAMEM;
+float32_t float_buffer_R [BUFFER_SIZE * N_B] DMAMEM;
 
-float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) ;
-float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B] ;
-float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B] ;
+float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
+float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B] DMAMEM;
+float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B] DMAMEM;
 uint8_t flagg = 0;
 // complex iFFT with the new library CMSIS V4.5
 const static arm_cfft_instance_f32 *iS;
-float32_t iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) ;
+float32_t iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
 
 // FFT instance for direct calculation of the filter mask
 // from the impulse response of the FIR - the coefficients
 const static arm_cfft_instance_f32 *maskS;
-float32_t FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4))) ;
+float32_t FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
 
 const static arm_cfft_instance_f32 *spec_FFT;
-float32_t buffer_spec_FFT [512] __attribute__ ((aligned (4))) ;
+float32_t buffer_spec_FFT [512] __attribute__ ((aligned (4))) DMAMEM;
 
 const static arm_cfft_instance_f32 *NR_FFT;
-float32_t NR_FFT_buffer [512] __attribute__ ((aligned (4))) ;
+float32_t NR_FFT_buffer [512] __attribute__ ((aligned (4))) DMAMEM;
 
 const static arm_cfft_instance_f32 *NR_iFFT;
 // we dont need this any more, we reuse the NR_FFT_buffer and save 2kbytes ;-)
 //float32_t NR_iFFT_buffer [512] __attribute__ ((aligned (4)));
 
+const uint16_t UKW_FIR_HILBERT_num_taps = 8;
+arm_fir_instance_f32 UKW_FIR_HILBERT_I;
+float32_t UKW_FIR_HILBERT_I_Coef[UKW_FIR_HILBERT_num_taps];
+float32_t UKW_FIR_HILBERT_I_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1]; // numTaps+blockSize-1
+arm_fir_instance_f32 UKW_FIR_HILBERT_Q;
+float32_t UKW_FIR_HILBERT_Q_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1];
+float32_t UKW_FIR_HILBERT_Q_Coef[UKW_FIR_HILBERT_num_taps];
+ 
 //#define USE_WFM_FILTER
 #ifdef USE_WFM_FILTER
 // FIR filters for FM reception on VHF
@@ -1529,7 +1569,6 @@ arm_fir_instance_f32 FIR_WFM_I;
 float32_t FIR_WFM_I_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1]; // numTaps+blockSize-1
 arm_fir_instance_f32 FIR_WFM_Q;
 float32_t FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1];
-
 
 /*const float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
@@ -1851,8 +1890,8 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_RTTY_DECODER_STOPBIT         58
 #if defined (T4)
 #define MENU_CPU_SPEED                    59
-#define MENU_USE_ATAN2                    60
-#define MENU_POWER_SAVE                   61
+#define MENU_POWER_SAVE                   60
+#define MENU_USE_ATAN2                    61
 #define MENU_DIGIMODE                     62
 #define last_menu2                        62
 #else
@@ -2833,7 +2872,7 @@ void flexRamInfo(void)
 #endif
 }
 */
-PROGMEM
+//PROGMEM
 void setup() {
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
@@ -3149,7 +3188,8 @@ void setup() {
   }
   // IIR lowpass filter for wideband FM at 15k
   //  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)192000, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)234375, 0); // 1st stage
+//  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)234375, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)256000, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3157,7 +3197,8 @@ void setup() {
     biquad_WFM_coeffs[i + 10] = coefficient_set[i];
   }
   //  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)192000, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)234375, 0); // 1st stage
+//  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)234375, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)256000, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3167,7 +3208,7 @@ void setup() {
 
   // high Q IIR bandpass filter for wideband FM at 19k
   //  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)192000, 2); // 1st stage
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)234375, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
   //   set_IIR_coeffs ((float32_t)19000, 10.0, (float32_t)192000, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3176,7 +3217,8 @@ void setup() {
 
   // high Q IIR bandpass filter for wideband FM at 38k
   //  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)192000, 2); // 1st stage
-  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)234375, 2); // 1st stage
+//  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)234375, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
   //   set_IIR_coeffs ((float32_t)38000, 10.0, (float32_t)192000, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3248,6 +3290,20 @@ void setup() {
     while(1);
   }
 
+  set_dec_int_filters(); // here, the correct bandwidths are calculated and set accordingly
+
+
+  /****************************************************************************************
+     Coefficients for SAM sideband selection Hilbert filters
+  ****************************************************************************************/
+  // calculate Hilbert filter pair for splitting of UKW MPX signal
+  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)256000);
+
+  // Hilbert filters to generate PLL for 19kHz pilote tone
+  arm_fir_init_f32 (&UKW_FIR_HILBERT_I, UKW_FIR_HILBERT_num_taps, UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_I_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
+  arm_fir_init_f32 (&UKW_FIR_HILBERT_Q, UKW_FIR_HILBERT_num_taps, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_Q_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
+
+
 #ifdef USE_WFM_FILTER
   arm_fir_init_f32 (&FIR_WFM_I, FIR_WFM_num_taps, FIR_WFM_Coef, FIR_WFM_I_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
   arm_fir_init_f32 (&FIR_WFM_Q, FIR_WFM_num_taps, FIR_WFM_Coef, FIR_WFM_Q_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
@@ -3255,8 +3311,6 @@ void setup() {
   //    arm_fir_init_f32 (&FIR_WFM_Q, FIR_WFM_num_taps, FIR_WFM_Coef_Q, FIR_WFM_Q_state, (uint32_t)(WFM_BLOCKS * BUFFER_SIZE));
 
 #endif
-
-  set_dec_int_filters(); // here, the correct bandwidths are calculated and set accordingly
 
   /****************************************************************************************
      Coefficients for SAM sideband selection Hilbert filters
@@ -3439,7 +3493,7 @@ void loop() {
   // WIDE FM BROADCAST RECEPTION
   if (bands[current_band].mode == DEMOD_WFM)
   {
-    if (Q_in_L.available() > 6 && Q_in_R.available() > 6 && Menu_pointer != MENU_PLAYER)
+    if (Q_in_L.available() > WFM_BLOCKS && Q_in_R.available() > WFM_BLOCKS && Menu_pointer != MENU_PLAYER)
     {
       usec = 0;
       // get audio samples from the audio  buffers and convert them to float
@@ -3556,8 +3610,8 @@ void loop() {
 #if defined(HARDWARE_DD4WH_T4)
 //      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
 //      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
-      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
-      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 
       /*************************************************************************************************************************************
@@ -3652,6 +3706,7 @@ void loop() {
 #endif
 
 #ifdef WFM_KA7OEI
+      Serial.print("atan2_approx = "); Serial.println(atan2_approx);
       if(atan2_approx)
       {
         FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
@@ -3670,10 +3725,11 @@ void loop() {
       for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
           // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
-        if(atan2_approx)
+        if(atan2_approx == 1)
         {
           FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
+//          Serial.println("atan2 funktioniert");
         }
         else
         {
@@ -3693,7 +3749,7 @@ void loop() {
 
 #endif // KA7OEI
 
-//#define NEW_STEREO_PATH
+#define NEW_STEREO_PATH
 
       if (stereo_factor > 0.1f)
       {
@@ -3702,36 +3758,110 @@ void loop() {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //    1   generate complex signal pair of I and Q
-
       // Hilbert BP 10 - 75kHz 
-
 //    2   BPF 19kHz for pilote tone in both, I & Q
-
 //    3   PLL for pilot tone in order to determine the phase of the pilot tone 
-
 //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
-
  //   5   lowpass filter 15kHz
-
  //   6   notch filter 19kHz to eliminate pilot tone from audio
 
-
+      
 //    1   generate complex signal pair of I and Q
-
-
+      // demodulated signal is in FFT_buffer
+        arm_fir_f32(&UKW_FIR_HILBERT_I, FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);      
+        arm_fir_f32(&UKW_FIR_HILBERT_Q, FFT_buffer, UKW_buffer_2, BUFFER_SIZE * WFM_BLOCKS);      
 
 //    2   BPF 19kHz for pilote tone in both, I & Q
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_19k, UKW_buffer_1, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_38k, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS);
 
+/*        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+        { // DC removal filter -----------------------
+          w = FFT_buffer[i] + wold * 0.9999f; // yes, I want a superb bass response ;-)
+          FFT_buffer[i] = w - wold;
+          wold = w;
+        }
+*/
+if(1)
+{
 //    3   PLL for pilot tone in order to determine the phase of the pilot tone 
+      for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+      {
+//        WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
+//        WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+        WFM_Sin = sin(m_PilotNcoPhase);
+        WFM_Cos = cos(m_PilotNcoPhase);
+        WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
+        WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
+        if(atan2_approx)
+        {
+          WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+        }
+        else 
+        {
+          WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
+        }
+        m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
+        if(m_PilotNcoFreq > m_PilotNcoHLimit)
+        {
+          m_PilotNcoFreq = m_PilotNcoHLimit;
+        }
+        else if (m_PilotNcoFreq < m_PilotNcoLLimit)
+        {
+          m_PilotNcoFreq = m_PilotNcoLLimit;
+        }
+        m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
+        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
+//##        m_PhaseErrorMagAve = (one_m_m_PhaseErrorMagAlpha * m_PhaseErrorMagAve + m_PhaseErrorMagAlpha * phzerror * phzerror);
+
+        //#LP filter the NCO frequency term to get DC offset value
+        //#m_FreqErrorDC = (1.0-m_DcAlpha)*m_FreqErrorDC + m_DcAlpha*m_PilotNcoFreq;
+        //#subtract out DC term to get FM audio
+        //#m_OutBuf[i] = (m_PilotNcoFreq-m_FreqErrorDC)*m_OutGain;
 
 //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+        float32_t LminusR = 2.0 * FFT_buffer[i] * sin((m_PilotNcoPhase + 1.0) * 2.0);
+//        float32_t LminusR = 2.0 * FFT_buffer[i] * arm_sin_f32(m_PilotNcoPhase * 2.0);
+        float_buffer_R[i] = FFT_buffer[i] + LminusR;
+        iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+//        Serial.println((float32_t)phzerror * 1000);
+      }
+        // wrap round 2PI, modulus
+        while (m_PilotNcoPhase >= TPI)
+        {
+          m_PilotNcoPhase -= TPI;
+//          Serial.println(" wrap -TWO PI");
+        }
+        while (m_PilotNcoPhase < 0.0)
+        {
+          m_PilotNcoPhase += TPI;
+//          Serial.println(" wrap +TWO PI");
+        }
+}
+else
+{
+  arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
+  arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
+}
+//  arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
+//  arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
 
- //   5   lowpass filter 15kHz
-
- //   6   notch filter 19kHz to eliminate pilot tone from audio
+//  arm_copy_f32(float_buffer_R, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);             
 
  
+ //   5   lowpass filter 15kHz & deemphasis
+        // Right channel: lowpass filter with 15kHz Fstop & deemphasis
+        rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+//        arm_copy_f32(UKW_buffer_1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+        // FFT_buffer --> RIGHT CHANNEL PERFECT AUDIO
 
+        // Left channel: lowpass filter with 15kHz Fstop & deemphasis
+        rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_L);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_R, FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+//        arm_copy_f32(float_buffer_R, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
+ //   6   notch filter 19kHz to eliminate pilot tone from audio
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #else
@@ -3854,6 +3984,7 @@ void loop() {
         Q_in_R.clear();
         n_clear ++; // just for debugging to check how often this occurs [about once in an hour of playing . . .]
         AudioInterrupts();
+        Serial.print(" n_clear = "); Serial.println(n_clear);
       }
 
       // it should be possible to do RDS decoding???
@@ -3889,10 +4020,10 @@ void loop() {
         Q_out_R.playBuffer(); // play it !
       }
 
-      WFM_spectrum_flag++;
       if (show_spectrum_flag)
       {
-        if (WFM_spectrum_flag == 2)
+      WFM_spectrum_flag++;
+      if (WFM_spectrum_flag == 2)
         {
           //            spectrum_zoom == SPECTRUM_ZOOM_1;
           zoom_display = 1;
@@ -3918,9 +4049,10 @@ void loop() {
 
       elapsed_micros_sum = elapsed_micros_sum + usec;
       elapsed_micros_idx_t++;
-
-//      if (elapsed_micros_idx_t > 1000)
-if(0)
+//      Serial.print("elapsed_micros_idx_t = ");
+//      Serial.println(elapsed_micros_idx_t);
+      if (elapsed_micros_idx_t > 1000)
+//if(0)
         //          if (five_sec.check() == 1)
       {
         tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
@@ -3944,15 +4076,15 @@ if(0)
           tft.print("100%");
         }
         //          tft.print (mean/29.0 * SR[SAMPLE_RATE].rate / AUDIO_SAMPLE_RATE_EXACT / WFM_BLOCKS);tft.print("%");
-        elapsed_micros_idx_t = 0;
+        elapsed_micros_idx_t = 1;
         elapsed_micros_sum = 0;
         //          Serial.print(" n_clear = "); Serial.println(n_clear);
         //          Serial.print ("1 - Alpha = "); Serial.println(onem_deemp_alpha);
         //          Serial.print ("Alpha = "); Serial.println(deemp_alpha);
 
-      }
-    }
-  }
+      } // if five_sec_check
+    } // end if Q_L.available
+  } // end if WFM
   /**************************************************************************************************************************************************
 
      longwave / mediumwave / shortwave starts here
@@ -5936,7 +6068,8 @@ if(0)
   /**********************************************************************************
       PRINT ROUTINE FOR AUDIO LIBRARY PROCESSOR AND MEMORY USAGE
    **********************************************************************************/
-  if (0) //(five_sec.check() == 1)
+if(0)
+//  if (five_sec.check() == 1)
   {
     Serial.print("Proc = ");
     Serial.print(AudioProcessorUsage());
@@ -5956,6 +6089,7 @@ if(0)
       /**********************************************************************************
           PRINT ELAPSED MICROSECONDS
        **********************************************************************************/
+//if(0)
       if (elapsed_micros_idx_t >  (50 * SR[SAMPLE_RATE].rate / 48000) )
       {
 #if defined (T4)
@@ -6034,6 +6168,7 @@ if(0)
         tft.setTextColor(ILI9341_WHITE);
       }
 
+//if(0)
   if (encoder_check.check() == 1)
   {
     encoders();
@@ -6674,8 +6809,8 @@ void calc_cplx_FIR_coeffs (float * coeffs_I, float * coeffs_Q, int numCoeffs, fl
           break;
       }
     //shift lowpass filter coefficients in frequency by (hicut+lowcut)/2 to form bandpass filter anywhere in range
-    coeffs_I[i]  =  z * cosf(nFs * x);
-    coeffs_Q[i] = z * sinf(nFs * x);
+    coeffs_I[i]   = z * cosf(nFs * x);
+    coeffs_Q[i]   = z * sinf(nFs * x);
   }
 }
 
@@ -15969,3 +16104,67 @@ float tGetTemp()
 }
 
 #endif
+
+// copied from https://www.dsprelated.com/showarticle/1052.php
+// Polynomial approximating arctangenet on the range -1,1.
+// Max error < 0.005 (or 0.29 degrees)
+float ApproxAtan(float z)
+{
+    const float n1 = 0.97239411f;
+    const float n2 = -0.19194795f;
+    return (n1 + n2 * z * z) * z;
+}
+
+#define PI_2 (PI / 2)
+
+float ApproxAtan2(float y, float x)
+{
+    if (x != 0.0f)
+    {
+        if (fabsf(x) > fabsf(y))
+        {
+            const float z = y / x;
+            if (x > 0.0)
+            {
+                // atan2(y,x) = atan(y/x) if x > 0
+                return ApproxAtan(z);
+            }
+            else if (y >= 0.0)
+            {
+                // atan2(y,x) = atan(y/x) + PI if x < 0, y >= 0
+                return ApproxAtan(z) + PI;
+            }
+            else
+            {
+                // atan2(y,x) = atan(y/x) - PI if x < 0, y < 0
+                return ApproxAtan(z) - PI;
+            }
+        }
+        else // Use property atan(y/x) = PI/2 - atan(x/y) if |y/x| > 1.
+        {
+            const float z = x / y;
+            if (y > 0.0)
+            {
+                // atan2(y,x) = PI/2 - atan(x/y) if |y/x| > 1, y > 0
+                return -ApproxAtan(z) + PI_2;
+            }
+            else
+            {
+                // atan2(y,x) = -PI/2 - atan(x/y) if |y/x| > 1, y < 0
+                return -ApproxAtan(z) - PI_2;
+            }
+        }
+    }
+    else
+    {
+        if (y > 0.0f) // x = 0, y > 0
+        {
+            return PI_2;
+        }
+        else if (y < 0.0f) // x = 0, y < 0
+        {
+            return -PI_2;
+        }
+    }
+    return 0.0f; // x,y = 0. Could return NaN instead.
+}
