@@ -1486,13 +1486,30 @@ float32_t  m_PhaseErrorMagAve = 0.0;
 float32_t  one_m_m_PhaseErrorMagAlpha = 0.0;
 float32_t  m_PhaseErrorMagAlpha = 1.0;
 
+#define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
+const uint32_t WFM_decimation_taps = 20;
+// decimation-by-4 after FM PLL
+arm_fir_decimate_instance_f32 WFM_decimation_R;
+float32_t WFM_decimation_R_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
+arm_fir_decimate_instance_f32 WFM_decimation_L;
+float32_t WFM_decimation_L_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
+float32_t WFM_decimation_coeffs[WFM_decimation_taps];
+
+// interpolation-by-4 after filtering
+// pState is of length (numTaps/L)+blockSize-1 words where blockSize is the number of input samples processed by each call
+arm_fir_interpolate_instance_f32 WFM_interpolation_R;
+float32_t WFM_interpolation_R_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
+arm_fir_interpolate_instance_f32 WFM_interpolation_L;
+float32_t WFM_interpolation_L_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
+float32_t WFM_interpolation_coeffs[WFM_decimation_taps];
+
 // T = 1.0/sample_rate;
 // alpha = 1 - e^(-T/tau);
 // tau = 50µsec in Europe --> alpha = 0.099
 // tau = 75µsec in the US -->
 //
 //FIXME
-float32_t dt = 1.0 / 256000.0;
+float32_t dt = 1.0 / (256000.0 / 4);
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
 //float32_t deemp_alpha = 0.099;
@@ -3190,7 +3207,7 @@ void setup() {
   // IIR lowpass filter for wideband FM at 15k
   //  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)192000, 0); // 1st stage
 //  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)234375, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)256000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)64000, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3199,7 +3216,7 @@ void setup() {
   }
   //  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)192000, 0); // 1st stage
 //  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)234375, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)256000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)64000, 0); // 1st stage
   //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
@@ -3295,7 +3312,7 @@ void setup() {
 
 
   /****************************************************************************************
-     Coefficients for SAM sideband selection Hilbert filters
+     Coefficients for WFM Hilbert filters
   ****************************************************************************************/
   // calculate Hilbert filter pair for splitting of UKW MPX signal
   calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)256000);
@@ -3312,6 +3329,28 @@ void setup() {
   //    arm_fir_init_f32 (&FIR_WFM_Q, FIR_WFM_num_taps, FIR_WFM_Coef_Q, FIR_WFM_Q_state, (uint32_t)(WFM_BLOCKS * BUFFER_SIZE));
 
 #endif
+
+  calc_FIR_coeffs (WFM_decimation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, 256000);
+  if (arm_fir_decimate_init_f32(&WFM_decimation_R, WFM_decimation_taps, (uint32_t)4 , WFM_decimation_coeffs, WFM_decimation_R_state, BUFFER_SIZE * WFM_BLOCKS)) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+  if (arm_fir_decimate_init_f32(&WFM_decimation_L, WFM_decimation_taps, (uint32_t)4 , WFM_decimation_coeffs, WFM_decimation_L_state, BUFFER_SIZE * WFM_BLOCKS)) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+
+  calc_FIR_coeffs (WFM_interpolation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, 64000);
+  if (arm_fir_interpolate_init_f32(&WFM_interpolation_R, (uint8_t)4, WFM_decimation_taps, WFM_interpolation_coeffs, WFM_interpolation_R_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)4)) 
+  {
+    Serial.println("Init of interpolation failed");
+    while(1);
+  }
+  if (arm_fir_interpolate_init_f32(&WFM_interpolation_L, (uint8_t)4, WFM_decimation_taps, WFM_interpolation_coeffs, WFM_interpolation_L_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)4)) 
+  {
+    Serial.println("Init of interpolation failed");
+    while(1);
+  }
 
   /****************************************************************************************
      Coefficients for SAM sideband selection Hilbert filters
@@ -3861,22 +3900,33 @@ else
 
 //  arm_copy_f32(float_buffer_R, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);             
 
+    // F_CPU_ACTUAL == 600MHZ  
+    // 80.5% (atan2 and cos/sin) vs. 32.0% (ATAN_APPROX & ARM sin/cos) processor load for FM HIFI STEREO on the T4 before implementing decimation/interpolation
+    // 78.8% vs. 30.6% with decimation and interpolation
 
-    // TODO: decimate !!!
- 
+    // decimate-by-4 --> 64ksps
+      arm_fir_decimate_f32(&WFM_decimation_R, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+      arm_fir_decimate_f32(&WFM_decimation_L, iFFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
  //   5   lowpass filter 15kHz & deemphasis
         // Right channel: lowpass filter with 15kHz Fstop & deemphasis
-        rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
-        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-//        arm_copy_f32(UKW_buffer_1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-        // FFT_buffer --> RIGHT CHANNEL PERFECT AUDIO
+        rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES);
 
         // Left channel: lowpass filter with 15kHz Fstop & deemphasis
-        rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_L);
-        arm_biquad_cascade_df1_f32 (&biquad_WFM_R, FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-//        arm_copy_f32(float_buffer_R, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+        rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, WFM_DEC_SAMPLES, 64000, rawFM_old_L);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
 
  //   6   notch filter 19kHz to eliminate pilot tone from audio
+
+
+
+      // interpolate-by-4 to 256ksps before sending audio to DAC
+        arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
+        arm_fir_interpolate_f32(&WFM_interpolation_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+      // scaling after interpolation !
+        arm_scale_f32(float_buffer_L, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+        arm_scale_f32(iFFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #else
@@ -10534,7 +10584,7 @@ void set_samplerate ()
   {
     //          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
     //          bands[current_band].freq = (unsigned long long)(prec_help);
-    dt = 1.0 / (float32_t)SR[SAMPLE_RATE].rate;
+    dt = 1.0 / (float32_t)SR[SAMPLE_RATE].rate / 4;
     deemp_alpha = dt / (50e-6 + dt);
     onem_deemp_alpha = 1.0 - deemp_alpha;
     // IIR lowpass filter for wideband FM at 15k
