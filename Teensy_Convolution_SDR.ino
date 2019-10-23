@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_19
+   (c) Frank DD4WH 2019_10_23
 
    "TEENSY CONVOLUTION SDR"
 
@@ -1463,10 +1463,10 @@ const uint32_t WFM_BLOCKS = 6;
 float32_t  m_PilotNcoPhase = 0.0;
 float32_t  m_PilotNcoFreq = 0.0;
 //float32_t  m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
-float32_t UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
-float32_t UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
-float32_t UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
-float32_t UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t DMAMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
+float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
+float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
+float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 //float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000) //to normalize Hz to radians
 
@@ -1475,6 +1475,7 @@ float32_t WFM_Cos = 1.0;
 float32_t WFM_tmp_re = 0.0;
 float32_t WFM_tmp_im = 0.0;
 float32_t WFM_phzerror = 1.0;
+float32_t LminusR = 2.0;
 
   //initialize the PLL
 float32_t  m_PilotNcoLLimit = -FMPLL_RANGE * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
@@ -3708,7 +3709,7 @@ void loop() {
 #ifdef WFM_KA7OEI
       if(atan2_approx)
       {
-        FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+        FFT_buffer[0] = WFM_scaling_factor * ApproxAtan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
       }
       else
@@ -3726,7 +3727,7 @@ void loop() {
           // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
         if(atan2_approx == 1)
         {
-          FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+          FFT_buffer[i] = WFM_scaling_factor * ApproxAtan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 //          Serial.println("atan2 funktioniert");
         }
@@ -3786,10 +3787,17 @@ if(1)
 //    3   PLL for pilot tone in order to determine the phase of the pilot tone 
       for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
-//        WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
-//        WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
-        WFM_Sin = sin(m_PilotNcoPhase);
-        WFM_Cos = cos(m_PilotNcoPhase);
+        if(atan2_approx)
+        {
+          WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
+          WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+        }
+        else
+        {
+          WFM_Sin = sin(m_PilotNcoPhase);
+          WFM_Cos = cos(m_PilotNcoPhase);
+        }
+
         WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
         WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
         if(atan2_approx)
@@ -3798,7 +3806,7 @@ if(1)
         }
         else 
         {
-          WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
+          WFM_phzerror = -atan2(WFM_tmp_im, WFM_tmp_re);
         }
         m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
         if(m_PilotNcoFreq > m_PilotNcoHLimit)
@@ -3819,8 +3827,14 @@ if(1)
         //#m_OutBuf[i] = (m_PilotNcoFreq-m_FreqErrorDC)*m_OutGain;
 
 //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
-        float32_t LminusR = 2.0 * FFT_buffer[i] * sin((m_PilotNcoPhase + 1.0) * 2.0);
-//        float32_t LminusR = 2.0 * FFT_buffer[i] * arm_sin_f32(m_PilotNcoPhase * 2.0);
+        if(atan2_approx)
+        {
+          LminusR = 2.0 * FFT_buffer[i] * arm_sin_f32((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
+        }
+        else 
+        {
+          LminusR = 2.0 * FFT_buffer[i] * sin((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
+        }
         float_buffer_R[i] = FFT_buffer[i] + LminusR;
         iFFT_buffer[i] = FFT_buffer[i] - LminusR;
 //        Serial.println((float32_t)phzerror * 1000);
@@ -3847,6 +3861,8 @@ else
 
 //  arm_copy_f32(float_buffer_R, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);             
 
+
+    // TODO: decimate !!!
  
  //   5   lowpass filter 15kHz & deemphasis
         // Right channel: lowpass filter with 15kHz Fstop & deemphasis
@@ -10963,7 +10979,7 @@ void encoders () {
     {
       stereo_factor = stereo_factor + encoder3_change * 20.0 / 4.0;
       if (stereo_factor < 0.0) stereo_factor = 0.0;
-      else if (stereo_factor > 1000.0) stereo_factor = 1000.0;
+      else if (stereo_factor > 4000.0) stereo_factor = 4000.0;
     }
     else if (Menu2 == MENU_BASS)
     {
