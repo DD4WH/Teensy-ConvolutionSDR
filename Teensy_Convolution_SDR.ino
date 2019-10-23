@@ -2369,6 +2369,16 @@ float32_t biquad_WFM_38k_state [N_stages_biquad_WFM_38k * 4];
 float32_t biquad_WFM_38k_coeffs[5 * N_stages_biquad_WFM_38k] = {0, 0, 0, 0, 0};
 arm_biquad_casd_df1_inst_f32 biquad_WFM_38k;
 
+//biquad_WFM_notch_19k
+const uint32_t N_stages_biquad_WFM_notch_19k = 1;
+float32_t biquad_WFM_notch_19k_R_state [N_stages_biquad_WFM_notch_19k * 4];
+float32_t biquad_WFM_notch_19k_R_coeffs[5 * N_stages_biquad_WFM_notch_19k] = {0, 0, 0, 0, 0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_notch_19k_R;
+//biquad_WFM_notch_19k
+float32_t biquad_WFM_notch_19k_L_state [N_stages_biquad_WFM_notch_19k * 4];
+float32_t biquad_WFM_notch_19k_L_coeffs[5 * N_stages_biquad_WFM_notch_19k] = {0, 0, 0, 0, 0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_notch_19k_L;
+
 // 4-stage IIRs for Zoom FFT, one each for I & Q
 const uint32_t IIR_biquad_Zoom_FFT_N_stages = 4;
 float32_t IIR_biquad_Zoom_FFT_I_state [IIR_biquad_Zoom_FFT_N_stages * 4];
@@ -3192,6 +3202,22 @@ void setup() {
   }
   biquad_WFM_38k.pState = biquad_WFM_38k_state; // set pointer to the state variables
 
+  biquad_WFM_notch_19k_R.numStages = N_stages_biquad_WFM_notch_19k; // set number of stages
+  biquad_WFM_notch_19k_R.pCoeffs = biquad_WFM_notch_19k_R_coeffs; // set pointer to coefficients file
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_notch_19k; i++)
+  {
+    biquad_WFM_notch_19k_R_state[i] = 0.0; // set state variables to zero
+  }
+  biquad_WFM_notch_19k_R.pState = biquad_WFM_notch_19k_R_state; // set pointer to the state variables
+
+  biquad_WFM_notch_19k_L.numStages = N_stages_biquad_WFM_notch_19k; // set number of stages
+  biquad_WFM_notch_19k_L.pCoeffs = biquad_WFM_notch_19k_L_coeffs; // set pointer to coefficients file
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_notch_19k; i++)
+  {
+    biquad_WFM_notch_19k_L_state[i] = 0.0; // set state variables to zero
+  }
+  biquad_WFM_notch_19k_L.pState = biquad_WFM_notch_19k_L_state; // set pointer to the state variables
+
   /****************************************************************************************
      set filter bandwidth of IIR filter
   ****************************************************************************************/
@@ -3241,6 +3267,19 @@ void setup() {
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
+  }
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
   }
 
   set_tunestep();
@@ -3903,6 +3942,8 @@ else
     // F_CPU_ACTUAL == 600MHZ  
     // 80.5% (atan2 and cos/sin) vs. 32.0% (ATAN_APPROX & ARM sin/cos) processor load for FM HIFI STEREO on the T4 before implementing decimation/interpolation
     // 78.8% vs. 30.6% with decimation and interpolation
+    // plus 19kHz notch IIR filter
+    // 79.5% vs. 30.9% with notch filter 
 
     // decimate-by-4 --> 64ksps
       arm_fir_decimate_f32(&WFM_decimation_R, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
@@ -3918,15 +3959,15 @@ else
         arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
 
  //   6   notch filter 19kHz to eliminate pilot tone from audio
-
-
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
 
       // interpolate-by-4 to 256ksps before sending audio to DAC
-        arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
-        arm_fir_interpolate_f32(&WFM_interpolation_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+        arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
+        arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
       // scaling after interpolation !
-        arm_scale_f32(float_buffer_L, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-        arm_scale_f32(iFFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+        arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+        arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #else
@@ -8644,7 +8685,7 @@ void set_IIR_coeffs (float32_t f0, float32_t Q, float32_t sample_rate, uint8_t f
     ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*/
   // DSP Audio-EQ-cookbook for generating the coeffs of the filters on the fly
   // www.musicdsp.org/files/Audio-EQ-Cookbook.txt  [by Robert Bristow-Johnson]
-  //
+  // https://www.w3.org/2011/audio/audio-eq-cookbook.html
   // the ARM algorithm assumes the biquad form
   // y[n] = b0 * x[n] + b1 * x[n-1] + b2 * x[n-2] + a1 * y[n-1] + a2 * y[n-2]
   //
@@ -8683,7 +8724,12 @@ void set_IIR_coeffs (float32_t f0, float32_t Q, float32_t sample_rate, uint8_t f
   }
   else if (filter_type == 3) // notch
   {
-
+    /* b0 */ coefficient_set[0] =  1.0;
+    /* b1 */ coefficient_set[1] =  - 2.0 * cosW0;
+    /* b2 */ coefficient_set[2] =  1.0;
+    //     a0 =   1 + alpha
+    /* a1 */ coefficient_set[3] =  2.0 * cosW0 * scale; // negated
+    /* a2 */ coefficient_set[4] =  alpha - 1.0; // negated
   }
 
 }
