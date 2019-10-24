@@ -246,6 +246,10 @@ uint32_t T4_CPU_FREQUENCY  =  600000000;
 #include <si5351.h>
 #include <Encoder.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
 #if defined(HARDWARE_DD4WH_T4)
 #include <ILI9341_t3n.h>
 #include <ili9341_t3n_font_Arial.h>
@@ -1074,10 +1078,10 @@ int n_R;
 long int n_clear;
 //float32_t notch_amp[1024];
 //float32_t FFT_magn[4096];
-float32_t FFT_spec[256];
-float32_t FFT_spec_old[256];
-int16_t pixelnew[256];
-int16_t pixelold[256];
+float32_t DMAMEM FFT_spec[256];
+float32_t DMAMEM FFT_spec_old[256];
+int16_t DMAMEM pixelnew[256];
+int16_t DMAMEM pixelold[256];
 float32_t LPF_spectrum = 0.82;
 float32_t spectrum_display_scale = 50.0; // 30.0
 uint8_t show_spectrum_flag = 1;
@@ -1450,7 +1454,7 @@ float32_t alt_WFM_audio = 0.0;
 float32_t WFM_phase = 0.1;
 float32_t WFM_lastphase = 0.1;
 float32_t WFM_dphase = 0.1;
-const uint32_t WFM_BLOCKS = 6;
+const uint32_t WFM_BLOCKS = 8;
 //const uint32_t WFM_BLOCKS = 2;
 #define FMPLL_RANGE 15000.0  //maximum deviation limit of PLL
 #define VOICE_BANDWIDTH 3000.0
@@ -1469,6 +1473,8 @@ float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 //float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000) //to normalize Hz to radians
+
+#define decimate_WFM 1
 
 float32_t WFM_Sin = 0.0;
 float32_t WFM_Cos = 1.0;
@@ -1490,18 +1496,18 @@ float32_t  m_PhaseErrorMagAlpha = 1.0;
 const uint32_t WFM_decimation_taps = 20;
 // decimation-by-4 after FM PLL
 arm_fir_decimate_instance_f32 WFM_decimation_R;
-float32_t WFM_decimation_R_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
+float32_t DMAMEM WFM_decimation_R_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
 arm_fir_decimate_instance_f32 WFM_decimation_L;
-float32_t WFM_decimation_L_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
-float32_t WFM_decimation_coeffs[WFM_decimation_taps];
+float32_t DMAMEM WFM_decimation_L_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
+float32_t DMAMEM WFM_decimation_coeffs[WFM_decimation_taps];
 
 // interpolation-by-4 after filtering
 // pState is of length (numTaps/L)+blockSize-1 words where blockSize is the number of input samples processed by each call
 arm_fir_interpolate_instance_f32 WFM_interpolation_R;
-float32_t WFM_interpolation_R_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
+float32_t DMAMEM WFM_interpolation_R_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
 arm_fir_interpolate_instance_f32 WFM_interpolation_L;
-float32_t WFM_interpolation_L_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
-float32_t WFM_interpolation_coeffs[WFM_decimation_taps];
+float32_t DMAMEM WFM_interpolation_L_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
+float32_t DMAMEM WFM_interpolation_coeffs[WFM_decimation_taps];
 
 // T = 1.0/sample_rate;
 // alpha = 1 - e^(-T/tau);
@@ -1524,8 +1530,8 @@ uint16_t autotune_counter = 0;
 
 //const uint32_t FFT_L = 1024; // needs 89% of the memory !
 const uint32_t FFT_L = 512; // needs 60% of the memory
-float32_t FIR_Coef_I[(FFT_L / 2) + 1];
-float32_t FIR_Coef_Q[(FFT_L / 2) + 1];
+float32_t DMAMEM FIR_Coef_I[(FFT_L / 2) + 1];
+float32_t DMAMEM FIR_Coef_Q[(FFT_L / 2) + 1];
 #define MAX_NUMCOEF (FFT_L / 2) + 1
 #define TPI           6.28318530717959f
 #define PIH           1.57079632679490f
@@ -1543,27 +1549,27 @@ uint32_t N_BLOCKS = N_B;
 uint32_t BUF_N_DF = BUFFER_SIZE * N_BLOCKS / (uint32_t)DF;
 // decimation by 8 --> 32 / 8 = 4
 const uint32_t N_DEC_B = N_B / (uint32_t)DF;
-float32_t float_buffer_L [BUFFER_SIZE * N_B] DMAMEM;
-float32_t float_buffer_R [BUFFER_SIZE * N_B] DMAMEM;
+float32_t DMAMEM float_buffer_L [BUFFER_SIZE * N_B];
+float32_t DMAMEM float_buffer_R [BUFFER_SIZE * N_B];
 
-float32_t FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
-float32_t last_sample_buffer_L [BUFFER_SIZE * N_DEC_B] DMAMEM;
-float32_t last_sample_buffer_R [BUFFER_SIZE * N_DEC_B] DMAMEM;
+float32_t DMAMEM FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
+float32_t DMAMEM last_sample_buffer_L [BUFFER_SIZE * N_DEC_B];
+float32_t DMAMEM last_sample_buffer_R [BUFFER_SIZE * N_DEC_B];
 uint8_t flagg = 0;
 // complex iFFT with the new library CMSIS V4.5
 const static arm_cfft_instance_f32 *iS;
-float32_t iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
+float32_t DMAMEM iFFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
 
 // FFT instance for direct calculation of the filter mask
 // from the impulse response of the FIR - the coefficients
 const static arm_cfft_instance_f32 *maskS;
-float32_t FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4))) DMAMEM;
+float32_t DMAMEM FIR_filter_mask [FFT_L * 2] __attribute__ ((aligned (4)));
 
 const static arm_cfft_instance_f32 *spec_FFT;
-float32_t buffer_spec_FFT [512] __attribute__ ((aligned (4))) DMAMEM;
+float32_t DMAMEM buffer_spec_FFT [512] __attribute__ ((aligned (4)));
 
 const static arm_cfft_instance_f32 *NR_FFT;
-float32_t NR_FFT_buffer [512] __attribute__ ((aligned (4))) DMAMEM;
+float32_t DMAMEM NR_FFT_buffer [512] __attribute__ ((aligned (4)));
 
 const static arm_cfft_instance_f32 *NR_iFFT;
 // we dont need this any more, we reuse the NR_FFT_buffer and save 2kbytes ;-)
@@ -1571,11 +1577,11 @@ const static arm_cfft_instance_f32 *NR_iFFT;
 
 const uint16_t UKW_FIR_HILBERT_num_taps = 8;
 arm_fir_instance_f32 UKW_FIR_HILBERT_I;
-float32_t UKW_FIR_HILBERT_I_Coef[UKW_FIR_HILBERT_num_taps];
-float32_t UKW_FIR_HILBERT_I_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1]; // numTaps+blockSize-1
+float32_t DMAMEM UKW_FIR_HILBERT_I_Coef[UKW_FIR_HILBERT_num_taps];
+float32_t DMAMEM UKW_FIR_HILBERT_I_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1]; // numTaps+blockSize-1
 arm_fir_instance_f32 UKW_FIR_HILBERT_Q;
-float32_t UKW_FIR_HILBERT_Q_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1];
-float32_t UKW_FIR_HILBERT_Q_Coef[UKW_FIR_HILBERT_num_taps];
+float32_t DMAMEM UKW_FIR_HILBERT_Q_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1];
+float32_t DMAMEM UKW_FIR_HILBERT_Q_Coef[UKW_FIR_HILBERT_num_taps];
  
 //#define USE_WFM_FILTER
 #ifdef USE_WFM_FILTER
@@ -1584,9 +1590,9 @@ float32_t UKW_FIR_HILBERT_Q_Coef[UKW_FIR_HILBERT_num_taps];
 //const uint16_t FIR_WFM_num_taps = 24;
 const uint16_t FIR_WFM_num_taps = 36;
 arm_fir_instance_f32 FIR_WFM_I;
-float32_t FIR_WFM_I_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1]; // numTaps+blockSize-1
+float32_t DMAMEM FIR_WFM_I_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1]; // numTaps+blockSize-1
 arm_fir_instance_f32 FIR_WFM_Q;
-float32_t FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1];
+float32_t DMAMEM FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 1];
 
 /*const float32_t FIR_WFM_Coef[] =
   { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
@@ -1660,16 +1666,16 @@ const uint16_t n_dec2_taps = (1 + (uint16_t) (n_att / (22.0 * (n_fstop2 - n_fpas
 // decimation with FIR lowpass
 // pState points to a state array of size numTaps + blockSize - 1
 arm_fir_decimate_instance_f32 FIR_dec1_I;
-float32_t FIR_dec1_I_state [n_dec1_taps + BUFFER_SIZE * N_B - 1]; //
+float32_t DMAMEM FIR_dec1_I_state [n_dec1_taps + BUFFER_SIZE * N_B - 1]; //
 arm_fir_decimate_instance_f32 FIR_dec1_Q;
-float32_t FIR_dec1_Q_state [n_dec1_taps + BUFFER_SIZE * N_B - 1];
-float32_t FIR_dec1_coeffs[n_dec1_taps];
+float32_t DMAMEM FIR_dec1_Q_state [n_dec1_taps + BUFFER_SIZE * N_B - 1];
+float32_t DMAMEM FIR_dec1_coeffs[n_dec1_taps];
 
 arm_fir_decimate_instance_f32 FIR_dec2_I;
-float32_t FIR_dec2_I_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+float32_t DMAMEM FIR_dec2_I_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
 arm_fir_decimate_instance_f32 FIR_dec2_Q;
-float32_t FIR_dec2_Q_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
-float32_t FIR_dec2_coeffs[n_dec2_taps];
+float32_t DMAMEM FIR_dec2_Q_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+float32_t DMAMEM FIR_dec2_coeffs[n_dec2_taps];
 
 //interpolation filters have almost the same no. of taps
 // but have not been programmed to be designed dynamically, because num_Taps has to be a multiple integer of interpolation factor L
@@ -1678,20 +1684,20 @@ float32_t FIR_dec2_coeffs[n_dec2_taps];
 arm_fir_interpolate_instance_f32 FIR_int1_I;
 //float32_t FIR_int1_I_state [(16 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 //float32_t FIR_int1_I_state [(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
-float32_t FIR_int1_I_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
+float32_t DMAMEM FIR_int1_I_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 arm_fir_interpolate_instance_f32 FIR_int1_Q;
 //float32_t FIR_int1_Q_state [(16 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 //float32_t FIR_int1_Q_state [(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
-float32_t FIR_int1_Q_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
-float32_t FIR_int1_coeffs[48];
+float32_t DMAMEM FIR_int1_Q_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
+float32_t DMAMEM FIR_int1_coeffs[48];
 
 arm_fir_interpolate_instance_f32 FIR_int2_I;
 //float32_t FIR_int2_I_state [(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
-float32_t FIR_int2_I_state [8 + 511]; // (32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
+float32_t DMAMEM FIR_int2_I_state [8 + 511]; // (32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
 arm_fir_interpolate_instance_f32 FIR_int2_Q;
 //float32_t FIR_int2_Q_state [(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
-float32_t FIR_int2_Q_state [8 + 511]; //(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
-float32_t FIR_int2_coeffs[32];
+float32_t DMAMEM FIR_int2_Q_state [8 + 511]; //(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
+float32_t DMAMEM FIR_int2_coeffs[32];
 
 //////////////////////////////////////
 // constants for display
@@ -2233,8 +2239,8 @@ float32_t ANR_lincr =    1.0;                      // lincr
 float32_t ANR_ldecr =    3.0;                     // ldecr
 int ANR_mask = ANR_dline_size - 1;
 int ANR_in_idx = 0;
-float32_t ANR_d [ANR_DLINE_SIZE];
-float32_t ANR_w [ANR_DLINE_SIZE];
+float32_t DMAMEM ANR_d [ANR_DLINE_SIZE];
+float32_t DMAMEM ANR_w [ANR_DLINE_SIZE];
 uint8_t ANR_on = 0;
 uint8_t ANR_notch = 0;
 
@@ -2243,9 +2249,9 @@ uint8_t ANR_notch = 0;
 float32_t   LMS_errsig1[256 + 10];
 arm_lms_norm_instance_f32  LMS_Norm_instance;
 arm_lms_instance_f32      LMS_instance;
-float32_t                 LMS_StateF32[96 + 256];
-float32_t                 LMS_NormCoeff_f32[96 + 256];
-float32_t                 LMS_nr_delay[512 + 256];
+float32_t                 DMAMEM LMS_StateF32[96 + 256];
+float32_t                 DMAMEM LMS_NormCoeff_f32[96 + 256];
+float32_t                 DMAMEM LMS_nr_delay[512 + 256];
 int                       LMS_nr_strength = 5;
 
 // spectral weighting noise reduction
@@ -2278,35 +2284,35 @@ int8_t NR_first_block = 1;
 uint32_t NR_X_pointer = 0;
 uint32_t NR_E_pointer = 0;
 float32_t NR_T;
-float32_t NR_output_audio_buffer [NR_FFT_L];
-float32_t NR_last_iFFT_result [NR_FFT_L / 2];
-float32_t NR_last_sample_buffer_L [NR_FFT_L / 2];
-float32_t NR_last_sample_buffer_R [NR_FFT_L / 2];
-float32_t NR_X[NR_FFT_L / 2][3]; // magnitudes (fabs) of the last four values of FFT results for 128 frequency bins
-float32_t NR_E[NR_FFT_L / 2][NR_N_frames]; // averaged (over the last four values) X values for the last 20 FFT frames
-float32_t NR_M[NR_FFT_L / 2]; // minimum of the 20 last values of E
-float32_t NR_Nest[NR_FFT_L / 2][2]; //
+float32_t DMAMEM NR_output_audio_buffer [NR_FFT_L];
+float32_t DMAMEM NR_last_iFFT_result [NR_FFT_L / 2];
+float32_t DMAMEM NR_last_sample_buffer_L [NR_FFT_L / 2];
+float32_t DMAMEM NR_last_sample_buffer_R [NR_FFT_L / 2];
+float32_t DMAMEM NR_X[NR_FFT_L / 2][3]; // magnitudes (fabs) of the last four values of FFT results for 128 frequency bins
+float32_t DMAMEM NR_E[NR_FFT_L / 2][NR_N_frames]; // averaged (over the last four values) X values for the last 20 FFT frames
+float32_t DMAMEM NR_M[NR_FFT_L / 2]; // minimum of the 20 last values of E
+float32_t DMAMEM NR_Nest[NR_FFT_L / 2][2]; //
 //float32_t NR_Hk[NR_FFT_L / 2]; //
 float32_t NR_vk; //
 
-float32_t NR_lambda[NR_FFT_L / 2]; // SNR of each current bin
-float32_t NR_Gts[NR_FFT_L / 2][2]; // time smoothed gain factors (current and last) for each of the 128 bins
-float32_t NR_G[NR_FFT_L / 2]; // preliminary gain factors (before time smoothing) and after that contains the frequency smoothed gain factors
+float32_t DMAMEM NR_lambda[NR_FFT_L / 2]; // SNR of each current bin
+float32_t DMAMEM NR_Gts[NR_FFT_L / 2][2]; // time smoothed gain factors (current and last) for each of the 128 bins
+float32_t DMAMEM NR_G[NR_FFT_L / 2]; // preliminary gain factors (before time smoothing) and after that contains the frequency smoothed gain factors
 
 //float32_t NR_beta_Romanin = 0.85; // "best results with 0.85"
 //float32_t NR_onembeta_Romanin = 1.0 - NR_beta_Romanin;
 //float32_t NR_alpha_Romanin = 0.92; // "should be close to 1.0"
 //float32_t NR_onemalpha_Romanin = 1.0 - NR_beta_Romanin;
-float32_t NR_SNR_prio[NR_FFT_L / 2];
-float32_t NR_SNR_post[NR_FFT_L / 2];
+float32_t DMAMEM NR_SNR_prio[NR_FFT_L / 2];
+float32_t DMAMEM NR_SNR_post[NR_FFT_L / 2];
 float32_t NR_SNR_post_pos; //[NR_FFT_L / 2];
-float32_t NR_Hk_old[NR_FFT_L / 2];
+float32_t DMAMEM NR_Hk_old[NR_FFT_L / 2];
 uint8_t NR_VAD_enable = 1;
 float32_t NR_VAD = 0.0;
 float32_t NR_VAD_thresh = 6.0; // no idea how large this should be !?
 uint8_t NR_first_time = 1;
-float32_t NR_long_tone[NR_FFT_L / 2][2];
-float32_t NR_long_tone_gain[NR_FFT_L / 2];
+float32_t DMAMEM NR_long_tone[NR_FFT_L / 2][2];
+float32_t DMAMEM NR_long_tone_gain[NR_FFT_L / 2];
 bool NR_long_tone_reset = true;
 bool NR_long_tone_enable = false;
 float32_t NR_long_tone_alpha = 0.9999;
@@ -2332,10 +2338,10 @@ uint8_t NB_test = 0;
 // decimation with FIR lowpass for Zoom FFT
 arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I;
 arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q;
-float32_t Fir_Zoom_FFT_Decimate_I_state [4 + BUFFER_SIZE * N_B - 1];
-float32_t Fir_Zoom_FFT_Decimate_Q_state [4 + BUFFER_SIZE * N_B - 1];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_I_state [4 + BUFFER_SIZE * N_B - 1];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q_state [4 + BUFFER_SIZE * N_B - 1];
 
-float32_t Fir_Zoom_FFT_Decimate_coeffs[4];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_coeffs[4];
 
 /****************************************************************************************
     init IIR filters
@@ -2851,10 +2857,10 @@ const uint16_t gradient[] = {
   , 0xF88F
   , 0xF88F
 };
-/*
+
 PROGMEM
 void flexRamInfo(void)
-{
+{ // credit to FrankB and Kurt
 #if defined(__IMXRT1052__) || defined(__IMXRT1062__)
   int itcm = 0;
   int dtcm = 0;
@@ -2885,22 +2891,46 @@ void flexRamInfo(void)
   extern unsigned long _flashimagelen;
   extern unsigned long _heap_start;
 
-  Serial.print("MEM (static usage): ITCM:");
+  Serial.println("MEM (static usage):");
+  Serial.println("RAM1:");
+
+  Serial.print("ITCM = FASTRUN:      ");
   Serial.print((unsigned)&_etext - (unsigned)&_stext);
-  Serial.print(", DTCM:");
+  Serial.print("   "); Serial.print((float)((unsigned)&_etext - (unsigned)&_stext) / ((float)itcm * 32768.0) * 100.0);
+  Serial.print("%  of  "); Serial.print(itcm * 32); Serial.print("kb   ");
+  Serial.print("  (");
+  Serial.print(itcm * 32768 - ((unsigned)&_etext - (unsigned)&_stext));
+  Serial.println(" Bytes free)");
+ 
+  Serial.print("DTCM = Variables:    ");
   Serial.print((unsigned)&_ebss - (unsigned)&_sdata);
-  Serial.print("(");
+  Serial.print("   "); Serial.print((float)((unsigned)&_ebss - (unsigned)&_sdata) / ((float)dtcm * 32768.0) * 100.0);
+  Serial.print("%  of  "); Serial.print(dtcm * 32); Serial.print("kb   ");
+  Serial.print("  (");
   Serial.print(dtcm * 32768 - ((unsigned)&_ebss - (unsigned)&_sdata));
-  Serial.print(" Bytes free)");
-  Serial.print(", OCRAM:");
+  Serial.println(" Bytes free)");
+
+  Serial.println("RAM2:");
+  Serial.print("OCRAM = DMAMEM:      ");
   Serial.print((unsigned)&_heap_start - 0x20200000);
-  Serial.print(", Flash:");
-  Serial.println((unsigned)&_flashimagelen);
-  Serial.println();
+  Serial.print("   "); Serial.print((float)((unsigned)&_heap_start - 0x20200000) / ((float)512 * 1024.0) * 100.0);
+  Serial.print("%  of  "); Serial.print(512); Serial.print("kb");
+  Serial.print("     (");
+  Serial.print(512 * 1024 - ((unsigned)&_heap_start - 0x20200000));
+  Serial.println(" Bytes free)");
+
+  Serial.print("FLASH:               ");
+  Serial.print((unsigned)&_flashimagelen);
+  Serial.print("   "); Serial.print(((unsigned)&_flashimagelen) / (2048.0 * 1024.0) * 100.0);
+  Serial.print("%  of  "); Serial.print(2048); Serial.print("kb");
+  Serial.print("    (");
+  Serial.print(2048 * 1024 - ((unsigned)&_flashimagelen));
+  Serial.println(" Bytes free)");
+  
 #endif
 }
-*/
-//PROGMEM
+
+PROGMEM
 void setup() {
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
@@ -3230,57 +3260,6 @@ void setup() {
   { // fill coefficients into the right file
     biquad_lowpass1_coeffs[i] = coefficient_set[i];
   }
-  // IIR lowpass filter for wideband FM at 15k
-  //  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)192000, 0); // 1st stage
-//  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)234375, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)64000, 0); // 1st stage
-  //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_coeffs[i] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 10] = coefficient_set[i];
-  }
-  //  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)192000, 0); // 1st stage
-//  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)234375, 0); // 1st stage
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)64000, 0); // 1st stage
-  //   set_IIR_coeffs ((float32_t)15000, 0.7071, (float32_t)192000, 0); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_coeffs[i + 5] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 15] = coefficient_set[i];
-  }
-
-  // high Q IIR bandpass filter for wideband FM at 19k
-  //  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)192000, 2); // 1st stage
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
-  //   set_IIR_coeffs ((float32_t)19000, 10.0, (float32_t)192000, 2); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_19k_coeffs[i] = coefficient_set[i];
-  }
-
-  // high Q IIR bandpass filter for wideband FM at 38k
-  //  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)192000, 2); // 1st stage
-//  set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)234375, 2); // 1st stage
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
-  //   set_IIR_coeffs ((float32_t)38000, 10.0, (float32_t)192000, 2); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_38k_coeffs[i] = coefficient_set[i];
-  }
-
-  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
-  }
-  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
-  }
 
   set_tunestep();
   show_bandwidth ();
@@ -3390,6 +3369,8 @@ void setup() {
     Serial.println("Init of interpolation failed");
     while(1);
   }
+
+  prepare_WFM();
 
   /****************************************************************************************
      Coefficients for SAM sideband selection Hilbert filters
@@ -3534,7 +3515,13 @@ void setup() {
     // this starts the measurements
     TEMPMON_TEMPSENSE0 |= 0x2U;
 #endif
-
+  /****************************************************************************************
+     RAM monitor for Teensy 4.0
+  ****************************************************************************************/
+    //Serial.println(get_RAM_Info());
+    //DumpMemoryInfo();
+    //EstimateStackUsage();
+    flexRamInfo();
   /****************************************************************************************
      begin to queue the audio from the audio library
   ****************************************************************************************/
@@ -3544,6 +3531,7 @@ void setup() {
 
 } // END SETUP
 
+FASTRUN
 elapsedMicros usec = 0;
 
 void loop() {
@@ -3561,14 +3549,6 @@ void loop() {
   /**********************************************************************************
       Get samples from queue buffers
    **********************************************************************************/
-  // we have to ensure that we have enough audio samples: we need
-  // N_BLOCKS = 16
-  // decimate by 8
-  // FFT512 point --> = 512 / 2 / 128 = 2
-  // when these buffers are available, read them in, decimate and perform
-  // the FFT - cmplx-mult - iFFT
-  //
-
   // WIDE FM BROADCAST RECEPTION
   if (bands[current_band].mode == DEMOD_WFM)
   {
@@ -3842,7 +3822,6 @@ void loop() {
 //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
  //   5   lowpass filter 15kHz
  //   6   notch filter 19kHz to eliminate pilot tone from audio
-
       
 //    1   generate complex signal pair of I and Q
       // demodulated signal is in FFT_buffer
@@ -3896,13 +3875,7 @@ if(1)
           m_PilotNcoFreq = m_PilotNcoLLimit;
         }
         m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
-        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
-//##        m_PhaseErrorMagAve = (one_m_m_PhaseErrorMagAlpha * m_PhaseErrorMagAve + m_PhaseErrorMagAlpha * phzerror * phzerror);
-
-        //#LP filter the NCO frequency term to get DC offset value
-        //#m_FreqErrorDC = (1.0-m_DcAlpha)*m_FreqErrorDC + m_DcAlpha*m_PilotNcoFreq;
-        //#subtract out DC term to get FM audio
-        //#m_OutBuf[i] = (m_PilotNcoFreq-m_FreqErrorDC)*m_OutGain;
+//        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
 
 //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
         if(atan2_approx)
@@ -3915,7 +3888,6 @@ if(1)
         }
         float_buffer_R[i] = FFT_buffer[i] + LminusR;
         iFFT_buffer[i] = FFT_buffer[i] - LminusR;
-//        Serial.println((float32_t)phzerror * 1000);
       }
         // wrap round 2PI, modulus
         while (m_PilotNcoPhase >= TPI)
@@ -3934,16 +3906,15 @@ else
   arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
   arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
 }
-//  arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
-//  arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
 
-//  arm_copy_f32(float_buffer_R, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);             
+if(decimate_WFM)
+{
 
     // F_CPU_ACTUAL == 600MHZ  
     // 80.5% (atan2 and cos/sin) vs. 32.0% (ATAN_APPROX & ARM sin/cos) processor load for FM HIFI STEREO on the T4 before implementing decimation/interpolation
     // 78.8% vs. 30.6% with decimation and interpolation
     // plus 19kHz notch IIR filter
-    // 79.5% vs. 30.9% with notch filter 
+    // 78.0% vs. 30.7% with notch filter 
 
     // decimate-by-4 --> 64ksps
       arm_fir_decimate_f32(&WFM_decimation_R, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
@@ -3968,6 +3939,22 @@ else
       // scaling after interpolation !
         arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
         arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+}
+
+else // no decimation/interpolation
+{
+ //   5   lowpass filter 15kHz & deemphasis
+        // Right channel: lowpass filter with 15kHz Fstop & deemphasis
+        rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+
+        // Left channel: lowpass filter with 15kHz Fstop & deemphasis
+        rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_L);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
+        arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+        arm_scale_f32(FFT_buffer, 1, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #else
@@ -10628,38 +10615,7 @@ void set_samplerate ()
   // if in WFM mode, reset the start frequency in order to have nice 25kHz steps
   if (bands[current_band].mode == DEMOD_WFM)
   {
-    //          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
-    //          bands[current_band].freq = (unsigned long long)(prec_help);
-    dt = 1.0 / (float32_t)SR[SAMPLE_RATE].rate / 4;
-    deemp_alpha = dt / (50e-6 + dt);
-    onem_deemp_alpha = 1.0 - deemp_alpha;
-    // IIR lowpass filter for wideband FM at 15k
-    set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-    for (int i = 0; i < 5; i++)
-    { // fill coefficients into the right file
-      biquad_WFM_coeffs[i] = coefficient_set[i];
-      biquad_WFM_coeffs[i + 10] = coefficient_set[i];
-    }
-    set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)SR[SAMPLE_RATE].rate, 0); // 1st stage
-    for (int i = 0; i < 5; i++)
-    { // fill coefficients into the right file
-      biquad_WFM_coeffs[i + 5] = coefficient_set[i];
-      biquad_WFM_coeffs[i + 15] = coefficient_set[i];
-    }
-
-    // high Q IIR bandpass filter for wideband FM at 19k
-    set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-    for (int i = 0; i < 5; i++)
-    { // fill coefficients into the right file
-      biquad_WFM_19k_coeffs[i] = coefficient_set[i];
-    }
-
-    // high Q IIR bandpass filter for wideband FM at 38k
-    set_IIR_coeffs ((float32_t)38000, 1000.0, (float32_t)SR[SAMPLE_RATE].rate, 2); // 1st stage
-    for (int i = 0; i < 5; i++)
-    { // fill coefficients into the right file
-      biquad_WFM_38k_coeffs[i] = coefficient_set[i];
-    }
+    prepare_WFM();
   }
   // this sets the frequency, but without knowing the IF!
   setfreq();
@@ -10677,6 +10633,105 @@ void set_samplerate ()
 
   // NEW: this code is now in set_dec_int_filters() and is called by filter_bandwidth()
   AudioInterrupts();
+}
+
+void prepare_WFM(void)
+{
+  if(decimate_WFM)
+  {
+      //          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
+    //          bands[current_band].freq = (unsigned long long)(prec_help);
+    dt = 1.0 / ((float32_t)SR[SAMPLE_RATE].rate / 4);
+    deemp_alpha = dt / (50e-6 + dt);
+    onem_deemp_alpha = 1.0 - deemp_alpha;
+
+  // IIR lowpass filter for wideband FM at 15k
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)64000, 0); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_coeffs[i] = coefficient_set[i];
+    biquad_WFM_coeffs[i + 10] = coefficient_set[i];
+  }
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)64000, 0); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_coeffs[i + 5] = coefficient_set[i];
+    biquad_WFM_coeffs[i + 15] = coefficient_set[i];
+  }
+
+  // high Q IIR bandpass filter for wideband FM at 19k
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_19k_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR bandpass filter for wideband FM at 38k
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)64000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
+  }
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)64000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
+  }
+  }
+  else
+  {
+    dt = 1.0 / ((float32_t)SR[SAMPLE_RATE].rate);
+    deemp_alpha = dt / (50e-6 + dt);
+    onem_deemp_alpha = 1.0 - deemp_alpha;
+
+  // IIR lowpass filter for wideband FM at 15k
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)256000, 0); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_coeffs[i] = coefficient_set[i];
+    biquad_WFM_coeffs[i + 10] = coefficient_set[i];
+  }
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)256000, 0); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_coeffs[i + 5] = coefficient_set[i];
+    biquad_WFM_coeffs[i + 15] = coefficient_set[i];
+  }
+
+  // high Q IIR bandpass filter for wideband FM at 19k
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_19k_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR bandpass filter for wideband FM at 38k
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
+  }
+  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
+  }  }
 }
 
 void encoders () {
