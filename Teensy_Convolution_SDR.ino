@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_10_23
+   (c) Frank DD4WH 2019_11_04
 
    "TEENSY CONVOLUTION SDR"
 
@@ -104,9 +104,10 @@
    - EEPROM runs fine on T4
    - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [TFT + ADC + DAC + Teensy 4.0 + QSD hardware < 1 Watt !]
    - T4: CPU temperature display 
+   - T4: Hifi Stereo with PLL
+   - fixed RTC for T4
 
    TODO:
-   - bugfix realtime clock in Teensy 4.0
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
@@ -127,7 +128,7 @@
    wdsp (Warren Pratt): http://svn.tapr.org/repos_sdr_hpsdr/trunk/W5WC/PowerSDR_HPSDR_mRX_PS/Source/wdsp/ [GNU GPL]
    Wheatley (2011): cuteSDR https://github.com/satrian/cutesdr-se [BSD]
    Robert Dick (1999): Tune SSB Automatically. in QEX: http://www.arrl.org/files/file/QEX%20Binaries/1999/ssbtune.zip ["code is in the public domain . . .", thus I assume GNU GPL]
-   Martin Ossmann: unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin, for the permission to include your code here!
+   Martin Ossmann (2019): unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin, for the permission to include your code here!
    sample-rate-change-on-the-fly code by Frank Bösing [MIT]
    GREAT THANKS FOR ALL THE HELP AND INPUT BY WALTER, WMXZ !
    Audio queue optimized by Pete El Supremo 2016_10_27, thanks Pete!
@@ -230,7 +231,9 @@ extern "C"
 extern "C" uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime?
-uint32_t T4_CPU_FREQUENCY  =  600000000; 
+uint32_t T4_CPU_FREQUENCY  =  600000000;
+// use PLL for stereo FM reception only if T4 processing power is available 
+#define NEW_STEREO_PATH
 #endif
 
 #include <Audio.h>
@@ -2860,7 +2863,7 @@ const uint16_t gradient[] = {
 
 PROGMEM
 void flexRamInfo(void)
-{ // credit to FrankB and Kurt
+{ // credit to FrankB, KurtE and defragster !
 #if defined(__IMXRT1052__) || defined(__IMXRT1062__)
   int itcm = 0;
   int dtcm = 0;
@@ -2955,8 +2958,10 @@ void setup() {
 
   // get TIME from real time clock with 3V backup battery
   setSyncProvider(getTeensy3Time);
-
-//  flexRamInfo();
+  //Teensy3Clock.set(now()); // set the RTC
+#if defined (T4)
+  T4_rtc_set(Teensy3Clock.get());
+#endif
 
 #if defined(MP3)
   // initialize SD card slot
@@ -3128,6 +3133,25 @@ void setup() {
   tft.setFont(Arial_10);
   prepare_spectrum_display();
   Init_Display_Clock();
+
+  /****************************************************************************************
+     initialize variables from DMAMEM
+  ****************************************************************************************/
+  for (unsigned i = 0; i < 256; i++)
+  {
+      FFT_spec[i] = 0.0;
+      FFT_spec_old[i] = 0.0;
+      pixelnew[i] = 0;
+      pixelold[i] = 0;
+  }
+  for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+  {
+      UKW_buffer_1[i] = 0.0;
+      UKW_buffer_2[i] = 0.0;
+      UKW_buffer_3[i] = 0.0;
+      UKW_buffer_4[i] = 0.0;
+  }
+
 
   /****************************************************************************************
      set filter bandwidth
@@ -3807,8 +3831,6 @@ void loop() {
 
 #endif // KA7OEI
 
-#define NEW_STEREO_PATH
-
       if (stereo_factor > 0.1f)
       {
 
@@ -3839,6 +3861,10 @@ void loop() {
           wold = w;
         }
 */
+
+// copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
+        arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
+
 if(1)
 {
 //    3   PLL for pilot tone in order to determine the phase of the pilot tone 
@@ -7260,18 +7286,21 @@ void Zoom_FFT_exe (uint32_t blockSize)
   {
     if (bands[current_band].mode == DEMOD_WFM)
     {
-      arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_I, float_buffer_R, x_buffer, blockSize);
-      arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_Q, iFFT_buffer, y_buffer, blockSize);
+      arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_I, UKW_buffer_1, x_buffer, blockSize);
+      //arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_Q, iFFT_buffer, y_buffer, blockSize);
+      // decimation
+      arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I, x_buffer, x_buffer, blockSize);
+      //arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q, y_buffer, y_buffer, blockSize);
     }
     else // all modes except wide FM Rx
     {
       // lowpass filter
       arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_I, float_buffer_L, x_buffer, blockSize);
       arm_biquad_cascade_df1_f32 (&IIR_biquad_Zoom_FFT_Q, float_buffer_R, y_buffer, blockSize);
+      // decimation
+      arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I, x_buffer, x_buffer, blockSize);
+      arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q, y_buffer, y_buffer, blockSize);
     }
-    // decimation
-    arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I, x_buffer, x_buffer, blockSize);
-    arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q, y_buffer, y_buffer, blockSize);
 
     //this puts the sample_no samples into the ringbuffer -->
     // the right order has to be thought about!
@@ -7312,9 +7341,9 @@ void Zoom_FFT_exe (uint32_t blockSize)
   // it can last more than a few seconds in 4096x Zoom
   // maybe we calculate an FFT and display the spectrum every time this function is called?
 
-  //  if (zoom_sample_ptr >= 255)
+//  if (zoom_sample_ptr >= 255)
   {
-    //    zoom_sample_ptr = 0;
+//    zoom_sample_ptr = 0;
     zoom_display = 1;
 
     // copy from ringbuffer to FFT_buffer
@@ -7371,12 +7400,26 @@ void Zoom_FFT_exe (uint32_t blockSize)
     }
     else
     {
-
-      for (int i = 0; i < 128; i++)
+      if(bands[current_band].mode == DEMOD_WFM)
       {
-        FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
-        FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+//          onem_LPFcoeff = 0.4; LPFcoeff = 0.6;
+          for (int i = 0; i < 128; i++)
+          {
+              FFT_spec[i * 2 + 0] =       (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+              FFT_spec[i * 2 + 1] =       FFT_spec[i * 2]; //(buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+//            FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+//            FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+          }
       }
+      else
+      {
+          for (int i = 0; i < 128; i++)
+          {
+            FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+            FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+          }
+      }
+
     }
     // apply low pass filter and scale the magnitude values and convert to int for spectrum display
     // apply spectrum AGC
@@ -7468,7 +7511,7 @@ void codec_gain()
   quarter_clip = 0;   // clear indicator that, if not triggered, indicates that we can increase gain
 }
 
-
+//#define USE_MULTIPLE_FFT_DISPLAY
 #ifdef USE_MULTIPLE_FFT_DISPLAY
 // calc_256_magn() takes the current input data, in 2048 word chunks, float_buffer_L[] and  _R[],
 // uses some 256 word blocks to get the display spectrum.  Originally only one block. now nDisplay blocks. <PUA>
@@ -7509,8 +7552,17 @@ void calc_256_magn()
       // apply  window
       // Thanks, Bob for pointing me to the bug! fixed now:
       // Use table of window values
-      buffer_spec_FFT[i * 2] =   nuttallWindow256[i] * float_buffer_L[256 * jjj + i];
-      buffer_spec_FFT[i * 2 + 1] = nuttallWindow256[i] * float_buffer_R[256 * jjj + i];
+        if(bands[current_band].mode == DEMOD_WFM)
+        {
+            buffer_spec_FFT[i * 2] =      UKW_buffer_1[256 * jjj + i] * nuttallWindow256[i];
+            buffer_spec_FFT[i * 2 + 1] =  0; //float_buffer_R[i] * nuttallWindow256[i];
+        }
+      
+        else
+        {
+            buffer_spec_FFT[i * 2] =   nuttallWindow256[i] * float_buffer_L[256 * jjj + i];
+            buffer_spec_FFT[i * 2 + 1] = nuttallWindow256[i] * float_buffer_R[256 * jjj + i];
+        }
     } // End i over all samples
 
     // Perform complex FFT. Calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
@@ -7563,6 +7615,7 @@ void calc_256_magn()
   }
 } // end calc_256_magn
 #else
+
 void calc_256_magn()
 {
   float32_t spec_help = 0.0;
@@ -7576,31 +7629,27 @@ void calc_256_magn()
     pixelold[i] = pixelnew[i];
   }
 
-  // put samples into buffer and apply windowing
-  for (int i = 0; i < 256; i++)
-  { // interleave real and imaginary input values [real, imag, real, imag . . .]
-    // apply Hann window
-    // cosf is much much faster than arm_cos_f32 !
-    //          buffer_spec_FFT[i * 2] = 0.5 * (float32_t)((1 - (cosf(PI*2 * (float32_t)i / (float32_t)(512-1)))) * float_buffer_L[i]);
-    //          buffer_spec_FFT[i * 2 + 1] = 0.5 * (float32_t)((1 - (cosf(PI*2 * (float32_t)i / (float32_t)(512-1)))) * float_buffer_R[i]);
-    // Nuttall window
-    //    buffer_spec_FFT[i * 2] = (0.355768 - (0.487396 * cosf((TPI * (float32_t)i) / (float32_t)255)) +
-    //                              (0.144232 * cosf((FOURPI * (float32_t)i) / (float32_t)511)) - (0.012604 * cosf((SIXPI * (float32_t)i) / (float32_t)255))) * float_buffer_L[i];
-    //    buffer_spec_FFT[i * 2 + 1] = (0.355768 - (0.487396 * cosf((TPI * (float32_t)i) / (float32_t)255)) +
-    //                                  (0.144232 * cosf((FOURPI * (float32_t)i) / (float32_t)511)) - (0.012604 * cosf((SIXPI * (float32_t)i) / (float32_t)255))) * float_buffer_R[i];
-    // Thanks, Bob for pointing me to the bug! fixed now:
-    buffer_spec_FFT[i * 2] =      float_buffer_L[i] * nuttallWindow256[i];
-    buffer_spec_FFT[i * 2 + 1] =  float_buffer_R[i] * nuttallWindow256[i];
+  if(bands[current_band].mode == DEMOD_WFM)
+  {
+      for (int i = 0; i < 256; i++)
+      { // interleave real and imaginary input values [real, imag, real, imag . . .]
+        // apply Hann window
+        buffer_spec_FFT[i * 2] =      UKW_buffer_1[i] * nuttallWindow256[i];
+        buffer_spec_FFT[i * 2 + 1] =  0; //float_buffer_R[i] * nuttallWindow256[i];
+      }
   }
 
-  //  Hanning 1.36
-  //sc.FFT_Windat[i] = 0.5 * (float32_t)((1 - (arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
-  // Hamming 1.22
-  //sc.FFT_Windat[i] = (float32_t)((0.53836 - (0.46164 * arm_cos_f32(PI*2 * (float32_t)i / (float32_t)(FFT_IQ_BUFF_LEN2-1)))) * sc.FFT_Samples[i]);
-  // Blackman 1.75
-  // float32_t help_sample = (0.42659 - (0.49656*arm_cos_f32((2.0*PI*(float32_t)i)/(buff_len-1.0))) + (0.076849*arm_cos_f32((4.0*PI*(float32_t)i)/(buff_len-1.0)))) * sc.FFT_Samples[i];
-  // Nuttall
-  //             s = (0.355768 - (0.487396*arm_cos_f32((2*PI*(float32_t)i)/(float32_t)FFT_IQ_BUFF_LEN-1)) + (0.144232*arm_cos_f32((4*PI*(float32_t)i)/(float32_t)FFT_IQ_BUFF_LEN-1)) - (0.012604*arm_cos_f32((6*PI*(float32_t)i)/(float32_t)FFT_IQ_BUFF_LEN-1))) * sd.FFT_Samples[i];
+  else
+  {
+      for (int i = 0; i < 256; i++)
+      { // interleave real and imaginary input values [real, imag, real, imag . . .]
+        // apply Hann window
+        // cosf is much much faster than arm_cos_f32 !
+        // Thanks, Bob for pointing me to the bug! fixed now:
+        buffer_spec_FFT[i * 2] =      float_buffer_L[i] * nuttallWindow256[i];
+        buffer_spec_FFT[i * 2 + 1] =  float_buffer_R[i] * nuttallWindow256[i];
+      }
+  }
 
   // perform complex FFT
   // calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
@@ -7621,10 +7670,22 @@ void calc_256_magn()
   }
   else
   {
-    for (int i = 0; i < 128; i++)
+    if(bands[current_band].mode == DEMOD_WFM)
+    { // for MPX signal 
+      for (int i = 0; i < 128; i++)
+      {
+        FFT_spec[i * 2 + 0] =       (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+        FFT_spec[i * 2 + 1] =       (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+        //FFT_spec[i + 128] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+      }
+    }
+    else
     {
-      FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
-      FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+      for (int i = 0; i < 128; i++)
+      {
+        FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+        FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+      }
     }
   }
 
@@ -10944,6 +11005,9 @@ void encoders () {
       helpmonth = month(); helpyear = year(); helpday = day();
       setTime (helphour, helpmin, 0, helpday, helpmonth, helpyear);
       Teensy3Clock.set(now()); // set the RTC
+#if defined (T4)
+      T4_rtc_set(Teensy3Clock.get());
+#endif
     } // end TIMEADJUST
     else if (Menu_pointer == MENU_DATE_SET) {
       helpyear = year();
@@ -15730,8 +15794,10 @@ void decodeCP56() {
 
   // automatically set internal RTC
   setTime (hours, minutes, seconds, dayOfMonth, month, year);
-
-//  uartBlank() ;
+  Teensy3Clock.set(now()); // set the RTC
+#if defined (T4)
+  T4_rtc_set(Teensy3Clock.get());
+#endif  
   dec2out(hours) ;
   uartPutc(':') ;
   dec2out(minutes) ;
@@ -15745,12 +15811,7 @@ void decodeCP56() {
   dec2out(year) ;
   uartBlank() ;
   showDayOfWeek(dayOfWeek);
-//  setTime (hours, minutes, seconds, dayOfMonth, month, year);
 
-//  uartBlank() ;
-//  termPutChar('>') ;
-//  termPutChar('>') ;
- //termSetColor(ILI9341_GREEN);
   // free audio buffers
     AudioNoInterrupts();
     Q_in_L.clear();
@@ -16333,4 +16394,24 @@ float ApproxAtan2(float y, float x)
         }
     }
     return 0.0f; // x,y = 0. Could return NaN instead.
+}
+
+void T4_rtc_set(unsigned long t)
+{
+#if defined (T4)  
+   // stop the RTC
+   SNVS_HPCR &= ~(SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS);
+   while (SNVS_HPCR & SNVS_HPCR_RTC_EN); // wait
+   // stop the SRTC
+   SNVS_LPCR &= ~SNVS_LPCR_SRTC_ENV;
+   while (SNVS_LPCR & SNVS_LPCR_SRTC_ENV); // wait
+   // set the SRTC
+   SNVS_LPSRTCLR = t << 15;
+   SNVS_LPSRTCMR = t >> 17;
+   // start the SRTC
+   SNVS_LPCR |= SNVS_LPCR_SRTC_ENV;
+   while (!(SNVS_LPCR & SNVS_LPCR_SRTC_ENV)); // wait
+   // start the RTC and sync it to the SRTC
+   SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
+#endif
 }
