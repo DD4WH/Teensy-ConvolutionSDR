@@ -109,7 +109,6 @@
    - T4 filter steepness doubled: now uses 1024-point-FFT, T3.6 uses 512-point-FFT
    - T4: experimental: 2048-point-FFT --> filter after decimation equivalent to 16384 taps, only possible with modification of record_queue.h and record_queue.cpp --> substitute 53 with 83 blocks
    
-
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
@@ -239,7 +238,8 @@ extern "C"
 }
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime?
-uint32_t T4_CPU_FREQUENCY  =  600000000;
+//uint32_t T4_CPU_FREQUENCY  =  600000000;
+uint32_t T4_CPU_FREQUENCY  =  300000000;
 // use PLL for stereo FM reception only if T4 processing power is available 
 #define NEW_STEREO_PATH
 #endif
@@ -2972,8 +2972,13 @@ void setup() {
   //  AudioMemory(140); // high sample rates work! but no MP3 and no ZoomFFT
 //////////////  AudioMemory(170); // no MP3,but Zoom FFT works quite well
   //     AudioMemory(200); // is this overkill?
-AudioMemory(400); // is this overkill?
-  //    AudioMemory(100);
+
+#if defined (T4)
+  AudioMemory(400); // is this overkill?
+#else
+  AudioMemory(170); 
+#endif
+
   delay(100);
 
   // get TIME from real time clock with 3V backup battery
