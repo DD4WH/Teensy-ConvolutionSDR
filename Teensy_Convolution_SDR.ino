@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_11_04
+   (c) Frank DD4WH 2019_11_19
 
    "TEENSY CONVOLUTION SDR"
 
@@ -106,6 +106,9 @@
    - T4: CPU temperature display 
    - T4: Hifi Stereo with PLL
    - fixed RTC for T4
+   - T4 filter steepness doubled: now uses 1024-point-FFT, T3.6 uses 512-point-FFT
+   - T4: experimental: 2048-point-FFT --> filter after decimation equivalent to 16384 taps, only possible with modification of record_queue.h and record_queue.cpp --> substitute 53 with 83 blocks
+   
 
    TODO:
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -214,7 +217,7 @@
     recommendation: leave this uncommented */
 //#define USE_ATAN2FAST
 
-//#define MP3 
+#define MP3 
 
 #if defined(__IMXRT1062__)
 #define T4
@@ -228,7 +231,12 @@ extern "C"
   void sincosf(float err, float *s, float *c);
 }
 #else
-extern "C" uint32_t set_arm_clock(uint32_t frequency);
+extern "C" 
+uint32_t set_arm_clock(uint32_t frequency);
+extern "C"
+{
+  void sincosf(float err, float *s, float *c);
+}
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime?
 uint32_t T4_CPU_FREQUENCY  =  600000000;
@@ -837,7 +845,7 @@ long calibration_constant = 0;
 unsigned long long hilfsf = 1000000000;
 
 uint8_t save_energy = 0;
-uint8_t atan2_approx = 0;
+uint8_t atan2_approx = 1;
 
 #ifdef HARDWARE_DO7JBH
 // Optical Encoder connections
@@ -1531,8 +1539,12 @@ uint16_t autotune_counter = 0;
  * = 128 * (512 / 2 / 128 * 8) / 8
  */
 
-//const uint32_t FFT_L = 1024; // needs 89% of the memory !
-const uint32_t FFT_L = 512; // needs 60% of the memory
+#if defined(T4)
+const uint32_t FFT_L = 1024; // 
+//const uint32_t FFT_L = 2048; // experimental: modification of record_queue.h / .cpp necessary for a number of blocks of at least 65 instead of 53 !
+#else
+const uint32_t FFT_L = 512; //
+#endif
 float32_t DMAMEM FIR_Coef_I[(FFT_L / 2) + 1];
 float32_t DMAMEM FIR_Coef_Q[(FFT_L / 2) + 1];
 #define MAX_NUMCOEF (FFT_L / 2) + 1
@@ -1674,10 +1686,13 @@ arm_fir_decimate_instance_f32 FIR_dec1_Q;
 float32_t DMAMEM FIR_dec1_Q_state [n_dec1_taps + BUFFER_SIZE * N_B - 1];
 float32_t DMAMEM FIR_dec1_coeffs[n_dec1_taps];
 
+const int DEC2STATESIZE = n_dec2_taps + (BUFFER_SIZE * N_B / (uint32_t)DF1) - 1; 
 arm_fir_decimate_instance_f32 FIR_dec2_I;
-float32_t DMAMEM FIR_dec2_I_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+//float32_t DMAMEM FIR_dec2_I_state [n_dec2_taps + (BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+float32_t DMAMEM FIR_dec2_I_state [DEC2STATESIZE];
 arm_fir_decimate_instance_f32 FIR_dec2_Q;
-float32_t DMAMEM FIR_dec2_Q_state [n_dec2_taps + 511]; //(BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+//float32_t DMAMEM FIR_dec2_Q_state [n_dec2_taps + (BUFFER_SIZE * N_B / (uint32_t)DF1) - 1];
+float32_t DMAMEM FIR_dec2_Q_state [DEC2STATESIZE];
 float32_t DMAMEM FIR_dec2_coeffs[n_dec2_taps];
 
 //interpolation filters have almost the same no. of taps
@@ -1687,19 +1702,21 @@ float32_t DMAMEM FIR_dec2_coeffs[n_dec2_taps];
 arm_fir_interpolate_instance_f32 FIR_int1_I;
 //float32_t FIR_int1_I_state [(16 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 //float32_t FIR_int1_I_state [(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
-float32_t DMAMEM FIR_int1_I_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
+const int INT1_STATE_SIZE = 24 + BUFFER_SIZE * N_B / (uint32_t)DF - 1;
+float32_t DMAMEM FIR_int1_I_state [INT1_STATE_SIZE]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 arm_fir_interpolate_instance_f32 FIR_int1_Q;
 //float32_t FIR_int1_Q_state [(16 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 //float32_t FIR_int1_Q_state [(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
-float32_t DMAMEM FIR_int1_Q_state [24 + 255]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
+float32_t DMAMEM FIR_int1_Q_state [INT1_STATE_SIZE]; //(48 / (uint32_t)DF2) + BUFFER_SIZE * N_B / (uint32_t)DF - 1];
 float32_t DMAMEM FIR_int1_coeffs[48];
 
+const int INT2_STATE_SIZE = 8 + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1;
 arm_fir_interpolate_instance_f32 FIR_int2_I;
 //float32_t FIR_int2_I_state [(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
-float32_t DMAMEM FIR_int2_I_state [8 + 511]; // (32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
+float32_t DMAMEM FIR_int2_I_state [INT2_STATE_SIZE]; // (32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
 arm_fir_interpolate_instance_f32 FIR_int2_Q;
 //float32_t FIR_int2_Q_state [(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
-float32_t DMAMEM FIR_int2_Q_state [8 + 511]; //(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
+float32_t DMAMEM FIR_int2_Q_state [INT2_STATE_SIZE]; //(32 / (uint32_t)DF1) + BUFFER_SIZE * N_B / (uint32_t)DF1 - 1];
 float32_t DMAMEM FIR_int2_coeffs[32];
 
 //////////////////////////////////////
@@ -2247,14 +2264,16 @@ float32_t DMAMEM ANR_w [ANR_DLINE_SIZE];
 uint8_t ANR_on = 0;
 uint8_t ANR_notch = 0;
 
-// ordinary LMS noise reduction
 
+// ordinary LMS noise reduction
+#define MAX_LMS_TAPS    96
+#define MAX_LMS_DELAY   256
 float32_t   LMS_errsig1[256 + 10];
 arm_lms_norm_instance_f32  LMS_Norm_instance;
 arm_lms_instance_f32      LMS_instance;
-float32_t                 DMAMEM LMS_StateF32[96 + 256];
-float32_t                 DMAMEM LMS_NormCoeff_f32[96 + 256];
-float32_t                 DMAMEM LMS_nr_delay[512 + 256];
+float32_t                 DMAMEM LMS_StateF32[MAX_LMS_TAPS + MAX_LMS_DELAY];
+float32_t                 DMAMEM LMS_NormCoeff_f32[MAX_LMS_TAPS + MAX_LMS_DELAY];
+float32_t                 DMAMEM LMS_nr_delay[512 + MAX_LMS_DELAY];
 int                       LMS_nr_strength = 5;
 
 // spectral weighting noise reduction
@@ -2951,8 +2970,9 @@ void setup() {
   //  AudioMemory(130);  // good for 176ksps sample rate, but MP3 playing is not possible
   //  AudioMemory(120); // MP3 works! but in 176k strong distortion . . .
   //  AudioMemory(140); // high sample rates work! but no MP3 and no ZoomFFT
-  AudioMemory(170); // no MP3,but Zoom FFT works quite well
+//////////////  AudioMemory(170); // no MP3,but Zoom FFT works quite well
   //     AudioMemory(200); // is this overkill?
+AudioMemory(400); // is this overkill?
   //    AudioMemory(100);
   delay(100);
 
@@ -3151,7 +3171,65 @@ void setup() {
       UKW_buffer_3[i] = 0.0;
       UKW_buffer_4[i] = 0.0;
   }
+  for (unsigned i = 0; i < NR_FFT_L; i++)
+  {
+      NR_FFT_buffer[i] = 0.0;
+      NR_output_audio_buffer[i] = 0.0;
+  }
+  for (unsigned i = 0; i < NR_FFT_L / 2; i++)
+  {
+      NR_last_iFFT_result[i] = 0.0;
+      NR_last_sample_buffer_L [i] = 0.0;
+      NR_last_sample_buffer_R [i] = 0.0;
+      NR_M[i] = 0.0;
+      NR_lambda[i] = 0.0;
+      NR_G[i] = 0.0;
+      NR_SNR_prio[i] = 0.0;
+      NR_SNR_post[i] = 0.0;
+      NR_Hk_old[i] = 0.0;
+  }
 
+  for (unsigned j = 0; j < 3; j++)
+  {
+      for(unsigned i=0; i<NR_FFT_L / 2; i++)
+      {
+          NR_X[i][j] = 0.0;
+      }
+  }
+
+  for (unsigned j = 0; j < 2; j++)
+  {
+      for(unsigned i=0; i<NR_FFT_L / 2; i++)
+      {
+          NR_Nest[i][j] = 0.0;
+          NR_Gts[i][j] = 0.0;
+      }
+  }
+  
+  for (unsigned j = 0; j < NR_N_frames; j++)
+  {
+      for(unsigned i=0; i<NR_FFT_L / 2; i++)
+      {
+          NR_E[i][j] = 0.0;
+      }
+  }
+
+  for(unsigned i = 0; i < ANR_DLINE_SIZE; i++)
+  {
+      ANR_d[i] = 0.0;
+      ANR_w[i] = 0.0;
+  }
+
+  for(unsigned i = 0; i < (MAX_LMS_TAPS + MAX_LMS_DELAY); i++)
+  {
+      LMS_StateF32[i] = 0.0;
+      LMS_NormCoeff_f32[i] = 0.0;
+  }
+
+  for(unsigned i = 0; i < (512 + MAX_LMS_DELAY); i++)
+  {
+      LMS_nr_delay[i] = 0.0;
+  }
 
   /****************************************************************************************
      set filter bandwidth
@@ -3175,6 +3253,11 @@ void setup() {
   ****************************************************************************************/
   switch (FFT_length)
   {
+    case 2048:
+      S = &arm_cfft_sR_f32_len2048;
+      iS = &arm_cfft_sR_f32_len2048;
+      maskS = &arm_cfft_sR_f32_len2048;
+      break;
     case 1024:
       S = &arm_cfft_sR_f32_len1024;
       iS = &arm_cfft_sR_f32_len1024;
@@ -3730,12 +3813,13 @@ void loop() {
       // 0.001 much too low, 0.005 too low
       // 0.009 --> PERFECT
 
+// of all the WFM demodulation algorithms, the one proposed by KA7OEI has proved to provide superior audio
       //#define LYONS_DEMOD_FM
       //#define CSDR_FM_DEMOD_ATAN
       //#define CSDR_FM_DEMOD_QUADRI
 #define WFM_KA7OEI
 
-#ifdef  LYONS_DEMOD_FM
+#if defined(LYONS_DEMOD_FM)
       // distorted audio
       FFT_buffer[0] =   ((float_buffer_R[0] - Q_old_old) * I_old)
                         - ((float_buffer_L[0] - I_old_old) * Q_old);
@@ -3754,12 +3838,10 @@ void loop() {
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
       I_old_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 2];
       Q_old_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 2];
-
       // maybe scaling helps??? --> nor really
       arm_scale_f32(FFT_buffer, 0.01, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-#endif
 
-#ifdef CSDR_FM_DEMOD_ATAN
+#elif defined (CSDR_FM_DEMOD_ATAN)
       //Serial.println("CSDR");
       for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
       {
@@ -3771,9 +3853,8 @@ void loop() {
         FFT_buffer[i] = 0.1 * WFM_dphase / PI;
         WFM_lastphase = WFM_phase;
       }
-#endif
 
-#ifdef CSDR_FM_DEMOD_QUADRI
+#elif defined (CSDR_FM_DEMOD_QUADRI)
       // (qnow*ilast-inow*qlast)/(inow*inow+qnow*qnow)
 
       FFT_buffer[0] = 0.01 * (float_buffer_R[0] * I_old - float_buffer_L[0] * Q_old)
@@ -3786,12 +3867,12 @@ void loop() {
       }
       I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
-#endif
 
-#ifdef WFM_KA7OEI
+#elif defined (WFM_KA7OEI)
       if(atan2_approx)
       {
-        FFT_buffer[0] = WFM_scaling_factor * ApproxAtan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+          FFT_buffer[0] = WFM_scaling_factor * ApproxAtan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+          //FFT_buffer[0] = WFM_scaling_factor * arm_atan2_f32(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
       }
       else
@@ -3809,7 +3890,8 @@ void loop() {
           // KA7OEI: http://ka7oei.blogspot.com/2015/11/adding-fm-to-mchf-sdr-transceiver.html
         if(atan2_approx == 1)
         {
-          FFT_buffer[i] = WFM_scaling_factor * ApproxAtan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+            FFT_buffer[i] = WFM_scaling_factor * ApproxAtan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+            //FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 //          Serial.println("atan2 funktioniert");
         }
@@ -3885,7 +3967,8 @@ if(1)
         WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
         if(atan2_approx)
         {
-          WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+            WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+            //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
         }
         else 
         {
@@ -4170,8 +4253,8 @@ else // no decimation/interpolation
       elapsed_micros_idx_t++;
 //      Serial.print("elapsed_micros_idx_t = ");
 //      Serial.println(elapsed_micros_idx_t);
-      if (elapsed_micros_idx_t > 1000)
-//if(0)
+//      if (elapsed_micros_idx_t > 1000)
+if(0)
         //          if (five_sec.check() == 1)
       {
         tft.fillRect(227, 5, 45, 20, ILI9341_BLACK);
@@ -5298,9 +5381,18 @@ else // no decimation/interpolation
         {
           
 #if defined (T4)
-          double Sin, Cos;
-          Sin = sin(phzerror);
-          Cos = cos(phzerror);
+          float32_t Sin, Cos;
+          if(atan2_approx)
+          {
+            Sin = arm_sin_f32(phzerror);
+            Cos = arm_cos_f32(phzerror);
+            //sincosf(phzerror, &Sin, &Cos);
+          }
+          else
+          {
+            Sin = sin(phzerror);
+            Cos = cos(phzerror);
+          }
 #else
           float32_t Sin, Cos;
           sincosf(phzerror, &Sin, &Cos);
@@ -5388,6 +5480,7 @@ else // no decimation/interpolation
           if(atan2_approx)
           {
             det = arm_atan2_f32(corr[1], corr[0]);
+            //det = ApproxAtan2(corr[1], corr[0]);
           }
           else
           {
@@ -6212,9 +6305,9 @@ if(0)
       if (elapsed_micros_idx_t >  (50 * SR[SAMPLE_RATE].rate / 48000) )
       {
 #if defined (T4)
-        tft.fillRect(189, 5, 74, 20, ILI9341_BLACK);
+        tft.fillRect(189, 5, 81, 20, ILI9341_BLACK);
 #else
-        tft.fillRect(227, 5, 74-38, 20, ILI9341_BLACK);
+        tft.fillRect(227, 5, 81-38, 20, ILI9341_BLACK);
 #endif
         tft.setCursor(227, 5);
         tft.setTextColor(ILI9341_GREEN);
@@ -6272,8 +6365,8 @@ if(0)
         }
 #endif
 
-#ifdef DEBUG
-        Serial.print (mean);
+#ifdef  DEBUG
+       // Serial.print (mean);
         Serial.print (" microsec for ");
         Serial.print (N_BLOCKS);
         Serial.print ("  stereo blocks    ");
@@ -11415,7 +11508,7 @@ void displayClock()
     }
   */
 
-  Serial.print(hour10);
+/*  Serial.print(hour10);
   Serial.print(hour1);
   Serial.print(" : ");
   Serial.print(minute10);
@@ -11423,7 +11516,7 @@ void displayClock()
   Serial.print(" : ");
   Serial.print(second10);
   Serial.println(second1);
-
+*/
   if (!DISPLAY_ANALOG_CLOCK)
   {
     tft.setFont(Arial_14);
