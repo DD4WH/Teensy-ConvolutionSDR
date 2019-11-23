@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_11_19
+   (c) Frank DD4WH 2019_11_23
 
    "TEENSY CONVOLUTION SDR"
 
@@ -8,7 +8,7 @@
    HARDWARE NEEDED:
    - simple quadrature sampling detector board producing baseband IQ signals (Softrock, Elektor SDR etc.)
    (IQ boards with up to 256kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
-   - Teensy audio board
+   - Teensy audio board or ADC PCM1808 and DAC PCM5102a
    - Teensy 3.6 or Teensy 4.0 (No, Teensy 3.1/3.2/3.5 not supported)
    HARDWARE OPTIONAL:
    - Preselection: switchable RF lowpass or bandpass filter
@@ -237,7 +237,7 @@ extern "C"
   void sincosf(float err, float *s, float *c);
 }
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
-// should we make this available in the menu to adjust during runtime?
+// should we make this available in the menu to adjust during runtime? --> DONE
 //uint32_t T4_CPU_FREQUENCY  =  600000000;
 uint32_t T4_CPU_FREQUENCY  =  300000000;
 // use PLL for stereo FM reception only if T4 processing power is available 
@@ -7366,8 +7366,10 @@ void Zoom_FFT_exe (uint32_t blockSize)
 
   ************************************************/
 
-  float32_t x_buffer[2048];
-  float32_t y_buffer[2048];
+//  float32_t x_buffer[2048];
+//  float32_t y_buffer[2048];
+  float32_t x_buffer[blockSize];
+  float32_t y_buffer[blockSize];
   static float32_t FFT_ring_buffer_x[256];
   static float32_t FFT_ring_buffer_y[256];
   int sample_no = 256;
@@ -7462,7 +7464,6 @@ void Zoom_FFT_exe (uint32_t blockSize)
       zoom_sample_ptr++;
       if (zoom_sample_ptr >= 256) zoom_sample_ptr = 0;
     }
-
 
     //***************
     // adjust lowpass filter coefficient, so that
