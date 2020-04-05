@@ -3144,6 +3144,14 @@ void setup() {
 #if (!defined(HARDWARE_DD4WH_T4))
   pinMode(Band1, OUTPUT);  // LPF switches
   pinMode(Band2, OUTPUT);  //
+// internal pull-ups for encoder pins
+  pinMode(16, INPUT_PULLUP);
+  pinMode(17, INPUT_PULLUP);
+  pinMode(14, INPUT_PULLUP);
+  pinMode(15, INPUT_PULLUP);
+  pinMode(4, INPUT_PULLUP);
+  pinMode(5, INPUT_PULLUP);
+
 #endif
 
 #ifdef HARDWARE_DD4WH
