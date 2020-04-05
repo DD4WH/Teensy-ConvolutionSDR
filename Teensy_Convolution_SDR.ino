@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2019_11_23
+   (c) Frank DD4WH 2020_04_05
 
    "TEENSY CONVOLUTION SDR"
 
@@ -108,15 +108,16 @@
    - fixed RTC for T4
    - T4 filter steepness doubled: now uses 1024-point-FFT, T3.6 uses 512-point-FFT
    - T4: experimental: 2048-point-FFT --> filter after decimation equivalent to 16384 taps, only possible with modification of record_queue.h and record_queue.cpp --> substitute 53 with 83 blocks
+   - T4: tweak PLL clocks/switch off ADCs etc. to lower EMI in T4 (thanks FrankB !)
    
    TODO:
+   - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
    - BPSK decoder
    - UKW DX filters for WFM prior to FM demodulation (110kHz, 80kHz, 57kHz)
    - test dBm measurement according to filter passband
-   - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
    - finetune AGC parameters and make AGC HANG TIME, AGC HANG THRESHOLD and AGC HANG DECAY user-adjustable
    - record and playback IQ audio stream ;-)
    - read stations´ frequencies from SD card and display station names when tuned to a frequency
@@ -272,14 +273,22 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 #if defined(MP3)
 #include <play_sd_mp3.h> //mp3 decoder by Frank B
 #include <play_sd_aac.h> // AAC decoder by Frank B
+#define SDCARD_CS_PIN    BUILTIN_SDCARD
+  #if defined(HARDWARE_DD4WH_T4)
+  #define SDCARD_MOSI_PIN  11  // not actually used
+  #define SDCARD_SCK_PIN   13  // not actually used
+  #else
+  #endif
 #endif
 #include <util/crc16.h> //mdrhere
+
 
 #if defined(T4)
 #include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
 #include <EEPROM.h>
 #else
 #include <EEPROM.h>
+#define F_I2S ((((I2S0_MCR >> 24) & 0x03) == 3) ? F_PLL : F_CPU)
 #endif
 
 // temperature stuff
@@ -1045,6 +1054,13 @@ AudioRecordQueue         Q_in_R;
 AudioPlaySdMp3           playMp3;
 AudioPlaySdAac           playAac;
 #endif
+
+//AudioMixer4              inputleft;
+//AudioMixer4              inputright;
+
+//AudioSynthNoiseWhite     whitenoise1; 
+//AudioSynthNoiseWhite     whitenoise2; 
+
 AudioMixer4              mixleft;
 AudioMixer4              mixright;
 AudioPlayQueue           Q_out_L;
@@ -1062,9 +1078,15 @@ AudioConnection          patchCord21(queueTP, 0, dac1, 0);
 
 AudioConnection          patchCord1(i2s_in, 0, Q_in_L, 0);
 AudioConnection          patchCord2(i2s_in, 1, Q_in_R, 0);
+//AudioConnection          patchCord1(i2s_in, 0, inputleft, 0);
+//AudioConnection          patchCord2(i2s_in, 1, inputright, 0);
 
-//AudioConnection          patchCord3(Q_out_L, 0, i2s_out, 1);
-//AudioConnection          patchCord4(Q_out_R, 0, i2s_out, 0);
+//AudioConnection          patchCord1b(inputleft, 0, Q_in_L, 0);
+//AudioConnection          patchCord2b(inputright, 0, Q_in_R, 0);
+
+//AudioConnection          patchCord1c(whitenoise1, 0, inputleft, 1);
+//AudioConnection          patchCord2c(whitenoise2, 1, inputright, 1);
+
 AudioConnection          patchCord3(Q_out_L, 0, mixleft, 0);
 AudioConnection          patchCord4(Q_out_R, 0, mixright, 0);
 #if defined(MP3)
@@ -1073,6 +1095,7 @@ AudioConnection          patchCord6(playMp3, 1, mixright, 1);
 AudioConnection          patchCord7(playAac, 0, mixleft, 2);
 AudioConnection          patchCord8(playAac, 1, mixright, 2);
 #endif
+
 AudioConnection          patchCord9(mixleft, 0,  i2s_out, 1);
 AudioConnection          patchCord10(mixright, 0, i2s_out, 0);
 
@@ -1540,7 +1563,8 @@ uint16_t autotune_counter = 0;
  */
 
 #if defined(T4)
-const uint32_t FFT_L = 1024; // 
+const uint32_t FFT_L = 512; //
+//const uint32_t FFT_L = 1024; // 
 //const uint32_t FFT_L = 2048; // experimental: modification of record_queue.h / .cpp necessary for a number of blocks of at least 65 instead of 53 !
 #else
 const uint32_t FFT_L = 512; //
@@ -2960,7 +2984,8 @@ void setup() {
 #endif
 
 #if defined(T4)
-  set_arm_clock(T4_CPU_FREQUENCY);
+//  set_arm_clock(T4_CPU_FREQUENCY);
+  set_CPU_freq_T4();
 #endif
 
   Serial.begin(115200);
@@ -2989,8 +3014,15 @@ void setup() {
 #endif
 
 #if defined(MP3)
+
+  #if defined (HARDWARE_DD4WH_T4)
+    // Configure SPI
+    SPI.setMOSI(SDCARD_MOSI_PIN);
+    SPI.setSCK(SDCARD_SCK_PIN);
+  #endif
+
   // initialize SD card slot
-  if (!(SD.begin(BUILTIN_SDCARD)))
+  if (!(SD.begin(SDCARD_CS_PIN)))
   {
     // print a message
     Serial.println("Unable to access the SD card");
@@ -3073,6 +3105,18 @@ void setup() {
 #endif  
   mixleft.gain(0, 1.0);
   mixright.gain(0, 1.0);
+
+  //inputleft.gain(0, 1.0);
+  //inputright.gain(0, 1.0);
+//inputleft.gain(0, 1.0);
+//inputright.gain(0, 1.0);
+
+// only noise !!!
+  //whitenoise1.amplitude(0.7);
+  //whitenoise2.amplitude(0.7);
+//  inputleft.gain(1, 1.0);
+//  inputright.gain(1, 1.0);
+
 
 #if defined(HARDWARE_FRANKB)
   Wire.beginTransmission(PCF8574_ADR);
@@ -7216,7 +7260,23 @@ void setI2SFreq(int freq) {
        | CCM_CS1CDR_SAI1_CLK_PRED(n1-1) // &0x07
        | CCM_CS1CDR_SAI1_CLK_PODF(n2-1); // &0x3f 
 #else
-  typedef struct {
+
+  unsigned tcr5 = I2S0_TCR5;
+  unsigned word0width = ((tcr5 >> 24) & 0x1f) + 1;
+  unsigned wordnwidth = ((tcr5 >> 16) & 0x1f) + 1;
+  unsigned framesize = ((I2S0_TCR4 >> 16) & 0x0f) + 1;
+  unsigned nbits = word0width + wordnwidth * (framesize - 1 );
+  unsigned tcr2div = I2S0_TCR2 & 0xff; //bitclockdiv
+  uint32_t MDR = I2S_dividers(freq, nbits, tcr2div);
+  if (MDR > 0) {
+    while (I2S0_MCR & I2S_MCR_DUF) {
+      ;
+    }
+    I2S0_MDR = MDR;
+  }
+
+////////////////////////////////////////////////////////////////////////////////  
+/*  typedef struct {
     uint8_t mult;
     uint16_t div;
   } tmclk;
@@ -7233,7 +7293,19 @@ void setI2SFreq(int freq) {
     // 50223, 88200, (int)44117.64706 * 2, 96000, 100466, 176400, (int)44117.64706 * 4, 192000, 234375, 281000, 352800};
     {1, 14}, {107, 853}, {32, 255}, {219, 1604}, {224, 1575}, {1, 7}, {214, 853}, {64, 255}, {219, 802}, {1, 3}, {2, 5} , {1, 2}
   };
-#endif
+/*#elif (F_PLL==192000000)
+  const tmclk clkArr[numfreqs] = {{4, 375}, {37, 2517}, {8, 375}, {73, 2483}, {16, 375}, {147, 2500}, {1, 17}, {8, 125},
+                              // { 8000,        11025,    16000,    22050,      32000,      44100,    44117.64706 , 48000,
+                                  {147, 1250}, {2, 17}, {16, 125}, {147, 625}, {4, 17}, {32, 125} };
+                              //     88200, 44117.64706 * 2, 96000, 176400, 44117.64706 * 4, 192000};
+#elif (F_PLL==216000000)
+  const tmclk clkArr[numfreqs] = {{32, 3375}, {49, 3750}, {64, 3375}, {49, 1875}, {128, 3375}, {98, 1875}, {8, 153}, {64, 1125},
+                                  {196, 1875}, {16, 153}, {128, 1125}, {226, 1081}, {32, 153}, {147, 646} };
+#elif (F_PLL==240000000)
+  const tmclk clkArr[numfreqs] = {{16, 1875}, {29, 2466}, {32, 1875}, {89, 3784}, {64, 1875}, {147, 3125}, {4, 85}, {32, 625},
+                                  {205, 2179}, {8, 85}, {64, 625}, {89, 473}, {16, 85}, {128, 625} };
+                                  */
+/*#endif
 
 
   for (int f = 0; f < numfreqs; f++) {
@@ -7243,6 +7315,10 @@ void setI2SFreq(int freq) {
       return;
     }
   }
+////////////////////////////////////////////////////////////////////////////////////
+*/
+
+  
 #endif //Teensy4
 #if 1
   Serial.print("Set Samplerate ");
@@ -7250,6 +7326,38 @@ void setI2SFreq(int freq) {
   Serial.println(" kHz");
 #endif
 } // end set_I2S
+
+#ifdef T4
+#else
+uint32_t I2S_dividers( float fsamp, uint32_t nbits, uint32_t tcr2_div )
+{
+
+  unsigned fract, divi;
+  fract = divi = 1;
+  float minfehler = 1e7;
+
+  unsigned x = (nbits * ((tcr2_div + 1) * 2));
+  unsigned b = F_I2S / x;
+
+  for (unsigned i = 1; i < 256; i++) {
+
+    unsigned d = round(b / fsamp * i);
+    float freq = b * i / (float)d ;
+    float fehler = fabs(fsamp - freq);
+
+    if ( fehler < minfehler && d < 4096 ) {
+      fract = i;
+      divi = d;
+      minfehler = fehler;
+      //Serial.printf("%fHz<->%fHz(%d/%d) Fehler:%f\n", fsamp, freq, fract, divi, minfehler);
+      if (fehler == 0.0f) break;
+    }
+
+  }
+
+  return I2S_MDR_FRACT( (fract - 1) ) | I2S_MDR_DIVIDE( (divi - 1) );
+}
+#endif
 
 void init_filter_mask()
 {
@@ -7368,7 +7476,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
 
 //  float32_t x_buffer[2048];
 //  float32_t y_buffer[2048];
-  float32_t x_buffer[blockSize];
+  float32_t x_buffer[blockSize]; // can be 4096 [FFT length == 1024] or even 8192 [FFT length == 2048]
   float32_t y_buffer[blockSize];
   static float32_t FFT_ring_buffer_x[256];
   static float32_t FFT_ring_buffer_y[256];
@@ -7569,7 +7677,7 @@ void codec_gain()
   if (timer > 10000) timer = 10000;
   if (half_clip == 1)      // did clipping almost occur?
   {
-    if (timer >= 100)     // has enough time passed since the last gain decrease?
+    if (timer >= 20)   // 100  // has enough time passed since the last gain decrease?
     {
       if (bands[current_band].RFgain != 0)       // yes - is this NOT zero?
       {
@@ -7590,7 +7698,7 @@ void codec_gain()
   }
   else if (quarter_clip == 0)     // no clipping occurred
   {
-    if (timer >= 500)       // has it been long enough since the last increase?
+    if (timer >= 50)    // 500   // has it been long enough since the last increase?
     {
       bands[current_band].RFgain += 1;    // increase gain by one step, 1.5dB
       timer = 0;  // reset the timer to prevent this from executing too often
@@ -9450,10 +9558,18 @@ void buttons() {
       Q_in_R.clear();
       mixleft.gain(0, 0.0);
       mixright.gain(0, 0.0);
+
+#if defined(HARDWARE_DD4WH_T4)
+      mixleft.gain(1, 0.3);
+      mixright.gain(1, 0.3);
+      mixleft.gain(2, 0.3);
+      mixright.gain(2, 0.3);
+#else
       mixleft.gain(1, 0.1);
       mixright.gain(1, 0.1);
       mixleft.gain(2, 0.1);
       mixright.gain(2, 0.1);
+#endif
     }
 #if defined(MP3)
     if (Menu_pointer == (MENU_PLAYER - 1) || (Menu_pointer == last_menu && MENU_PLAYER == first_menu))
@@ -9548,10 +9664,17 @@ void buttons() {
       Q_in_R.clear();
       mixleft.gain(0, 0.0);
       mixright.gain(0, 0.0);
+#if defined(HARDWARE_DD4WH_T4)
+      mixleft.gain(1, 0.3);
+      mixright.gain(1, 0.3);
+      mixleft.gain(2, 0.3);
+      mixright.gain(2, 0.3);
+#else
       mixleft.gain(1, 0.1);
       mixright.gain(1, 0.1);
       mixleft.gain(2, 0.1);
       mixright.gain(2, 0.1);
+#endif
     }
 #if defined(MP3)
     if (Menu_pointer == (MENU_PLAYER + 1) || (Menu_pointer == 0 && MENU_PLAYER == last_menu))
@@ -11476,8 +11599,9 @@ void encoders () {
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
 //      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
       else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
-      set_arm_clock(T4_CPU_FREQUENCY);
-    }
+      //set_arm_clock(T4_CPU_FREQUENCY);
+      set_CPU_freq_T4();
+}
 #endif
 
     /*    else if (Menu2 == MENU_NR_VAD_THRESH)
@@ -16512,5 +16636,18 @@ void T4_rtc_set(unsigned long t)
    while (!(SNVS_LPCR & SNVS_LPCR_SRTC_ENV)); // wait
    // start the RTC and sync it to the SRTC
    SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
+#endif
+}
+
+void set_CPU_freq_T4(void)
+{
+  #if defined(T4)
+  set_arm_clock(T4_CPU_FREQUENCY);
+  CCM_ANALOG_PLL_SYS_SS = 0xffffffff; //enable spread spectrum for PLL2
+  CCM_ANALOG_PFD_528_SET = (1<<31) | (1<<15) | (1<<7); //Disable PLL2: PFD3, PFD1, PFD0 (not needed)
+  CCM_ANALOG_PFD_480_SET = (1<<31) | (1<<23) | (1<<15); //Disable PLL3: PFD3, PFD2, PFD1 (not needed)
+  CCM_CCGR1 &= ~CCM_CCGR1_ADC1(CCM_CCGR_ON); //Disable ADC1
+  CCM_CCGR1 &= ~CCM_CCGR1_ADC2(CCM_CCGR_ON); //Disable ADC2
+  CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (300MHz Bus for 600MHz CPU)
 #endif
 }
