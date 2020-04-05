@@ -7337,6 +7337,7 @@ void setI2SFreq(int freq) {
 
 #ifdef T4
 #else
+// thanks FrankB for this elegant code
 uint32_t I2S_dividers( float fsamp, uint32_t nbits, uint32_t tcr2_div )
 {
 
@@ -16647,6 +16648,8 @@ void T4_rtc_set(unsigned long t)
 #endif
 }
 
+// by FrankB April 2020
+// disable ADCs, enable spread spectrum, overclock IGP to reduce electromagnetic interference in the T4
 void set_CPU_freq_T4(void)
 {
   #if defined(T4)
