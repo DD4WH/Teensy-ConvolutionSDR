@@ -2904,6 +2904,8 @@ const uint16_t gradient[] = {
   , 0xF88F
 };
 
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
 PROGMEM
 void flexRamInfo(void)
 { // credit to FrankB, KurtE and defragster !
