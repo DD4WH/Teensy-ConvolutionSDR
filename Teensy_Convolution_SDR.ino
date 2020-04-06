@@ -1572,10 +1572,17 @@ const uint32_t FFT_L = 512; //
 float32_t DMAMEM FIR_Coef_I[(FFT_L / 2) + 1];
 float32_t DMAMEM FIR_Coef_Q[(FFT_L / 2) + 1];
 #define MAX_NUMCOEF (FFT_L / 2) + 1
-#define TPI           6.28318530717959f
-#define PIH           1.57079632679490f
-#define FOURPI        2.0 * TPI
-#define SIXPI         3.0 * TPI
+#undef round
+#undef PI
+#undef HALF_PI
+#undef TWO_PI
+#define PI 3.1415926535897932384626433832795f
+#define HALF_PI 1.5707963267948966192313216916398f
+#define TWO_PI 6.283185307179586476925286766559f
+#define TPI           TWO_PI
+#define PIH           HALF_PI
+#define FOURPI        (2.0f * TPI)
+#define SIXPI         (3.0f * TPI)
 uint32_t m_NumTaps = (FFT_L / 2) + 1;
 uint8_t FIR_filter_window = 1;
 //const float32_t DF1 = 4.0; // decimation factor
@@ -4006,75 +4013,75 @@ void loop() {
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
-if(1)
-{
-//    3   PLL for pilot tone in order to determine the phase of the pilot tone 
-      for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-      {
-        if(atan2_approx)
+        if (1)
         {
-          WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
-          WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+          //    3   PLL for pilot tone in order to determine the phase of the pilot tone
+          for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+            if (atan2_approx)
+            {
+              WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
+              WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+            }
+            else
+            {
+              WFM_Sin = sinf(m_PilotNcoPhase);
+              WFM_Cos = cosf(m_PilotNcoPhase);
+            }
+
+            WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
+            WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
+            if (atan2_approx)
+            {
+              WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+              //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
+            }
+            else
+            {
+              WFM_phzerror = -atan2f(WFM_tmp_im, WFM_tmp_re);
+            }
+            m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
+            if (m_PilotNcoFreq > m_PilotNcoHLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoHLimit;
+            }
+            else if (m_PilotNcoFreq < m_PilotNcoLLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoLLimit;
+            }
+            m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
+            //        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
+
+            //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+            if (atan2_approx)
+            {
+              LminusR = 2.0f * FFT_buffer[i] * arm_sin_f32((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
+            }
+            else
+            {
+              LminusR = 2.0f * FFT_buffer[i] * sinf((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
+            }
+            float_buffer_R[i] = FFT_buffer[i] + LminusR;
+            iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+          }
+          // wrap round 2PI, modulus
+          while (m_PilotNcoPhase >= TPI)
+          {
+            m_PilotNcoPhase -= TPI;
+            //          Serial.println(" wrap -TWO PI");
+          }
+          while (m_PilotNcoPhase < 0.0f)
+          {
+            m_PilotNcoPhase += TPI;
+            //          Serial.println(" wrap +TWO PI");
+          }
         }
         else
         {
-          WFM_Sin = sin(m_PilotNcoPhase);
-          WFM_Cos = cos(m_PilotNcoPhase);
+          arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+          arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
         }
-
-        WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
-        WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
-        if(atan2_approx)
-        {
-            WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
-            //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
-        }
-        else 
-        {
-          WFM_phzerror = -atan2(WFM_tmp_im, WFM_tmp_re);
-        }
-        m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
-        if(m_PilotNcoFreq > m_PilotNcoHLimit)
-        {
-          m_PilotNcoFreq = m_PilotNcoHLimit;
-        }
-        else if (m_PilotNcoFreq < m_PilotNcoLLimit)
-        {
-          m_PilotNcoFreq = m_PilotNcoLLimit;
-        }
-        m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
-//        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
-
-//    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
-        if(atan2_approx)
-        {
-          LminusR = 2.0 * FFT_buffer[i] * arm_sin_f32((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
-        }
-        else 
-        {
-          LminusR = 2.0 * FFT_buffer[i] * sin((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
-        }
-        float_buffer_R[i] = FFT_buffer[i] + LminusR;
-        iFFT_buffer[i] = FFT_buffer[i] - LminusR;
-      }
-        // wrap round 2PI, modulus
-        while (m_PilotNcoPhase >= TPI)
-        {
-          m_PilotNcoPhase -= TPI;
-//          Serial.println(" wrap -TWO PI");
-        }
-        while (m_PilotNcoPhase < 0.0)
-        {
-          m_PilotNcoPhase += TPI;
-//          Serial.println(" wrap +TWO PI");
-        }
-}
-else
-{
-  arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
-  arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
-}
-
+         
 if(decimate_WFM)
 {
 
@@ -16576,58 +16583,58 @@ float ApproxAtan(float z)
     return (n1 + n2 * z * z) * z;
 }
 
-#define PI_2 (PI / 2)
+#define PI_2 PIH
 
 float ApproxAtan2(float y, float x)
 {
-    if (x != 0.0f)
+  if (x != 0.0f)
+  {
+    if (fabsf(x) > fabsf(y))
     {
-        if (fabsf(x) > fabsf(y))
-        {
-            const float z = y / x;
-            if (x > 0.0)
-            {
-                // atan2(y,x) = atan(y/x) if x > 0
-                return ApproxAtan(z);
-            }
-            else if (y >= 0.0)
-            {
-                // atan2(y,x) = atan(y/x) + PI if x < 0, y >= 0
-                return ApproxAtan(z) + PI;
-            }
-            else
-            {
-                // atan2(y,x) = atan(y/x) - PI if x < 0, y < 0
-                return ApproxAtan(z) - PI;
-            }
-        }
-        else // Use property atan(y/x) = PI/2 - atan(x/y) if |y/x| > 1.
-        {
-            const float z = x / y;
-            if (y > 0.0)
-            {
-                // atan2(y,x) = PI/2 - atan(x/y) if |y/x| > 1, y > 0
-                return -ApproxAtan(z) + PI_2;
-            }
-            else
-            {
-                // atan2(y,x) = -PI/2 - atan(x/y) if |y/x| > 1, y < 0
-                return -ApproxAtan(z) - PI_2;
-            }
-        }
+      const float z = y / x;
+      if (x > 0.0f)
+      {
+        // atan2(y,x) = atan(y/x) if x > 0
+        return ApproxAtan(z);
+      }
+      else if (y >= 0.0f)
+      {
+        // atan2(y,x) = atan(y/x) + PI if x < 0, y >= 0
+        return ApproxAtan(z) + PI;
+      }
+      else
+      {
+        // atan2(y,x) = atan(y/x) - PI if x < 0, y < 0
+        return ApproxAtan(z) - PI;
+      }
     }
-    else
+    else // Use property atan(y/x) = PI/2 - atan(x/y) if |y/x| > 1.
     {
-        if (y > 0.0f) // x = 0, y > 0
-        {
-            return PI_2;
-        }
-        else if (y < 0.0f) // x = 0, y < 0
-        {
-            return -PI_2;
-        }
+      const float z = x / y;
+      if (y > 0.0f)
+      {
+        // atan2(y,x) = PI/2 - atan(x/y) if |y/x| > 1, y > 0
+        return -ApproxAtan(z) + PI_2;
+      }
+      else
+      {
+        // atan2(y,x) = -PI/2 - atan(x/y) if |y/x| > 1, y < 0
+        return -ApproxAtan(z) - PI_2;
+      }
     }
-    return 0.0f; // x,y = 0. Could return NaN instead.
+  }
+  else
+  {
+    if (y > 0.0f) // x = 0, y > 0
+    {
+      return PI_2;
+    }
+    else if (y < 0.0f) // x = 0, y < 0
+    {
+      return -PI_2;
+    }
+  }
+  return 0.0f; // x,y = 0. Could return NaN instead.
 }
 
 void T4_rtc_set(unsigned long t)
