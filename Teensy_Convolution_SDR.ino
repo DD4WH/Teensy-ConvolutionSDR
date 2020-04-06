@@ -1572,10 +1572,16 @@ const uint32_t FFT_L = 512; //
 float32_t DMAMEM FIR_Coef_I[(FFT_L / 2) + 1];
 float32_t DMAMEM FIR_Coef_Q[(FFT_L / 2) + 1];
 #define MAX_NUMCOEF (FFT_L / 2) + 1
-#define TPI           6.28318530717959f
-#define PIH           1.57079632679490f
-#define FOURPI        2.0 * TPI
-#define SIXPI         3.0 * TPI
+#undef PI
+#undef HALF_PI
+#undef TWO_PI
+#define PI 3.1415926535897932384626433832795f
+#define HALF_PI 1.5707963267948966192313216916398f
+#define TWO_PI 6.283185307179586476925286766559f
+#define TPI           TWO_PI
+#define PIH           HALF_PI
+#define FOURPI        (2.0f * TPI)
+#define SIXPI         (3.0f * TPI)
 uint32_t m_NumTaps = (FFT_L / 2) + 1;
 uint8_t FIR_filter_window = 1;
 //const float32_t DF1 = 4.0; // decimation factor
