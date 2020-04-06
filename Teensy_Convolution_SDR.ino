@@ -4013,75 +4013,75 @@ void loop() {
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
-if(1)
-{
-//    3   PLL for pilot tone in order to determine the phase of the pilot tone 
-      for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-      {
-        if(atan2_approx)
+        if (1)
         {
-          WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
-          WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+          //    3   PLL for pilot tone in order to determine the phase of the pilot tone
+          for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+            if (atan2_approx)
+            {
+              WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
+              WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+            }
+            else
+            {
+              WFM_Sin = sinf(m_PilotNcoPhase);
+              WFM_Cos = cosf(m_PilotNcoPhase);
+            }
+
+            WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
+            WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
+            if (atan2_approx)
+            {
+              WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+              //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
+            }
+            else
+            {
+              WFM_phzerror = -atan2f(WFM_tmp_im, WFM_tmp_re);
+            }
+            m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
+            if (m_PilotNcoFreq > m_PilotNcoHLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoHLimit;
+            }
+            else if (m_PilotNcoFreq < m_PilotNcoLLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoLLimit;
+            }
+            m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
+            //        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
+
+            //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+            if (atan2_approx)
+            {
+              LminusR = 2.0f * FFT_buffer[i] * arm_sin_f32((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
+            }
+            else
+            {
+              LminusR = 2.0f * FFT_buffer[i] * sinf((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
+            }
+            float_buffer_R[i] = FFT_buffer[i] + LminusR;
+            iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+          }
+          // wrap round 2PI, modulus
+          while (m_PilotNcoPhase >= TPI)
+          {
+            m_PilotNcoPhase -= TPI;
+            //          Serial.println(" wrap -TWO PI");
+          }
+          while (m_PilotNcoPhase < 0.0f)
+          {
+            m_PilotNcoPhase += TPI;
+            //          Serial.println(" wrap +TWO PI");
+          }
         }
         else
         {
-          WFM_Sin = sin(m_PilotNcoPhase);
-          WFM_Cos = cos(m_PilotNcoPhase);
+          arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+          arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
         }
-
-        WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
-        WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
-        if(atan2_approx)
-        {
-            WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
-            //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
-        }
-        else 
-        {
-          WFM_phzerror = -atan2(WFM_tmp_im, WFM_tmp_re);
-        }
-        m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
-        if(m_PilotNcoFreq > m_PilotNcoHLimit)
-        {
-          m_PilotNcoFreq = m_PilotNcoHLimit;
-        }
-        else if (m_PilotNcoFreq < m_PilotNcoLLimit)
-        {
-          m_PilotNcoFreq = m_PilotNcoLLimit;
-        }
-        m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
-//        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
-
-//    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
-        if(atan2_approx)
-        {
-          LminusR = 2.0 * FFT_buffer[i] * arm_sin_f32((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
-        }
-        else 
-        {
-          LminusR = 2.0 * FFT_buffer[i] * sin((m_PilotNcoPhase + stereo_factor/1000.0) * 2.0);
-        }
-        float_buffer_R[i] = FFT_buffer[i] + LminusR;
-        iFFT_buffer[i] = FFT_buffer[i] - LminusR;
-      }
-        // wrap round 2PI, modulus
-        while (m_PilotNcoPhase >= TPI)
-        {
-          m_PilotNcoPhase -= TPI;
-//          Serial.println(" wrap -TWO PI");
-        }
-        while (m_PilotNcoPhase < 0.0)
-        {
-          m_PilotNcoPhase += TPI;
-//          Serial.println(" wrap +TWO PI");
-        }
-}
-else
-{
-  arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);             
-  arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);             
-}
-
+         
 if(decimate_WFM)
 {
 
