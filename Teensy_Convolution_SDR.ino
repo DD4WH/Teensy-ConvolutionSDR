@@ -1572,6 +1572,7 @@ const uint32_t FFT_L = 512; //
 float32_t DMAMEM FIR_Coef_I[(FFT_L / 2) + 1];
 float32_t DMAMEM FIR_Coef_Q[(FFT_L / 2) + 1];
 #define MAX_NUMCOEF (FFT_L / 2) + 1
+#undef round
 #undef PI
 #undef HALF_PI
 #undef TWO_PI
