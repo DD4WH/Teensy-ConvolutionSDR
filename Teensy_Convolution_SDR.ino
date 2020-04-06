@@ -3945,7 +3945,7 @@ void loop() {
       else
       {
 #if defined (T4)
-        FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+        FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
 #else
         FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
@@ -3965,7 +3965,7 @@ void loop() {
         else
         {
 #if defined (T4)
-          FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+          FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 #else
           FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
