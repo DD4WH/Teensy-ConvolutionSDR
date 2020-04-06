@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_05
+   (c) Frank DD4WH 2020_04_06
 
    "TEENSY CONVOLUTION SDR"
 
@@ -109,6 +109,7 @@
    - T4 filter steepness doubled: now uses 1024-point-FFT, T3.6 uses 512-point-FFT
    - T4: experimental: 2048-point-FFT --> filter after decimation equivalent to 16384 taps, only possible with modification of record_queue.h and record_queue.cpp --> substitute 53 with 83 blocks
    - T4: tweak PLL clocks/switch off ADCs etc. to lower EMI in T4 (thanks FrankB !)
+   - float/double optimizations (FrankB)
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -239,8 +240,8 @@ extern "C"
 }
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
-//uint32_t T4_CPU_FREQUENCY  =  600000000;
-uint32_t T4_CPU_FREQUENCY  =  300000000;
+uint32_t T4_CPU_FREQUENCY  =  600000000;
+//uint32_t T4_CPU_FREQUENCY  =  300000000;
 // use PLL for stereo FM reception only if T4 processing power is available 
 #define NEW_STEREO_PATH
 #endif
@@ -3944,7 +3945,7 @@ void loop() {
       else
       {
 #if defined (T4)
-        FFT_buffer[0] = WFM_scaling_factor * atan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
+        FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
                       I_old * float_buffer_L[0] + float_buffer_R[0] * Q_old);
 #else
         FFT_buffer[0] = WFM_scaling_factor * atan2f(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
@@ -3964,7 +3965,7 @@ void loop() {
         else
         {
 #if defined (T4)
-          FFT_buffer[i] = WFM_scaling_factor * atan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
+          FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
 #else
           FFT_buffer[i] = WFM_scaling_factor * atan2f(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
@@ -4025,8 +4026,8 @@ void loop() {
             }
             else
             {
-              WFM_Sin = sinf(m_PilotNcoPhase);
-              WFM_Cos = cosf(m_PilotNcoPhase);
+              WFM_Sin = sin(m_PilotNcoPhase);
+              WFM_Cos = cos(m_PilotNcoPhase);
             }
 
             WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
@@ -4059,7 +4060,7 @@ void loop() {
             }
             else
             {
-              LminusR = 2.0f * FFT_buffer[i] * sinf((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
+              LminusR = 2.0f * FFT_buffer[i] * sin((m_PilotNcoPhase + stereo_factor / 1000.0f) * 2.0f);
             }
             float_buffer_R[i] = FFT_buffer[i] + LminusR;
             iFFT_buffer[i] = FFT_buffer[i] - LminusR;
@@ -11616,7 +11617,8 @@ void encoders () {
       T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 3000000;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
 //      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
-      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
+//      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
+      else if (T4_CPU_FREQUENCY > 720000000) T4_CPU_FREQUENCY = 720000000;
       //set_arm_clock(T4_CPU_FREQUENCY);
       set_CPU_freq_T4();
 }
