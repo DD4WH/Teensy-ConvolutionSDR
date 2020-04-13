@@ -114,6 +114,7 @@
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
+   - account for using the Si5351 with two clock outputs in 90 degrees difference  
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
    - implement separate interrupt to cope with UI (encoders, buttons, calculation of filter coefficients) in order to free audio interrupt
    - SSB autotune algorithm taken from Robert Dick
@@ -1494,7 +1495,6 @@ float32_t WFM_phase = 0.1;
 float32_t WFM_lastphase = 0.1;
 float32_t WFM_dphase = 0.1;
 const uint32_t WFM_BLOCKS = 8;
-//const uint32_t WFM_BLOCKS = 2;
 
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000.0f) //to normalize Hz to radians
 #define PILOTPLL_FREQ     19000.0f  //Centerfreq of pilot tone
@@ -1510,7 +1510,6 @@ float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
 float32_t WFM_del_out = 0.0;
 float32_t  m_PilotNcoFreq = PILOTPLL_FREQ * WFM_SAMPLE_RATE_NORM; //freq offset to bring to baseband
-//float32_t  m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 float32_t DMAMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
@@ -3877,7 +3876,6 @@ void loop() {
       arm_fir_f32 (&FIR_WFM_Q, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 #if defined(HARDWARE_DD4WH_T4)
-      //      const float32_t WFM_scaling_factor = 0.009; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
       const float32_t WFM_scaling_factor = 0.24f; //1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
 #else
       const float32_t WFM_scaling_factor = 0.24f; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
@@ -3899,62 +3897,6 @@ void loop() {
       // 0.001 much too low, 0.005 too low
       // 0.009 --> PERFECT
 
-// of all the WFM demodulation algorithms, the one proposed by KA7OEI has proved to provide superior audio
-      //#define LYONS_DEMOD_FM
-      //#define CSDR_FM_DEMOD_ATAN
-      //#define CSDR_FM_DEMOD_QUADRI
-#define WFM_KA7OEI
-
-#if defined(LYONS_DEMOD_FM)
-      // distorted audio
-      FFT_buffer[0] =   ((float_buffer_R[0] - Q_old_old) * I_old)
-                        - ((float_buffer_L[0] - I_old_old) * Q_old);
-      FFT_buffer[0] /=  float_buffer_L[0] * float_buffer_L[0] + float_buffer_R[0] * float_buffer_R[0];
-      FFT_buffer[1] =   ((float_buffer_R[1] - Q_old) * float_buffer_L[0])
-                        - ((float_buffer_L[1] - I_old) * float_buffer_R[0]);
-      FFT_buffer[1] /=  float_buffer_L[1] * float_buffer_L[1] + float_buffer_R[1] * float_buffer_R[1];
-
-      for (int i = 2; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-      {
-        FFT_buffer[i] =   ((float_buffer_R[i] - float_buffer_R[i - 2]) * float_buffer_L[i - 1])
-                          - ((float_buffer_L[i] - float_buffer_L[i - 2]) * float_buffer_R[i - 1]);
-        FFT_buffer[i] /=  float_buffer_L[i] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i];
-      }
-      I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
-      Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
-      I_old_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 2];
-      Q_old_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 2];
-      // maybe scaling helps??? --> nor really
-      arm_scale_f32(FFT_buffer, 0.01, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-
-#elif defined (CSDR_FM_DEMOD_ATAN)
-      //Serial.println("CSDR");
-      for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-      {
-        // WFM_phase = atan2f(float_buffer_R[i], float_buffer_L[i]);
-        WFM_phase = atan2f(float_buffer_L[i], float_buffer_R[i]);
-        WFM_dphase = WFM_phase - WFM_lastphase;
-        if (WFM_dphase < -PI) WFM_dphase += 2 * PI;
-        if (WFM_dphase > PI) WFM_dphase -= 2 * PI;
-        FFT_buffer[i] = 0.1 * WFM_dphase / PI;
-        WFM_lastphase = WFM_phase;
-      }
-
-#elif defined (CSDR_FM_DEMOD_QUADRI)
-      // (qnow*ilast-inow*qlast)/(inow*inow+qnow*qnow)
-
-      FFT_buffer[0] = 0.01 * (float_buffer_R[0] * I_old - float_buffer_L[0] * Q_old)
-                      / (float_buffer_R[0] * float_buffer_R[0] + float_buffer_L[0] * float_buffer_L[0] + 1e-6);
-
-      for (int i = 1; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-      {
-        FFT_buffer[i] = 0.01 * (float_buffer_R[i] * float_buffer_L[i - 1] - float_buffer_L[i] * float_buffer_R[i - 1])
-                        / (float_buffer_R[i] * float_buffer_R[i] + float_buffer_L[i] * float_buffer_L[i] + 1e-6);
-      }
-      I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
-      Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
-
-#elif defined (WFM_KA7OEI)
       if(atan2_approx)
       {
           FFT_buffer[0] = WFM_scaling_factor * ApproxAtan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
@@ -3979,7 +3921,6 @@ void loop() {
             FFT_buffer[i] = WFM_scaling_factor * ApproxAtan2(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
             //FFT_buffer[i] = WFM_scaling_factor * arm_atan2_f32(float_buffer_L[i - 1] * float_buffer_R[i] - float_buffer_L[i] * float_buffer_R[i - 1],
                           float_buffer_L[i - 1] * float_buffer_L[i] + float_buffer_R[i] * float_buffer_R[i - 1]);
-//          Serial.println("atan2 funktioniert");
         }
         else
         {
@@ -3996,8 +3937,6 @@ void loop() {
       // take care of last sample of each block
       I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
-
-#endif // KA7OEI
 
       if (stereo_factor > 0.1f)
       {
@@ -4021,14 +3960,6 @@ void loop() {
 //    2   BPF 19kHz for pilote tone in both, I & Q
         arm_biquad_cascade_df1_f32 (&biquad_WFM_19k, UKW_buffer_1, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS);
         arm_biquad_cascade_df1_f32 (&biquad_WFM_38k, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS);
-
-/*        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
-        { // DC removal filter -----------------------
-          w = FFT_buffer[i] + wold * 0.9999f; // yes, I want a superb bass response ;-)
-          FFT_buffer[i] = w - wold;
-          wold = w;
-        }
-*/
 
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
