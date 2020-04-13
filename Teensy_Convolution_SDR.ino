@@ -1500,7 +1500,8 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_RANGE    20.0f
 #define PILOTPLL_BW       10.0f
 #define PILOTPLL_ZETA     0.707f
-#define PILOTPLL_LOCK_TIME_CONSTANT 0.5f
+#define PILOTPLL_LOCK_TIME_CONSTANT 0.5f // lock filter tiome in seconds
+#define WFM_LOCK_MAG_THRESHOLD      0.05f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
@@ -1530,9 +1531,10 @@ float32_t  m_PilotNcoLLimit = m_PilotNcoFreq - PILOTPLL_RANGE * WFM_SAMPLE_RATE_
 float32_t  m_PilotNcoHLimit = m_PilotNcoFreq + PILOTPLL_RANGE * WFM_SAMPLE_RATE_NORM;
 float32_t  m_PilotPllAlpha = 2.0 * PILOTPLL_ZETA * PILOTPLL_BW * WFM_SAMPLE_RATE_NORM; // 
 float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * PILOTPLL_ZETA * PILOTPLL_ZETA);
-float32_t  m_PhaseErrorMagAve = 0.0;
+float32_t  m_PhaseErrorMagAve = 0.01;
 float32_t  m_PhaseErrorMagAlpha = (1.0f - expf(-1.0f/(256000 * PILOTPLL_LOCK_TIME_CONSTANT)));
 float32_t  one_m_m_PhaseErrorMagAlpha = 1.0f - m_PhaseErrorMagAlpha;
+uint8_t WFM_is_stereo = 1;
 
 #define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
 const uint32_t WFM_decimation_taps = 20;
@@ -3938,7 +3940,7 @@ void loop() {
       I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
 
-      if (stereo_factor > 0.1f)
+      if (stereo_factor > 0.1f && WFM_is_stereo == 1)
       {
 
 #ifdef NEW_STEREO_PATH
@@ -3966,7 +3968,8 @@ void loop() {
 
         if (1)
         {
-          Pilot_tone_freq = Pilot_tone_freq * 0.995f + 0.005f * m_PilotNcoFreq * 256000.0f / TWO_PI;
+          Pilot_tone_freq = Pilot_tone_freq * 0.991f + 0.009f * m_PilotNcoFreq * 256000.0f / TWO_PI;
+          Serial.println(m_PhaseErrorMagAve);
           //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //Serial.println(m_PilotNcoPhase, 10);
@@ -4032,6 +4035,11 @@ void loop() {
               m_PilotNcoPhase += TPI;
                         //Serial.println(" wrap +TWO PI");
             }
+            m_PhaseErrorMagAve = one_m_m_PhaseErrorMagAlpha * m_PhaseErrorMagAve + m_PhaseErrorMagAlpha * WFM_phzerror * WFM_phzerror;
+            if(m_PhaseErrorMagAve < WFM_LOCK_MAG_THRESHOLD)
+              WFM_is_stereo = 1;
+              else
+              WFM_is_stereo = 0;
           }
 // wraparound code was here??? --> should be inside if loop
         }
