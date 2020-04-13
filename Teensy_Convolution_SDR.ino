@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_10
+   (c) Frank DD4WH 2020_04_13
 
    "TEENSY CONVOLUTION SDR"
 
@@ -110,6 +110,7 @@
    - T4: experimental: 2048-point-FFT --> filter after decimation equivalent to 16384 taps, only possible with modification of record_queue.h and record_queue.cpp --> substitute 53 with 83 blocks
    - T4: tweak PLL clocks/switch off ADCs etc. to lower EMI in T4 (thanks FrankB !)
    - float/double optimizations (FrankB)
+   - bugfix PLL for WFM Stereo (thanks, FrankB for pointing me to that!)
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -1503,9 +1504,11 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_LOCK_TIME_CONSTANT 0.5f
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-#define m_PilotPhaseAdjust  0.0
-float32_t  m_PilotNcoPhase = 0.0;
-float32_t  m_PilotNcoFreq = -PILOTPLL_FREQ * WFM_SAMPLE_RATE_NORM;
+float32_t m_PilotPhaseAdjust = 1.2;
+float32_t m_PilotNcoPhase = 0.0;
+float32_t WFM_fil_out = 0.0;
+float32_t WFM_del_out = 0.0;
+float32_t  m_PilotNcoFreq = PILOTPLL_FREQ * WFM_SAMPLE_RATE_NORM; //freq offset to bring to baseband
 //float32_t  m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 float32_t DMAMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
@@ -1523,8 +1526,8 @@ float32_t WFM_phzerror = 1.0;
 float32_t LminusR = 2.0;
 
   //initialize the PLL
-float32_t  m_PilotNcoLLimit = (-PILOTPLL_FREQ - PILOTPLL_RANGE) * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
-float32_t  m_PilotNcoHLimit = (-PILOTPLL_FREQ + PILOTPLL_RANGE) * WFM_SAMPLE_RATE_NORM;
+float32_t  m_PilotNcoLLimit = m_PilotNcoFreq - PILOTPLL_RANGE * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
+float32_t  m_PilotNcoHLimit = m_PilotNcoFreq + PILOTPLL_RANGE * WFM_SAMPLE_RATE_NORM;
 float32_t  m_PilotPllAlpha = 2.0 * PILOTPLL_ZETA * PILOTPLL_BW * WFM_SAMPLE_RATE_NORM; // 
 float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * PILOTPLL_ZETA * PILOTPLL_ZETA);
 float32_t  m_PhaseErrorMagAve = 0.0;
@@ -4030,6 +4033,7 @@ void loop() {
         if (1)
         {
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
+          //Serial.println(m_PilotNcoPhase, 10);
           //    3   PLL for pilot tone in order to determine the phase of the pilot tone
           for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
           {
@@ -4055,6 +4059,7 @@ void loop() {
             {
               WFM_phzerror = -atan2f(WFM_tmp_im, WFM_tmp_re);
             }
+            WFM_del_out = WFM_fil_out; // wdsp
             m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
             if (m_PilotNcoFreq > m_PilotNcoHLimit)
             {
@@ -4064,8 +4069,10 @@ void loop() {
             {
               m_PilotNcoFreq = m_PilotNcoLLimit;
             }
-            m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
-                    if((five_sec.check() == 1))     Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
+            WFM_fil_out = m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror;
+            //m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
+            m_PilotNcoPhase += WFM_del_out;
+                //    if((five_sec.check() == 1))     Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
 
             //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
             if (atan2_approx)
@@ -4078,18 +4085,19 @@ void loop() {
             }
             float_buffer_R[i] = FFT_buffer[i] + LminusR;
             iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+                      // wrap round 2PI, modulus
+            while (m_PilotNcoPhase >= TPI)
+            {
+              m_PilotNcoPhase -= TPI;
+                        //Serial.println(" wrap -TWO PI");
+            }
+            while (m_PilotNcoPhase < 0.0f)
+            {
+              m_PilotNcoPhase += TPI;
+                        //Serial.println(" wrap +TWO PI");
+            }
           }
-          // wrap round 2PI, modulus
-          while (m_PilotNcoPhase >= TPI)
-          {
-            m_PilotNcoPhase -= TPI;
-                      Serial.println(" wrap -TWO PI");
-          }
-          while (m_PilotNcoPhase < 0.0f)
-          {
-            m_PilotNcoPhase += TPI;
-                      Serial.println(" wrap +TWO PI");
-          }
+// wraparound code here???
         }
         else
         {
