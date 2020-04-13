@@ -1505,6 +1505,7 @@ const uint32_t WFM_BLOCKS = 8;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
 float32_t m_PilotPhaseAdjust = 1.2;
+float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
 float32_t WFM_del_out = 0.0;
@@ -3857,6 +3858,8 @@ void loop() {
 #if defined(HARDWARE_DD4WH_T4)
 //      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
 //      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32 (float_buffer_L, 1.0f / (bands[current_band].RFgain + 1.0f), float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32 (float_buffer_R, 1.0f / (bands[current_band].RFgain + 1.0f), float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 
       /*************************************************************************************************************************************
@@ -3875,9 +3878,9 @@ void loop() {
 #endif
 #if defined(HARDWARE_DD4WH_T4)
       //      const float32_t WFM_scaling_factor = 0.009; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
-      const float32_t WFM_scaling_factor = 1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+      const float32_t WFM_scaling_factor = 0.24f; //1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
 #else
-      const float32_t WFM_scaling_factor = 0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+      const float32_t WFM_scaling_factor = 0.24f; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
 #endif
       // 0.025 leads to distortion, 0.001 is much too low, 0.1 is quite good???
       //    arm_scale_f32(float_buffer_L, WFM_scaling_factor, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
@@ -4097,7 +4100,7 @@ void loop() {
                         //Serial.println(" wrap +TWO PI");
             }
           }
-// wraparound code here???
+// wraparound code was here??? --> should be inside if loop
         }
         else
         {
@@ -4244,22 +4247,22 @@ else // no decimation/interpolation
       else // MONO
       { // in FFT_buffer is perfect audio, but with preemphasis on the treble
 
+    // decimate-by-4 --> 64ksps
+      arm_fir_decimate_f32(&WFM_decimation_R, FFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
-        // lowpass filter with 15kHz Fstop
-        //        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
-        //        arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-        //    arm_copy_f32(FFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-        //      arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+ //   5   lowpass filter 15kHz & deemphasis
+        // lowpass filter with 15kHz Fstop & deemphasis
+        rawFM_old_R = deemphasis_wfm_ff (FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM, float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES);
 
-        // de-emphasis with exponential averager
-        float_buffer_L[0] = FFT_buffer[0] * deemp_alpha + alt_WFM_audio * onem_deemp_alpha;
-        for (int idx = 1; idx < BUFFER_SIZE * WFM_BLOCKS; idx++)
-        {
-          float_buffer_L[idx] = FFT_buffer[idx] * 0.09 + float_buffer_L[idx - 1] * 0.91;
-          iFFT_buffer[idx] = float_buffer_L[idx];
-        }
-        iFFT_buffer[0] = float_buffer_L[0];
-        alt_WFM_audio = float_buffer_L[(BUFFER_SIZE * WFM_BLOCKS) - 1];
+ //   6   notch filter 19kHz to eliminate pilot tone from audio
+         arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+
+      // interpolate-by-4 to 256ksps before sending audio to DAC
+         arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
+      // scaling after interpolation !
+         arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+         arm_copy_f32(iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS); 
       }
 
       if (Q_in_L.available() >  25)
