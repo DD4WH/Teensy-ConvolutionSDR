@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_06
+   (c) Frank DD4WH 2020_04_10
 
    "TEENSY CONVOLUTION SDR"
 
@@ -187,6 +187,9 @@
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
 #define HARDWARE_DD4WH_T4
+
+/*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
+#define HARDWARE_AD8331
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
@@ -1491,23 +1494,24 @@ float32_t WFM_lastphase = 0.1;
 float32_t WFM_dphase = 0.1;
 const uint32_t WFM_BLOCKS = 8;
 //const uint32_t WFM_BLOCKS = 2;
-#define FMPLL_RANGE 15000.0  //maximum deviation limit of PLL
-#define VOICE_BANDWIDTH 3000.0
 
-#define FMPLL_BW VOICE_BANDWIDTH  //natural frequency ~loop bandwidth
-#define FMPLL_ZETA 0.707       //PLL Loop damping factor
+#define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000.0f) //to normalize Hz to radians
+#define PILOTPLL_FREQ     19000.0f  //Centerfreq of pilot tone
+#define PILOTPLL_RANGE    20.0f
+#define PILOTPLL_BW       10.0f
+#define PILOTPLL_ZETA     0.707f
+#define PILOTPLL_LOCK_TIME_CONSTANT 0.5f
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
 #define m_PilotPhaseAdjust  0.0
 float32_t  m_PilotNcoPhase = 0.0;
-float32_t  m_PilotNcoFreq = 0.0;
+float32_t  m_PilotNcoFreq = -PILOTPLL_FREQ * WFM_SAMPLE_RATE_NORM;
 //float32_t  m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 float32_t DMAMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 //float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
-#define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000) //to normalize Hz to radians
 
 #define decimate_WFM 1
 
@@ -1519,13 +1523,13 @@ float32_t WFM_phzerror = 1.0;
 float32_t LminusR = 2.0;
 
   //initialize the PLL
-float32_t  m_PilotNcoLLimit = -FMPLL_RANGE * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
-float32_t  m_PilotNcoHLimit = FMPLL_RANGE * WFM_SAMPLE_RATE_NORM;
-float32_t  m_PilotPllAlpha = 2.0 * FMPLL_ZETA * FMPLL_BW * WFM_SAMPLE_RATE_NORM; // 
-float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * FMPLL_ZETA * FMPLL_ZETA);
+float32_t  m_PilotNcoLLimit = (-PILOTPLL_FREQ - PILOTPLL_RANGE) * WFM_SAMPLE_RATE_NORM;    //clamp FM PLL NCO
+float32_t  m_PilotNcoHLimit = (-PILOTPLL_FREQ + PILOTPLL_RANGE) * WFM_SAMPLE_RATE_NORM;
+float32_t  m_PilotPllAlpha = 2.0 * PILOTPLL_ZETA * PILOTPLL_BW * WFM_SAMPLE_RATE_NORM; // 
+float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * PILOTPLL_ZETA * PILOTPLL_ZETA);
 float32_t  m_PhaseErrorMagAve = 0.0;
-float32_t  one_m_m_PhaseErrorMagAlpha = 0.0;
-float32_t  m_PhaseErrorMagAlpha = 1.0;
+float32_t  m_PhaseErrorMagAlpha = (1.0f - expf(-1.0f/(256000 * PILOTPLL_LOCK_TIME_CONSTANT)));
+float32_t  one_m_m_PhaseErrorMagAlpha = 1.0f - m_PhaseErrorMagAlpha;
 
 #define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
 const uint32_t WFM_decimation_taps = 20;
@@ -3140,6 +3144,13 @@ void setup() {
   // severe disturbance occurs (in the audio loudspeaker amp!) with the standard speed of 488.28Hz, which is well in the audible audio range
   analogWrite(BACKLIGHT_PIN, spectrum_brightness); // 0: dark, 255: bright
 #endif
+
+#if defined(HARDWARE_AD8331)
+  pinMode(1, OUTPUT );
+  analogWriteResolution(8); // set resolution to 8 bit
+  analogWrite(1, 60); // 25/255 * 3.3V = 0.33 Volt
+#endif
+
 #if defined(BUTTON_1_PIN)
   pinMode(BUTTON_1_PIN, INPUT_PULLUP);
   pinMode(BUTTON_2_PIN, INPUT_PULLUP);
@@ -3841,10 +3852,8 @@ void loop() {
       }
 
 #if defined(HARDWARE_DD4WH_T4)
-//      arm_scale_f32 (float_buffer_L, DD4WH_RF_gain, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
-//      arm_scale_f32 (float_buffer_R, DD4WH_RF_gain, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
-      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+//      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+//      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 
       /*************************************************************************************************************************************
@@ -3861,8 +3870,12 @@ void loop() {
       arm_fir_f32 (&FIR_WFM_I, float_buffer_L, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
       arm_fir_f32 (&FIR_WFM_Q, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
+#if defined(HARDWARE_DD4WH_T4)
       //      const float32_t WFM_scaling_factor = 0.009; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+      const float32_t WFM_scaling_factor = 1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+#else
       const float32_t WFM_scaling_factor = 0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+#endif
       // 0.025 leads to distortion, 0.001 is much too low, 0.1 is quite good???
       //    arm_scale_f32(float_buffer_L, WFM_scaling_factor, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
       //    arm_scale_f32(float_buffer_R, WFM_scaling_factor, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
@@ -4016,6 +4029,7 @@ void loop() {
 
         if (1)
         {
+          //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //    3   PLL for pilot tone in order to determine the phase of the pilot tone
           for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
           {
@@ -4051,7 +4065,7 @@ void loop() {
               m_PilotNcoFreq = m_PilotNcoLLimit;
             }
             m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
-            //        if((five_sec.check() == 1))     Serial.println(m_PilotNcoPhase);
+                    if((five_sec.check() == 1))     Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
 
             //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
             if (atan2_approx)
@@ -4069,12 +4083,12 @@ void loop() {
           while (m_PilotNcoPhase >= TPI)
           {
             m_PilotNcoPhase -= TPI;
-            //          Serial.println(" wrap -TWO PI");
+                      Serial.println(" wrap -TWO PI");
           }
           while (m_PilotNcoPhase < 0.0f)
           {
             m_PilotNcoPhase += TPI;
-            //          Serial.println(" wrap +TWO PI");
+                      Serial.println(" wrap +TWO PI");
           }
         }
         else
@@ -11309,7 +11323,10 @@ void encoders () {
       }
 #if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
-#endif      
+#endif  
+#if defined(HARDWARE_AD8331)
+    analogWrite(1, bands[current_band].RFgain * 3.3);    
+#endif    
     }
     else if (Menu2 == MENU_VOLUME)
     {
