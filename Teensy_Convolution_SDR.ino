@@ -230,7 +230,6 @@
 #endif
 
 //  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  
-//  obsolete for the T4 which has double precision FPU
 #if (!defined(T4))
 extern "C"
 {
@@ -1502,6 +1501,7 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_BW       10.0f
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 0.5f
+float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
 float32_t m_PilotPhaseAdjust = 1.2;
@@ -3151,7 +3151,7 @@ void setup() {
 #if defined(HARDWARE_AD8331)
   pinMode(1, OUTPUT );
   analogWriteResolution(8); // set resolution to 8 bit
-  analogWrite(1, 60); // 25/255 * 3.3V = 0.33 Volt
+  analogWrite(1, 0); // 25/255 * 3.3V = 0.33 Volt
 #endif
 
 #if defined(BUTTON_1_PIN)
@@ -3966,6 +3966,8 @@ void loop() {
 
         if (1)
         {
+          Pilot_tone_freq = Pilot_tone_freq * 0.995f + 0.005f * m_PilotNcoFreq * 256000.0f / TWO_PI;
+          //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //Serial.println(m_PilotNcoPhase, 10);
           //    3   PLL for pilot tone in order to determine the phase of the pilot tone
@@ -6417,6 +6419,7 @@ if(0)
   {
     wait_flag = 0;
     displayClock();
+    show_frequency(Pilot_tone_freq * 100000.0, 0);
   }
 
   //    if(dbm_check.check() == 1) Calculatedbm();
@@ -8988,11 +8991,11 @@ void show_frequency(double freq, uint8_t text_size) {
   int8_t font_width = 8;
   int8_t sch_help = 0;
   freq = freq / SI5351_FREQ_MULT;
-  if (bands[current_band].mode == DEMOD_WFM)
+  if (bands[current_band].mode == DEMOD_WFM && text_size != 0)
   {
     // old undersampling 5 times MODE, now switched to 3 times undersampling
     //        freq = freq * 5 + 1.25 * SR[SAMPLE_RATE].rate; // undersampling of f/5 and correction, because no IF is used in WFM mode
-    freq = 10.0 * round((freq * 3.0 + 0.75 * (double)SR[SAMPLE_RATE].rate) / 10 ); // undersampling of f/3 and correction, because no IF is used in WFM mode
+    freq = 100.0 * round((freq * 3.0 + 0.75 * (double)SR[SAMPLE_RATE].rate) / 100.0 ); // undersampling of f/3 and correction, because no IF is used in WFM mode
     erase_flag = 1;
   }
   if (text_size == 0) // small SAM carrier display
@@ -9005,10 +9008,17 @@ void show_frequency(double freq, uint8_t text_size) {
       tft.print("  ");
       tft.setCursor(pos_x_frequency + 10, pos_y_frequency + 26);
       tft.setTextColor(ILI9341_ORANGE);
-      tft.print("SAM carrier ");
+      if(bands[current_band].mode != DEMOD_WFM)
+      {
+        tft.print("SAM carrier ");
+      }
+      else
+      {
+        tft.print("Pilot tone "); // gimmick to print out exact pilot tone frequency ;-)
+      }
     }
     sch_help = 9;
-    freq += SAM_carrier_freq_offset;
+    if(bands[current_band].mode != DEMOD_WFM) freq += SAM_carrier_freq_offset;
     tft.setFont(Arial_10);
     pos_x_frequency = pos_x_frequency + 68;
     pos_y_frequency = pos_y_frequency + 24;
@@ -16620,6 +16630,7 @@ void T4_rtc_set(unsigned long t)
 
 // by FrankB April 2020
 // disable ADCs, enable spread spectrum, overclock IGP to reduce electromagnetic interference in the T4
+/*
 void set_CPU_freq_T4(void)
 {
   #if defined(T4)
@@ -16631,4 +16642,38 @@ void set_CPU_freq_T4(void)
   CCM_CCGR1 &= ~CCM_CCGR1_ADC2(CCM_CCGR_ON); //Disable ADC2
   CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (300MHz Bus for 600MHz CPU)
 #endif
+}
+*/
+#define USE_T4_PLL2 
+
+// by FrankB April 2020
+// disable ADCs, enable spread spectrum, overclock IGP to reduce electromagnetic interference in the T4
+void set_CPU_freq_T4()
+{
+  CCM_ANALOG_PLL_SYS_SS = 0xfffff000; //enable spread spectrum for PLL2. TODO: Find best value.
+  
+  //Disable some parts:
+  //CCM_ANALOG_PFD_528_SET = (1 << 31) | (1 << 15) ; //Disable PLL2: PFD3, PFD1 (not needed)
+  //CCM_ANALOG_PFD_480_SET = (1 << 31) | (1 << 23) | (1 << 15); //Disable PLL3: PFD3, PFD2, PFD1 (not needed)
+  CCM_CCGR1 &= ~CCM_CCGR1_ADC1(CCM_CCGR_ON); //Disable ADC1
+  CCM_CCGR1 &= ~CCM_CCGR1_ADC2(CCM_CCGR_ON); //Disable ADC2
+
+#ifdef USE_T4_PLL2
+  set_arm_clock(594'000'000);
+  F_BUS_ACTUAL = 594'000'000 / 2;
+  CCM_ANALOG_PFD_528_CLR = (0x3f << 16);
+  CCM_ANALOG_PFD_528_SET = (0x10 << 16);
+
+  CCM_CBCDR |= CCM_CBCDR_PERIPH_CLK_SEL;
+  while (CCM_CDHIPR & CCM_CDHIPR_PERIPH_CLK_SEL_BUSY) ; // wait
+
+  CCM_CBCMR &= ~(1 << 19); //ARM - Clock Source PLL2 - PFD0
+
+  CCM_CBCDR &= ~CCM_CBCDR_PERIPH_CLK_SEL;
+  while (CCM_CDHIPR & CCM_CDHIPR_PERIPH_CLK_SEL_BUSY) ; // wait
+
+  CCM_ANALOG_PLL_ARM &= ~(1 << 12); //Disable ARM-PLL
+#endif
+  CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
+
 }
