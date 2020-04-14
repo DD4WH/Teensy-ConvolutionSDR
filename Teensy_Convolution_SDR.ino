@@ -1486,6 +1486,10 @@ int16_t *sp_L;
 int16_t *sp_R;
 float32_t hh1 = 0.0;
 float32_t hh2 = 0.0;
+float32_t I_old = 0.2;
+float32_t Q_old = 0.2;
+float32_t I_old_old = 0.2;
+float32_t Q_old_old = 0.2;
 float32_t rawFM_old_L = 0.0;
 float32_t rawFM_old_R = 0.0;
 const uint32_t WFM_BLOCKS = 8;
@@ -1500,7 +1504,7 @@ const uint32_t WFM_BLOCKS = 8;
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = -500.0;
+float32_t m_PilotPhaseAdjust = -0.5;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
