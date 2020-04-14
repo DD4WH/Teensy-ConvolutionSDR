@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_13
+   (c) Frank DD4WH 2020_04_14
 
    "TEENSY CONVOLUTION SDR"
 
@@ -1501,7 +1501,7 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_BW       10.0f
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 0.5f // lock filter tiome in seconds
-#define WFM_LOCK_MAG_THRESHOLD      0.05f // lock error magnitude
+#define WFM_LOCK_MAG_THRESHOLD      0.12f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
@@ -1516,6 +1516,7 @@ float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 //float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
+float32_t DMAMEM m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS];
 
 #define decimate_WFM 1
 
@@ -3859,8 +3860,8 @@ void loop() {
 #if defined(HARDWARE_DD4WH_T4)
 //      arm_scale_f32 (float_buffer_L, bands[current_band].RFgain + 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
 //      arm_scale_f32 (float_buffer_R, bands[current_band].RFgain + 1, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
-      arm_scale_f32 (float_buffer_L, 1.0f / (bands[current_band].RFgain + 1.0f), float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-      arm_scale_f32 (float_buffer_R, 1.0f / (bands[current_band].RFgain + 1.0f), float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+//      arm_scale_f32 (float_buffer_L, 1.0f / (RF_attenuation * 1000.0f + 1.0f), float_buffer_L, BUFFER_SIZE * WFM_BLOCKS); // this does not change anything
+//      arm_scale_f32 (float_buffer_R, 1.0f / (RF_attenuation * 1000.0f + 1.0f), float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 
       /*************************************************************************************************************************************
@@ -3878,7 +3879,7 @@ void loop() {
       arm_fir_f32 (&FIR_WFM_Q, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 #if defined(HARDWARE_DD4WH_T4)
-      const float32_t WFM_scaling_factor = 0.24f; //1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
+      const float32_t WFM_scaling_factor = 1.0f / (RF_attenuation + 1.0f); //1.0f;// 100.0f; //0.24; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
 #else
       const float32_t WFM_scaling_factor = 0.24f; //1.0;//0.01; // 0.01: good, 0.001: rauscht, 0.1: rauscht
 #endif
@@ -3940,9 +3941,9 @@ void loop() {
       I_old = float_buffer_L[BUFFER_SIZE * WFM_BLOCKS - 1];
       Q_old = float_buffer_R[BUFFER_SIZE * WFM_BLOCKS - 1];
 
-      if (stereo_factor > 0.1f && WFM_is_stereo == 1)
+/*      if (stereo_factor > 0.1f)
       {
-
+*/
 #ifdef NEW_STEREO_PATH
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -3966,7 +3967,166 @@ void loop() {
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
-        if (1)
+//########################################################################################
+//########################################################################################
+
+          Pilot_tone_freq = Pilot_tone_freq * 0.991f + 0.009f * m_PilotNcoFreq * 256000.0f / TWO_PI;
+          Serial.println(m_PhaseErrorMagAve);
+          //Serial.println(Pilot_tone_freq,4);
+          //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
+          //Serial.println(m_PilotNcoPhase, 10);
+          //    3   PLL for pilot tone in order to determine the phase of the pilot tone
+          for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+            if (atan2_approx)
+            {
+              WFM_Sin = arm_sin_f32(m_PilotNcoPhase);
+              WFM_Cos = arm_cos_f32(m_PilotNcoPhase);
+            }
+            else
+            {
+              WFM_Sin = sin(m_PilotNcoPhase);
+              WFM_Cos = cos(m_PilotNcoPhase);
+            }
+
+            WFM_tmp_re = WFM_Cos * UKW_buffer_3[i] - WFM_Sin * UKW_buffer_4[i];
+            WFM_tmp_im = WFM_Cos * UKW_buffer_4[i] + WFM_Sin * UKW_buffer_3[i];
+            if (atan2_approx)
+            {
+              WFM_phzerror = -ApproxAtan2(WFM_tmp_im, WFM_tmp_re);
+              //WFM_phzerror = -arm_atan2_f32(WFM_tmp_im, WFM_tmp_re);
+            }
+            else
+            {
+              WFM_phzerror = -atan2f(WFM_tmp_im, WFM_tmp_re);
+            }
+            WFM_del_out = WFM_fil_out; // wdsp
+            m_PilotNcoFreq += (m_PilotPllBeta * WFM_phzerror);
+            if (m_PilotNcoFreq > m_PilotNcoHLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoHLimit;
+            }
+            else if (m_PilotNcoFreq < m_PilotNcoLLimit)
+            {
+              m_PilotNcoFreq = m_PilotNcoLLimit;
+            }
+            WFM_fil_out = m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror;
+
+            m_PilotNcoPhase += WFM_del_out;
+            m_PilotPhase[i] = m_PilotNcoPhase + m_PilotPhaseAdjust;
+            // wrap round 2PI, modulus
+            while (m_PilotNcoPhase >= TPI)
+            {
+              m_PilotNcoPhase -= TPI;
+                        //Serial.println(" wrap -TWO PI");
+            }
+            while (m_PilotNcoPhase < 0.0f)
+            {
+              m_PilotNcoPhase += TPI;
+                        //Serial.println(" wrap +TWO PI");
+            }
+            m_PhaseErrorMagAve = one_m_m_PhaseErrorMagAlpha * m_PhaseErrorMagAve + m_PhaseErrorMagAlpha * WFM_phzerror * WFM_phzerror;
+            if(m_PhaseErrorMagAve < WFM_LOCK_MAG_THRESHOLD)
+              WFM_is_stereo = 1;
+              else
+              WFM_is_stereo = 0;
+          }
+
+
+//########################################################################################
+//########################################################################################
+
+
+
+        if(WFM_is_stereo) // this routine does the PLL locking of the pilot tone at 19kHz
+        { //if pilot tone present, do stereo demuxing
+          for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+            //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
+            if (atan2_approx)
+            {
+              LminusR = 2.0f * FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
+            }
+            else
+            {
+              LminusR = 2.0f * FFT_buffer[i] * sin((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
+            }
+            float_buffer_R[i] = FFT_buffer[i] + LminusR;
+            iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+          }
+        // STEREO post-processing
+            if(decimate_WFM)
+            {
+    
+        // F_CPU_ACTUAL == 600MHZ  
+        // 80.5% (atan2 and cos/sin) vs. 32.0% (ATAN_APPROX & ARM sin/cos) processor load for FM HIFI STEREO on the T4 before implementing decimation/interpolation
+        // 78.8% vs. 30.6% with decimation and interpolation
+        // plus 19kHz notch IIR filter
+        // 78.0% vs. 30.7% with notch filter 
+    
+        // decimate-by-4 --> 64ksps
+          arm_fir_decimate_f32(&WFM_decimation_R, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+          arm_fir_decimate_f32(&WFM_decimation_L, iFFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+    
+     //   5   lowpass filter 15kHz & deemphasis
+            // Right channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES);
+    
+            // Left channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, WFM_DEC_SAMPLES, 64000, rawFM_old_L);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
+    
+     //   6   notch filter 19kHz to eliminate pilot tone from audio
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+    
+          // interpolate-by-4 to 256ksps before sending audio to DAC
+            arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
+            arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
+          // scaling after interpolation !
+            arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            }
+            
+            else // no decimation/interpolation
+            {
+     //   5   lowpass filter 15kHz & deemphasis
+            // Right channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+    
+            // Left channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_L);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+    
+            arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 1, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            }
+              
+        }
+        else
+        { //no pilot so is mono. Just copy real FM demod into both right and left channels
+        // MONO post-processing
+        // decimate-by-4 --> 64ksps
+          arm_fir_decimate_f32(&WFM_decimation_R, FFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+    
+     //   5   lowpass filter 15kHz & deemphasis
+            // lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_R = deemphasis_wfm_ff (FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM, float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES);
+    
+     //   6   notch filter 19kHz to eliminate pilot tone from audio
+             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+    
+          // interpolate-by-4 to 256ksps before sending audio to DAC
+             arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
+          // scaling after interpolation !
+             arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+             arm_copy_f32(iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS); 
+        }
+// ###################################################        
+/*        if (1)
         {
           Pilot_tone_freq = Pilot_tone_freq * 0.991f + 0.009f * m_PilotNcoFreq * 256000.0f / TWO_PI;
           Serial.println(m_PhaseErrorMagAve);
@@ -4009,9 +4169,8 @@ void loop() {
               m_PilotNcoFreq = m_PilotNcoLLimit;
             }
             WFM_fil_out = m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror;
-            //m_PilotNcoPhase += (m_PilotNcoFreq + m_PilotPllAlpha * WFM_phzerror);
+
             m_PilotNcoPhase += WFM_del_out;
-                //    if((five_sec.check() == 1))     Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
 
             //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
             if (atan2_approx)
@@ -4048,9 +4207,10 @@ void loop() {
           arm_copy_f32(FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
           arm_copy_f32(FFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
         }
-         
-if(decimate_WFM)
-{
+*/
+// ###############################         
+/*        if(decimate_WFM)
+        {
 
     // F_CPU_ACTUAL == 600MHZ  
     // 80.5% (atan2 and cos/sin) vs. 32.0% (ATAN_APPROX & ARM sin/cos) processor load for FM HIFI STEREO on the T4 before implementing decimation/interpolation
@@ -4081,10 +4241,10 @@ if(decimate_WFM)
       // scaling after interpolation !
         arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
         arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-}
-
-else // no decimation/interpolation
-{
+        }
+        
+        else // no decimation/interpolation
+        {
  //   5   lowpass filter 15kHz & deemphasis
         // Right channel: lowpass filter with 15kHz Fstop & deemphasis
         rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
@@ -4096,8 +4256,8 @@ else // no decimation/interpolation
 
         arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
         arm_scale_f32(FFT_buffer, 1, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
-}
-
+        }
+*/
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #else
         /*******************************************************************************************************
@@ -4105,7 +4265,7 @@ else // no decimation/interpolation
            STEREO first trial
            39.2% in MONO
          *******************************************************************************************************/
-        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+/*        for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
         { // DC removal filter -----------------------
           w = FFT_buffer[i] + wold * 0.9999f; // yes, I want a superb bass response ;-)
           FFT_buffer[i] = w - wold;
@@ -4205,6 +4365,8 @@ else // no decimation/interpolation
          arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
          arm_copy_f32(iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS); 
       }
+*/      
+#endif // Dummy, delete this asap
 
       if (Q_in_L.available() >  25)
       {
