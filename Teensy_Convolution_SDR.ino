@@ -111,6 +111,7 @@
    - T4: tweak PLL clocks/switch off ADCs etc. to lower EMI in T4 (thanks FrankB !)
    - float/double optimizations (FrankB)
    - bugfix PLL for WFM Stereo (thanks, FrankB for pointing me to that!)
+   - automatic STEREO detection in WFM
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -244,8 +245,8 @@ extern "C"
 }
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
-uint32_t T4_CPU_FREQUENCY  =  600000000;
-//uint32_t T4_CPU_FREQUENCY  =  300000000;
+//uint32_t T4_CPU_FREQUENCY  =  600000000;
+uint32_t T4_CPU_FREQUENCY  =  300000000;
 // use PLL for stereo FM reception only if T4 processing power is available 
 #define NEW_STEREO_PATH
 #endif
@@ -3949,7 +3950,7 @@ void loop() {
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
           Pilot_tone_freq = Pilot_tone_freq * 0.991f + 0.009f * m_PilotNcoFreq * 256000.0f / TWO_PI;
-          Serial.println(m_PhaseErrorMagAve, 10);
+          //Serial.println(m_PhaseErrorMagAve, 10);
           //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //Serial.println(m_PilotNcoPhase, 10);
