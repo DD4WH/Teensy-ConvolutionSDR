@@ -292,9 +292,11 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 #if defined(T4)
 #include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
 #include <EEPROM.h>
+#define WFM_SAMPLE_RATE   256000.0f
 #else
 #include <EEPROM.h>
 #define F_I2S ((((I2S0_MCR >> 24) & 0x03) == 3) ? F_PLL : F_CPU)
+#define WFM_SAMPLE_RATE   234375.0f
 #endif
 
 // temperature stuff
@@ -1496,7 +1498,7 @@ float32_t WFM_lastphase = 0.1;
 float32_t WFM_dphase = 0.1;
 const uint32_t WFM_BLOCKS = 8;
 
-#define WFM_SAMPLE_RATE_NORM    (TWO_PI / 256000.0f) //to normalize Hz to radians
+#define WFM_SAMPLE_RATE_NORM    (TWO_PI / WFM_SAMPLE_RATE) //to normalize Hz to radians
 #define PILOTPLL_FREQ     19000.0f  //Centerfreq of pilot tone
 #define PILOTPLL_RANGE    20.0f
 #define PILOTPLL_BW       10.0f
@@ -1506,7 +1508,7 @@ const uint32_t WFM_BLOCKS = 8;
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = 1.2;
+float32_t m_PilotPhaseAdjust = -500.0;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
@@ -1534,7 +1536,7 @@ float32_t  m_PilotNcoHLimit = m_PilotNcoFreq + PILOTPLL_RANGE * WFM_SAMPLE_RATE_
 float32_t  m_PilotPllAlpha = 2.0 * PILOTPLL_ZETA * PILOTPLL_BW * WFM_SAMPLE_RATE_NORM; // 
 float32_t  m_PilotPllBeta = (m_PilotPllAlpha * m_PilotPllAlpha) / (4.0 * PILOTPLL_ZETA * PILOTPLL_ZETA);
 float32_t  m_PhaseErrorMagAve = 0.01;
-float32_t  m_PhaseErrorMagAlpha = 1.0f - expf(-1.0f/(256000.0f * PILOTPLL_LOCK_TIME_CONSTANT));
+float32_t  m_PhaseErrorMagAlpha = 1.0f - expf(-1.0f/(WFM_SAMPLE_RATE * PILOTPLL_LOCK_TIME_CONSTANT));
 float32_t  one_m_m_PhaseErrorMagAlpha = 1.0f - m_PhaseErrorMagAlpha;
 uint8_t WFM_is_stereo = 1;
 
@@ -1561,7 +1563,7 @@ float32_t DMAMEM WFM_interpolation_coeffs[WFM_decimation_taps];
 // tau = 75µsec in the US -->
 //
 //FIXME
-float32_t dt = 1.0 / (256000.0 / 4);
+float32_t dt = 1.0 / (WFM_SAMPLE_RATE / 4);
 float32_t deemp_alpha = dt / (50e-6 + dt);
 //float32_t m_alpha = 0.91;
 //float32_t deemp_alpha = 0.099;
@@ -1641,7 +1643,7 @@ arm_fir_instance_f32 UKW_FIR_HILBERT_Q;
 float32_t DMAMEM UKW_FIR_HILBERT_Q_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1];
 float32_t DMAMEM UKW_FIR_HILBERT_Q_Coef[UKW_FIR_HILBERT_num_taps];
  
-//#define USE_WFM_FILTER
+#define USE_WFM_FILTER
 #ifdef USE_WFM_FILTER
 // FIR filters for FM reception on VHF
 // --> not needed: reuse FIR_Coef_I and FIR_Coef_Q
@@ -1691,11 +1693,16 @@ float32_t DMAMEM FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 
 
 // läuft !
 //FIXME - sample rate !
-const float32_t FIR_WFM_Coef[] =
+/*const float32_t FIR_WFM_Coef[] =
 { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer
   // Fs = 384kHz, Fc = 120kHz, Kaiser beta 4.4, 36 taps, transition width 0.1
   624.6850061499508230E-6, 0.002708497910576767, 463.7277605032298310E-6, -0.002993671768455668, 0.002974399474225367, 0.001851944115674062, -0.008023223272215739, 0.006351672953904165, 0.006981175200321031, -0.019534687805473273, 0.010792340741888977, 0.021004722459631749, -0.043391183038594551, 0.015053012768562642, 0.061299026906325028, -0.111919636212113038, 0.017679746690378837, 0.540918306257059944, 0.540918306257059944, 0.017679746690378837, -0.111919636212113038, 0.061299026906325028, 0.015053012768562642, -0.043391183038594551, 0.021004722459631749, 0.010792340741888977, -0.019534687805473273, 0.006981175200321031, 0.006351672953904165, -0.008023223272215739, 0.001851944115674062, 0.002974399474225367, -0.002993671768455668, 463.7277605032298310E-6, 0.002708497910576767, 624.6850061499508230E-6
-};
+};*/
+
+const float32_t FIR_WFM_Coef[] =
+{ // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer, DD4WH, 14.4.2020
+  // Fs = 256kHz, Fc = 90kHz, Kaiser beta 4.0, 36 taps, transition width 0.1
+0.001437731130470903,-623.9079482748925330E-6,-0.004018433368130255, 0.001693442534629599,-0.002682456468612093,-0.004117403292228528, 0.007938424317278257,-0.010291511355663908, 0.001333534912806927, 0.013360590278797045,-0.026974989329346208, 0.023034885610990461, 0.004661522731698597,-0.048752097499373287, 0.080517395346191983,-0.060432870537842909,-0.064654364368022313, 0.580477053053593206, 0.580477053053593206,-0.064654364368022313,-0.060432870537842909, 0.080517395346191983,-0.048752097499373287, 0.004661522731698597, 0.023034885610990461,-0.026974989329346208, 0.013360590278797045, 0.001333534912806927,-0.010291511355663908, 0.007938424317278257,-0.004117403292228528,-0.002682456468612093, 0.001693442534629599,-0.004018433368130255,-623.9079482748925330E-6, 0.001437731130470903};
 
 #endif
 
@@ -3525,7 +3532,7 @@ void setup() {
      Coefficients for WFM Hilbert filters
   ****************************************************************************************/
   // calculate Hilbert filter pair for splitting of UKW MPX signal
-  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)256000);
+  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)WFM_SAMPLE_RATE);
 
   // Hilbert filters to generate PLL for 19kHz pilote tone
   arm_fir_init_f32 (&UKW_FIR_HILBERT_I, UKW_FIR_HILBERT_num_taps, UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_I_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
@@ -3540,7 +3547,7 @@ void setup() {
 
 #endif
 
-  calc_FIR_coeffs (WFM_decimation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, 256000);
+  calc_FIR_coeffs (WFM_decimation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, WFM_SAMPLE_RATE);
   if (arm_fir_decimate_init_f32(&WFM_decimation_R, WFM_decimation_taps, (uint32_t)4 , WFM_decimation_coeffs, WFM_decimation_R_state, BUFFER_SIZE * WFM_BLOCKS)) {
     Serial.println("Init of decimation failed");
     while(1);
@@ -3550,7 +3557,7 @@ void setup() {
     while(1);
   }
 
-  calc_FIR_coeffs (WFM_interpolation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, 64000);
+  calc_FIR_coeffs (WFM_interpolation_coeffs, WFM_decimation_taps, (float32_t)15000, 60, 0, 0.0, WFM_SAMPLE_RATE / 4.0f);
   if (arm_fir_interpolate_init_f32(&WFM_interpolation_R, (uint8_t)4, WFM_decimation_taps, WFM_interpolation_coeffs, WFM_interpolation_R_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)4)) 
   {
     Serial.println("Init of interpolation failed");
@@ -3949,7 +3956,7 @@ void loop() {
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
-          Pilot_tone_freq = Pilot_tone_freq * 0.991f + 0.009f * m_PilotNcoFreq * 256000.0f / TWO_PI;
+          Pilot_tone_freq = Pilot_tone_freq * 0.995f + 0.005f * m_PilotNcoFreq * WFM_SAMPLE_RATE / TWO_PI;
           //Serial.println(m_PhaseErrorMagAve, 10);
           //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
@@ -4059,11 +4066,11 @@ void loop() {
             {
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
-            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_R);
+            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_R);
             arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
     
             // Left channel: lowpass filter with 15kHz Fstop & deemphasis
-            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, 256000, rawFM_old_L);
+            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_L);
             arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
     
             arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
@@ -4079,7 +4086,7 @@ void loop() {
     
      //   5   lowpass filter 15kHz & deemphasis
             // lowpass filter with 15kHz Fstop & deemphasis
-            rawFM_old_R = deemphasis_wfm_ff (FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+            rawFM_old_R = deemphasis_wfm_ff (FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES, WFM_SAMPLE_RATE / 4.0f, rawFM_old_R);
             arm_biquad_cascade_df1_f32 (&biquad_WFM, float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES);
     
      //   6   notch filter 19kHz to eliminate pilot tone from audio
@@ -10823,27 +10830,27 @@ void prepare_WFM(void)
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_19k_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 38k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_38k_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)64000, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
   }
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)64000, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
@@ -10856,13 +10863,13 @@ void prepare_WFM(void)
     onem_deemp_alpha = 1.0 - deemp_alpha;
 
   // IIR lowpass filter for wideband FM at 15k
-  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)256000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)WFM_SAMPLE_RATE, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_coeffs[i] = coefficient_set[i];
     biquad_WFM_coeffs[i + 10] = coefficient_set[i];
   }
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)256000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)WFM_SAMPLE_RATE, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_coeffs[i + 5] = coefficient_set[i];
@@ -10870,27 +10877,27 @@ void prepare_WFM(void)
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_19k_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 38k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_38k_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
   }
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)256000, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
