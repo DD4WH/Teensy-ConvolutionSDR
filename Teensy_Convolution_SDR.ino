@@ -1486,16 +1486,8 @@ int16_t *sp_L;
 int16_t *sp_R;
 float32_t hh1 = 0.0;
 float32_t hh2 = 0.0;
-float32_t I_old = 0.2;
-float32_t Q_old = 0.2;
-float32_t I_old_old = 0.2;
-float32_t Q_old_old = 0.2;
 float32_t rawFM_old_L = 0.0;
 float32_t rawFM_old_R = 0.0;
-float32_t alt_WFM_audio = 0.0;
-float32_t WFM_phase = 0.1;
-float32_t WFM_lastphase = 0.1;
-float32_t WFM_dphase = 0.1;
 const uint32_t WFM_BLOCKS = 8;
 
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / WFM_SAMPLE_RATE) //to normalize Hz to radians
@@ -1503,7 +1495,7 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_RANGE    20.0f
 #define PILOTPLL_BW       10.0f
 #define PILOTPLL_ZETA     0.707f
-#define PILOTPLL_LOCK_TIME_CONSTANT 1.2f // lock filter time in seconds
+#define PILOTPLL_LOCK_TIME_CONSTANT 0.6f // lock filter time in seconds
 #define WFM_LOCK_MAG_THRESHOLD      0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
