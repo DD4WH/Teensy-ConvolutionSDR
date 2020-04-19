@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_14
+   (c) Frank DD4WH 2020_04_18
 
    "TEENSY CONVOLUTION SDR"
 
@@ -112,6 +112,9 @@
    - float/double optimizations (FrankB)
    - bugfix PLL for WFM Stereo (thanks, FrankB for pointing me to that!)
    - automatic STEREO detection in WFM
+   - new debouncing of encoder (new lib by FrankB)
+   - audio volume encoder logarithmic feel (thanks to FrankB) 
+   - bugfix Auto-IQ correction Moseley & Slump (2006) (thanks to FrankB) 
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -262,7 +265,8 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 #include <arm_math.h>
 #include <arm_const_structs.h>
 #include <si5351.h>
-#include <Encoder.h>
+//#include <Encoder.h>
+#include <EncoderBounce.h> // https://github.com/FrankBoesing/EncoderBounce
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1533,6 +1537,16 @@ float32_t  m_PhaseErrorMagAve = 0.01;
 float32_t  m_PhaseErrorMagAlpha = 1.0f - expf(-1.0f/(WFM_SAMPLE_RATE * PILOTPLL_LOCK_TIME_CONSTANT));
 float32_t  one_m_m_PhaseErrorMagAlpha = 1.0f - m_PhaseErrorMagAlpha;
 uint8_t WFM_is_stereo = 1;
+
+//bunch of RDS constants
+#define USE_FEC 1  //set to zero to disable FEC correction
+
+#define RDS_FREQUENCY 57000.0
+#define RDS_BITRATE (RDS_FREQUENCY/48.0) //1187.5 bps bitrate
+#define RDSPLL_RANGE 12.0 //maximum deviation limit of PLL
+#define RDSPLL_BW 1.0 //natural frequency ~loop bandwidth
+#define RDSPLL_ZETA .707  //PLL Loop damping factor
+
 
 #define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
 const uint32_t WFM_decimation_taps = 20;
@@ -3174,13 +3188,13 @@ void setup() {
   pinMode(Band1, OUTPUT);  // LPF switches
   pinMode(Band2, OUTPUT);  //
 // internal pull-ups for encoder pins
-  pinMode(16, INPUT_PULLUP);
+/*  pinMode(16, INPUT_PULLUP);
   pinMode(17, INPUT_PULLUP);
   pinMode(14, INPUT_PULLUP);
   pinMode(15, INPUT_PULLUP);
   pinMode(4, INPUT_PULLUP);
   pinMode(5, INPUT_PULLUP);
-
+*/
 #endif
 
 #ifdef HARDWARE_DD4WH
@@ -4025,8 +4039,10 @@ void loop() {
             {
               LminusR = 2.0f * FFT_buffer[i] * sin((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
             }
-            float_buffer_R[i] = FFT_buffer[i] + LminusR;
-            iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+            //float_buffer_R[i] = FFT_buffer[i] + LminusR;
+            //iFFT_buffer[i] = FFT_buffer[i] - LminusR;
+            float_buffer_R[i] = FFT_buffer[i]; // MPX-Signal: L+R
+            iFFT_buffer[i] = LminusR;          // L-R - Signal
           }
         // STEREO post-processing
             if(decimate_WFM)
@@ -4047,6 +4063,14 @@ void loop() {
      //   6   notch filter 19kHz to eliminate pilot tone from audio
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+
+            // make L & R channels
+          for(unsigned i = 0; i < WFM_DEC_SAMPLES; i++)
+          {
+            float hilfsV = float_buffer_L[i]; // L+R
+            float_buffer_L[i] = float_buffer_L[i] + iFFT_buffer[i]; // left channel
+            iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
+          }
     
           // interpolate-by-4 to 256ksps before sending audio to DAC
             arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
@@ -4130,8 +4154,8 @@ void loop() {
       */
 #if defined (HARDWARE_DD4WH_T4)
       // VOLUME control for WFM reception
-      arm_scale_f32(float_buffer_L, audio_volume / 100.0, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-      arm_scale_f32(iFFT_buffer, audio_volume / 100.0, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32(float_buffer_L, VolumeToAmplification(audio_volume), float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+      arm_scale_f32(iFFT_buffer, VolumeToAmplification(audio_volume), iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 #endif
       for (int i = 0; i < WFM_BLOCKS; i++)
       {
@@ -4479,15 +4503,18 @@ if(0)
             Serial.println("twinpeaks_counter ready to test IQ balance !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1");
 #endif
           }
+          teta1 = 0.0f;
+          teta2 = 0.0f;
+          teta3 = 0.0f;
           for (unsigned i = 0; i < n_para; i++)
           {
             teta1 += sign(float_buffer_L[i]) * float_buffer_R[i]; // eq (34)
             teta2 += sign(float_buffer_L[i]) * float_buffer_L[i]; // eq (35)
             teta3 += sign (float_buffer_R[i]) * float_buffer_R[i]; // eq (36)
           }
-          teta1 = -0.01 * (teta1 / n_para) + 0.99 * teta1_old; // eq (34) and first order lowpass
-          teta2 = 0.01 * (teta2 / n_para) + 0.99 * teta2_old; // eq (35) and first order lowpass
-          teta3 = 0.01 * (teta3 / n_para) + 0.99 * teta3_old; // eq (36) and first order lowpass
+          teta1 = -0.01f * (teta1 / n_para) + 0.99f * teta1_old; // eq (34) and first order lowpass
+          teta2 = 0.01f * (teta2 / n_para) + 0.99f * teta2_old; // eq (35) and first order lowpass
+          teta3 = 0.01f * (teta3 / n_para) + 0.99f * teta3_old; // eq (36) and first order lowpass
 
           if (teta2 != 0.0) // prevent divide-by-zero
           {
@@ -4495,21 +4522,21 @@ if(0)
           }
           else
           {
-            M_c1 = 0.0;
+            M_c1 = 0.0f;
           }
 
           float32_t moseley_help = (teta2 * teta2);
-          if (moseley_help > 0.0) // prevent divide-by-zero
+          if (moseley_help > 0.0f) // prevent divide-by-zero
           {
             moseley_help = (teta3 * teta3 - teta1 * teta1) / moseley_help; // eq (31)
           }
-          if (moseley_help > 0.0)// prevent sqrtf of negative value
+          if (moseley_help > 0.0f)// prevent sqrtf of negative value
           {
             M_c2 = sqrtf(moseley_help); // eq (31)
           }
           else
           {
-            M_c2 = 1.0;
+            M_c2 = 1.0f;
           }
           // Test and fix of the "twinpeak syndrome"
           // which occurs sporadically and can -to our knowledge- only be fixed
@@ -4519,7 +4546,7 @@ if(0)
           // We use this to identify the snydrome and reset the codec accordingly:
           // calculate phase between I & Q
 
-          if (teta3 != 0.0 && twinpeaks_tested == 0) // prevent divide-by-zero
+          if (teta3 != 0.0f && twinpeaks_tested == 0) // prevent divide-by-zero
             // twinpeak_tested = 2 --> wait for system to warm up
             // twinpeak_tested = 0 --> go and test the IQ phase
             // twinpeak_tested = 1 --> tested, verified, go and have a nice day!
@@ -4533,7 +4560,7 @@ if(0)
 #ifdef DEBUG
             Serial.print("asinf = "); Serial.println(phase_IQ);
 #endif
-            if ((phase_IQ > 0.15 || phase_IQ < -0.15) && codec_restarts < 5)
+            if ((phase_IQ > 0.15f || phase_IQ < -0.15f) && codec_restarts < 5)
               // threshold lowered, so we can be really sure to have IQ phase balance OK
               // threshold of 22.5 degrees phase shift == PI / 8 == 0.3926990817
               // hopefully your hardware is not so bad, that its phase error is more than 22 degrees ;-)
@@ -4579,7 +4606,6 @@ if(0)
               tft.print("OK !");
             }
           }
-
 
           teta1_old = teta1;
           teta2_old = teta2;
@@ -6111,8 +6137,8 @@ if(0)
       //      if(bands[current_band].mode == DEMOD_LSB || bands[current_band].mode == DEMOD_USB) interpol_scale = 16.0;
       //      if(bands[current_band].mode == DEMOD_USB) interpol_scale = 16.0;
 #if defined (HARDWARE_DD4WH_T4)
-      arm_scale_f32(float_buffer_L, DF * audio_volume / 100.0, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
-      arm_scale_f32(float_buffer_R, DF * audio_volume / 100.0, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32(float_buffer_L, DF * VolumeToAmplification(audio_volume), float_buffer_L, BUFFER_SIZE * N_BLOCKS);
+      arm_scale_f32(float_buffer_R, DF * VolumeToAmplification(audio_volume), float_buffer_R, BUFFER_SIZE * N_BLOCKS);
 #else
       arm_scale_f32(float_buffer_L, DF, float_buffer_L, BUFFER_SIZE * N_BLOCKS);
       arm_scale_f32(float_buffer_R, DF, float_buffer_R, BUFFER_SIZE * N_BLOCKS);
@@ -10929,8 +10955,8 @@ void encoders () {
 
     if (tunestep == 1)
     {
-      if (encoder_change <= 4 && encoder_change > 0) encoder_change = 4;
-      else if (encoder_change >= -4 && encoder_change < 0) encoder_change = - 4;
+     // if (encoder_change <= 4 && encoder_change > 0) encoder_change = 4;
+     // else if (encoder_change >= -4 && encoder_change < 0) encoder_change = - 4;
     }
     double tune_help1;
     if (bands[current_band].mode == DEMOD_WFM)
@@ -10939,11 +10965,11 @@ void encoders () {
       //
 //      tune_help1 = (double)(833333.3333 * ((double)encoder_change / 4.0));
       // tunestep in FM = 100kHz
-      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change / 4.0));
+      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change));
     }
     else
     {
-      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change / 4.0);
+      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change);
     }
     //    long long tune_help1 = tunestep  * SI5351_FREQ_MULT * encoder_change;
     old_freq = bands[current_band].freq;
@@ -10971,11 +10997,11 @@ void encoders () {
     {
       if (abs(bands[current_band].FHiCut) < 500)
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 12.5;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 50;
       }
       else
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 25.0;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 100;
       }
       control_filter_f();
       // set Menu2 to MENU_F_LO_CUT
@@ -10988,7 +11014,7 @@ void encoders () {
     {
       //       if(encoder2_change < 0) spectrum_zoom--;
       //            else spectrum_zoom++;
-      spectrum_zoom += (int)((float)encoder2_change / 4.0);
+      spectrum_zoom += encoder2_change;
       //        Serial.println(encoder2_change);
       //        Serial.println((int)((float)encoder2_change / 4.0));
       if (spectrum_zoom > SPECTRUM_ZOOM_MAX) spectrum_zoom = SPECTRUM_ZOOM_MAX;
@@ -11008,13 +11034,13 @@ void encoders () {
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(K_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
 
-      IQ_amplitude_correction_factor += encoder2_change / 4000.0;
+      IQ_amplitude_correction_factor += encoder2_change / 1000.0f;
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(IQ_amplitude_correction_factor * 1000000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
     } // END IQadjust
     else if (Menu_pointer == MENU_SPECTRUM_BRIGHTNESS)
     {
-      spectrum_brightness += encoder2_change / 4 * 10;
+      spectrum_brightness += encoder2_change * 10;
       if (spectrum_brightness > 255) spectrum_brightness = 255;
       if (spectrum_brightness < 10) spectrum_brightness = 10;
 #if defined(BACKLIGHT_PIN)
@@ -11027,7 +11053,7 @@ void encoders () {
       //            else SAMPLE_RATE++;
 #ifdef DEBUG
       Serial.println(encoder2_change);
-      Serial.println((float)encoder2_change / 4.0);
+      Serial.println((float)encoder2_change);
 #endif
       if (encoder2_change < -1)
       {
@@ -11043,9 +11069,9 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_LPF_SPECTRUM)
     {
-      LPF_spectrum += encoder2_change / 400.0;
-      if (LPF_spectrum < 0.00001) LPF_spectrum = 0.00001;
-      if (LPF_spectrum > 1.0) LPF_spectrum = 1.0;
+      LPF_spectrum += encoder2_change / 100.0f;
+      if (LPF_spectrum < 0.00001f) LPF_spectrum = 0.00001f;
+      if (LPF_spectrum > 1.0f) LPF_spectrum = 1.0f;
     } // END LPFSPECTRUM
     else if (Menu_pointer == MENU_SPECTRUM_OFFSET)   // added pixel offsets  <PUA>
     {
@@ -11062,7 +11088,7 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
     {
-      currentScale -= (long)((float)encoder2_change / 4.0);
+      currentScale -= encoder2_change;
       // wait_flag = 1;
       if (currentScale > 4)
         currentScale = 4;
@@ -11080,23 +11106,23 @@ void encoders () {
       //          P_dirty += (float32_t)encoder2_change / 1000.0;
       //          Serial.print("IQ Phase corr factor:  "); Serial.println(P_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
-      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 4000.0;
+      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 1000.0f;
       //          Serial.print("IQ Phase corr factor"); Serial.println(IQ_phase_correction_factor * 1000000);
 
     } // END IQadjust
     else if (Menu_pointer == MENU_CALIBRATION_FACTOR)
     {
-      calibration_factor += encoder2_change * 25;
+      calibration_factor += encoder2_change * 100;
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_CALIBRATION_CONSTANT)
     {
-      calibration_constant += encoder2_change * 25;
+      calibration_constant += encoder2_change * 100;
       si5351.set_correction(calibration_constant, SI5351_PLL_INPUT_XO);
       //  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_TIME_SET) {
       helpmin = minute(); helphour = hour();
-      helpmin = helpmin + encoder2_change / 4;
+      helpmin = helpmin + encoder2_change;
       if (helpmin > 59) {
         helpmin = 0; helphour = helphour + 1;
       }
@@ -11116,7 +11142,7 @@ void encoders () {
       helpyear = year();
       helpmonth = month();
       helpday = day();
-      helpday = helpday + encoder2_change / 4;
+      helpday = helpday + encoder2_change;
       if (helpday < 1) {
         helpday = 31;
         helpmonth = helpmonth - 1;
@@ -11158,7 +11184,7 @@ void encoders () {
         Menus[MENU_RF_GAIN].text2 = "  gain  ";
         //          Serial.println ("auto = 0");
       }
-      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change / 4;
+      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change;
       if (bands[current_band].RFgain < 0)
       {
         auto_codec_gain = 1; //Serial.println ("auto = 1");
@@ -11178,60 +11204,60 @@ void encoders () {
     }
     else if (Menu2 == MENU_VOLUME)
     {
-      audio_volume = audio_volume + encoder3_change;
+      audio_volume = audio_volume + encoder3_change * 5;
       if (audio_volume < 0) audio_volume = 0;
       else if (audio_volume > 100) audio_volume = 100;
       //      AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.volume((float32_t)audio_volume / 100.0);
+      sgtl5000_1.volume((float32_t)VolumeToAmplification(audio_volume));
 #endif
     }
     else if (Menu2 == MENU_RF_ATTENUATION)
     {
-      RF_attenuation = RF_attenuation + encoder3_change / 4;
+      RF_attenuation = RF_attenuation + encoder3_change;
       if (RF_attenuation < 0) RF_attenuation = 0;
       else if (RF_attenuation > 31) RF_attenuation = 31;
       setAttenuator(RF_attenuation);
     }
     else if (Menu2 == MENU_SAM_ZETA)
     {
-      zeta_help = zeta_help + (float32_t)encoder3_change / 4.0;
+      zeta_help = zeta_help + encoder3_change;
       if (zeta_help < 15) zeta_help = 15;
       else if (zeta_help > 99) zeta_help = 99;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_OMEGA)
     {
-      omegaN = omegaN + (float32_t)encoder3_change * 10 / 4.0;
-      if (omegaN < 20.0) omegaN = 20.0;
-      else if (omegaN > 1000.0) omegaN = 1000.0;
+      omegaN = omegaN + encoder3_change * 10;
+      if (omegaN < 20) omegaN = 20;
+      else if (omegaN > 1000) omegaN = 1000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_CATCH_BW)
     {
-      pll_fmax = pll_fmax + (float32_t)encoder3_change * 100.0 / 4.0;
-      if (pll_fmax < 200.0) pll_fmax = 200.0;
-      else if (pll_fmax > 6000.0) pll_fmax = 6000.0;
+      pll_fmax = pll_fmax + encoder3_change * 100;
+      if (pll_fmax < 200) pll_fmax = 200;
+      else if (pll_fmax > 6000) pll_fmax = 6000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_NOTCH_1)
     {
-      notches[0] = notches[0] + (float32_t)encoder3_change * 10 / 4.0;
-      if (notches[0] < -9900.0) //
+      notches[0] = notches[0] + encoder3_change * 10;
+      if (notches[0] < -9900) //
       {
-        notches[0] = -9900.0;
+        notches[0] = -9900;
         //          notches_on[0] = 0;
         show_menu();
         return;
       }
-      else if (notches[0] > 9900.0) notches[0] = 9900.0;
+      else if (notches[0] > 9900) notches[0] = 9900;
       //      notches_on[0] = 1;
       show_notch((int)notches[0], bands[current_band].mode);
       oldnotchF = notches[0];
     }
     else if (Menu2 == MENU_NOTCH_1_BW)
     {
-      notches_BW[0] = notches_BW[0] + (float32_t)encoder3_change / 4;
+      notches_BW[0] = notches_BW[0] + encoder3_change;
       if (notches_BW[0] < 1)
       {
         notches_BW[0] = 1;
@@ -11269,7 +11295,7 @@ void encoders () {
     */
     else if (Menu2 == MENU_AGC_MODE)
     {
-      AGC_mode = AGC_mode + (float32_t)encoder3_change / 4.0;
+      AGC_mode = AGC_mode + encoder3_change;
       if (AGC_mode > 5) AGC_mode = 5;
       else if (AGC_mode < 0) AGC_mode = 0;
       agc_switch_mode = 1;
@@ -11277,34 +11303,34 @@ void encoders () {
     }
     else if (Menu2 == MENU_AGC_THRESH)
     {
-      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change / 4.0;
+      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change;
       if (bands[current_band].AGC_thresh < -20) bands[current_band].AGC_thresh = -20;
       else if (bands[current_band].AGC_thresh > 120) bands[current_band].AGC_thresh = 120;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_DECAY)
     {
-      agc_decay = agc_decay + encoder3_change * 100.0 / 4.0;
+      agc_decay = agc_decay + encoder3_change * 100;
       if (agc_decay < 100) agc_decay = 100;
       else if (agc_decay > 5000) agc_decay = 5000;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_SLOPE)
     {
-      agc_slope = agc_slope + encoder3_change * 10.0 / 4.0;
+      agc_slope = agc_slope + encoder3_change * 10;
       if (agc_slope < 0) agc_slope = 0;
       else if (agc_slope > 200) agc_slope = 200;
       AGC_prep();
     }
     else if (Menu2 == MENU_STEREO_FACTOR)
     {
-      stereo_factor = stereo_factor + encoder3_change * 20.0 / 4.0;
-      if (stereo_factor < 0.0) stereo_factor = 0.0;
-      else if (stereo_factor > 4000.0) stereo_factor = 4000.0;
+      stereo_factor = stereo_factor + encoder3_change * 20;
+      if (stereo_factor < 0) stereo_factor = 0;
+      else if (stereo_factor > 4000) stereo_factor = 4000;
     }
     else if (Menu2 == MENU_BASS)
     {
-      bass = bass + (float32_t)encoder3_change / 80.0;
+      bass = bass + (float32_t)encoder3_change / 20.0f;
       if (bass > 1.0) bass = 1.0;
       else if (bass < -1.0) bass = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11314,7 +11340,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MIDBASS)
     {
-      midbass = midbass + (float32_t)encoder3_change / 80.0;
+      midbass = midbass + (float32_t)encoder3_change / 20.0f;
       if (midbass > 1.0) midbass = 1.0;
       else if (midbass < -1.0) midbass = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11323,7 +11349,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MID)
     {
-      mid = mid + (float32_t)encoder3_change / 80.0;
+      mid = mid + (float32_t)encoder3_change / 20.0f;
       if (mid > 1.0) mid = 1.0;
       else if (mid < -1.0) mid = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11332,7 +11358,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MIDTREBLE)
     {
-      midtreble = midtreble + (float32_t)encoder3_change / 80.0;
+      midtreble = midtreble + (float32_t)encoder3_change / 20.0f;
       if (midtreble > 1.0) midtreble = 1.0;
       else if (midtreble < -1.0) midtreble = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11341,7 +11367,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_TREBLE)
     {
-      treble = treble + (float32_t)encoder3_change / 80.0;
+      treble = treble + (float32_t)encoder3_change / 20.0f;
       if (treble > 1.0) treble = 1.0;
       else if (treble < -1.0) treble =  -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11351,27 +11377,27 @@ void encoders () {
     }
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
-      if (spectrum_display_scale < 100.0) spectrum_display_scale = spectrum_display_scale + (float32_t)encoder3_change / 4.0;
-      else spectrum_display_scale = spectrum_display_scale + (float32_t)encoder3_change * 5.0;
-      if (spectrum_display_scale > 2000.0) spectrum_display_scale = 2000.0;
-      else if (spectrum_display_scale < 1.0) spectrum_display_scale =  1.0;
+      if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change;
+      else spectrum_display_scale = spectrum_display_scale + encoder3_change * 5;
+      if (spectrum_display_scale > 2000) spectrum_display_scale = 2000;
+      else if (spectrum_display_scale < 1) spectrum_display_scale =  1;
     }
     else if (Menu2 == MENU_BIT_NUMBER)
     {
-      bitnumber = bitnumber + encoder3_change / 4.0;
+      bitnumber = bitnumber + encoder3_change;
       if (bitnumber > 16) bitnumber = 16;
       else if (bitnumber < 3) bitnumber = 3;
     }
     else if (Menu2 == MENU_ANR_TAPS)
     {
-      ANR_taps = ANR_taps + encoder3_change / 4.0;
+      ANR_taps = ANR_taps + encoder3_change;
       if (ANR_taps < ANR_delay) ANR_taps = ANR_delay;
       if (ANR_taps < 16) ANR_taps = 16;
       else if (ANR_taps > 128) ANR_taps = 128;
     }
     else if (Menu2 == MENU_ANR_DELAY)
     {
-      ANR_delay = ANR_delay + encoder3_change / 4.0;
+      ANR_delay = ANR_delay + encoder3_change;
       if (ANR_delay > ANR_taps) ANR_delay = ANR_taps;
       if (ANR_delay < 2) ANR_delay = 2;
       else if (ANR_delay > 128) ANR_delay = 128;
@@ -11393,19 +11419,19 @@ void encoders () {
     }
     else if (Menu2 == MENU_NB_THRESH)
     {
-      NB_thresh = NB_thresh + (float32_t)encoder3_change / 40.0;
+      NB_thresh = NB_thresh + (float32_t)encoder3_change / 10.0f;
       if (NB_thresh > 20.0) NB_thresh = 20.0;
       else if (NB_thresh < 0.1) NB_thresh =  0.1;
     }
     else if (Menu2 == MENU_NB_TAPS)
     {
-      NB_taps = NB_taps + encoder3_change / 4.0;
+      NB_taps = NB_taps + encoder3_change;
       if (NB_taps > 40) NB_taps = 40;
       else if (NB_taps < 6) NB_taps =  6;
     }
     else if (Menu2 == MENU_NB_IMPULSE_SAMPLES)
     {
-      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 20.0;
+      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 5.0f;
       if (NB_impulse_samples > 41) NB_impulse_samples = 41;
       else if (NB_impulse_samples < 3) NB_impulse_samples =  3;
     }
@@ -11413,11 +11439,11 @@ void encoders () {
     {
       if (abs(bands[current_band].FLoCut) < 500)
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 12.5;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 50;
       }
       else
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 25.0;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 100;
       }
       control_filter_f();
       filter_bandwidth();
@@ -11438,20 +11464,20 @@ void encoders () {
         } */
     else if (Menu2 == MENU_NR_PSI)
     {
-      NR_PSI = NR_PSI + (float32_t)encoder3_change / 16;
+      NR_PSI = NR_PSI + (float32_t)encoder3_change / 4.0f;
       if (NR_PSI < 0.2) NR_PSI = 0.2;
       else if (NR_PSI > 20.0) NR_PSI = 20.0;
     }
     else if (Menu2 == MENU_NR_ALPHA)
     {
-      NR_alpha = NR_alpha + (float32_t)encoder3_change / 800.0;
+      NR_alpha = NR_alpha + (float32_t)encoder3_change / 200.0f;
       if (NR_alpha < 0.7) NR_alpha = 0.7;
       else if (NR_alpha > 0.999) NR_alpha = 0.999;
       NR_onemalpha = (1.0 - NR_alpha);
     }
     else if (Menu2 == MENU_NR_BETA)
     {
-      NR_beta = NR_beta + (float32_t)encoder3_change / 800.0;
+      NR_beta = NR_beta + (float32_t)encoder3_change / 200.0f;
       if (NR_beta < 0.1) NR_beta = 0.1;
       else if (NR_beta > 0.999) NR_beta = 0.999;
       NR_onemtwobeta = (1.0 - (2.0 * NR_beta));
@@ -11459,27 +11485,27 @@ void encoders () {
     }
     else if (Menu2 == MENU_NR_KIM_K)
     {
-      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 800.0;
+      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 200.0f;
       if (NR_KIM_K < 0.8) NR_KIM_K = 0.8;
       else if (NR_KIM_K > 1.0) NR_KIM_K = 1.0;
     }
     else if (Menu2 == MENU_LMS_NR_STRENGTH)
     {
-      LMS_nr_strength = LMS_nr_strength + encoder3_change / 4.0;
+      LMS_nr_strength = LMS_nr_strength + encoder3_change;
       if (LMS_nr_strength < 0) LMS_nr_strength = 0;
       else if (LMS_nr_strength > 40) LMS_nr_strength = 40;
       Init_LMS_NR ();
     }
     else if (Menu2 == MENU_CW_DECODER_THRESH)
     {
-      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 40.0;
+      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 10.0f;
       if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
       else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
 #if defined (T4)
     else if (Menu2 == MENU_CPU_SPEED)
     {
-      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 3000000;
+      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 12000000;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
 //      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
 //      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
@@ -11497,7 +11523,6 @@ void encoders () {
       } */
 
     show_menu();
-    //    encoder3.write(0);
 
   }
 }
@@ -12534,7 +12559,7 @@ void reset_codec ()
   sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // in % -100 to +100
   sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
-  sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
+  sgtl5000_1.volume(VolumeToAmplification(audio_volume)); //
   twinpeaks_tested = 3;
 #endif
   AudioInterrupts();
@@ -16574,4 +16599,34 @@ void set_CPU_freq_T4()
 #endif
   CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
 
+}
+
+static float VolumeToAmplification(int volume) 
+//Volume in the Range 0..100
+{
+ /*
+    https://www.dr-lex.be/info-stuff/volumecontrols.html
+  
+    Dynamic range   a           b       Approximation
+    50 dB         3.1623e-3     5.757       x^3
+    60 dB         1e-3          6.908       x^4
+    70 dB         3.1623e-4     8.059       x^5
+    80 dB         1e-4  9.210               x^6
+    90 dB         3.1623e-5     10.36       x^6
+    100 dB        1e-5          11.51       x^7
+*/
+
+float x = volume / 100.0f; //"volume" Range 0..100
+
+#if 0
+  float a = 3.1623e-4;
+  float b = 8.059f;
+  float ampl = a * expf( b * x );
+  if (x < 0.1f) ampl *= x*10.0f;
+#else  
+  //Approximation:
+  float ampl = x * x * x * x * x; //70dB
+#endif  
+
+  return ampl;
 }
