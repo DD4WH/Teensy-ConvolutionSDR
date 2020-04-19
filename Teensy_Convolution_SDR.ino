@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_18
+   (c) Frank DD4WH 2020_04_19
 
    "TEENSY CONVOLUTION SDR"
 
@@ -1506,7 +1506,7 @@ const uint32_t WFM_BLOCKS = 8;
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = -0.5;
+float32_t m_PilotPhaseAdjust = 0.8;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
@@ -4033,11 +4033,13 @@ void loop() {
             //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
             if (atan2_approx)
             {
-              LminusR = 2.0f * FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
+              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + m_PilotPhaseAdjust) * 2.0f);
+//              LminusR = FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
             }
             else
             {
-              LminusR = 2.0f * FFT_buffer[i] * sin((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
+              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * sin((m_PilotPhase[i] + m_PilotPhaseAdjust) * 2.0f);
+//              LminusR = FFT_buffer[i] * sin((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
             }
             //float_buffer_R[i] = FFT_buffer[i] + LminusR;
             //iFFT_buffer[i] = FFT_buffer[i] - LminusR;
@@ -4050,6 +4052,14 @@ void loop() {
         // decimate-by-4 --> 64ksps
           arm_fir_decimate_f32(&WFM_decimation_R, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
           arm_fir_decimate_f32(&WFM_decimation_L, iFFT_buffer, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
+            // make L & R channels
+          for(unsigned i = 0; i < WFM_DEC_SAMPLES; i++)
+          {
+            float hilfsV = float_buffer_R[i]; // L+R
+            float_buffer_R[i] = float_buffer_R[i] + iFFT_buffer[i]; // left channel
+            iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
+          }
     
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
@@ -4063,14 +4073,6 @@ void loop() {
      //   6   notch filter 19kHz to eliminate pilot tone from audio
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
-
-            // make L & R channels
-          for(unsigned i = 0; i < WFM_DEC_SAMPLES; i++)
-          {
-            float hilfsV = float_buffer_L[i]; // L+R
-            float_buffer_L[i] = float_buffer_L[i] + iFFT_buffer[i]; // left channel
-            iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
-          }
     
           // interpolate-by-4 to 256ksps before sending audio to DAC
             arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
@@ -11324,9 +11326,9 @@ void encoders () {
     }
     else if (Menu2 == MENU_STEREO_FACTOR)
     {
-      stereo_factor = stereo_factor + encoder3_change * 20;
+      stereo_factor = stereo_factor + encoder3_change * 10;
       if (stereo_factor < 0) stereo_factor = 0;
-      else if (stereo_factor > 4000) stereo_factor = 4000;
+      else if (stereo_factor > 400) stereo_factor = 400;
     }
     else if (Menu2 == MENU_BASS)
     {
