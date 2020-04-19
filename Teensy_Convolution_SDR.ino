@@ -248,8 +248,8 @@ extern "C"
 }
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
-//uint32_t T4_CPU_FREQUENCY  =  600000000;
-uint32_t T4_CPU_FREQUENCY  =  300000000;
+uint32_t T4_CPU_FREQUENCY  =  600000000;
+//uint32_t T4_CPU_FREQUENCY  =  300000000;
 // use PLL for stereo FM reception only if T4 processing power is available 
 #define NEW_STEREO_PATH
 #endif
@@ -1502,11 +1502,11 @@ const uint32_t WFM_BLOCKS = 8;
 #define PILOTPLL_BW       10.0f
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 0.6f // lock filter time in seconds
-#define WFM_LOCK_MAG_THRESHOLD      0.108f // lock error magnitude
+#define WFM_LOCK_MAG_THRESHOLD      0.11f //0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = 0.8;
+float32_t m_PilotPhaseAdjust = 0.4;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
@@ -1537,6 +1537,28 @@ float32_t  m_PhaseErrorMagAve = 0.01;
 float32_t  m_PhaseErrorMagAlpha = 1.0f - expf(-1.0f/(WFM_SAMPLE_RATE * PILOTPLL_LOCK_TIME_CONSTANT));
 float32_t  one_m_m_PhaseErrorMagAlpha = 1.0f - m_PhaseErrorMagAlpha;
 uint8_t WFM_is_stereo = 1;
+
+// Experiment mit Martin Ossmanns Ansatz
+#define N2 100
+const double O_timeStep = 1.0 / 256000 ;
+const double O_frequency19 = 19000.0 ;
+const double O_dPhase19 = O_frequency19 * 2 * PI * O_timeStep ;
+const double O_cicR = 8.0;
+const double O_gainP = 2e-11 * N2 ;
+const double O_gainI = 2e-5 ;
+const double O_limit = O_dPhase19 / 100.0 ;
+double O_phase = 0.0;
+double O_frequency = 0.0;
+double O_lastPhase = O_phase;
+double O_MPXsignal = 0;
+double O_phase19 = 0;
+double vco19 = 0;
+double O_integrate19 = 0;
+int32_t O_integrateCount19 = 0;
+double O_Pcontrol = 0.0; 
+double O_Icontrol = 0.0;
+double O_vco19 = 0.0;
+int32_t O_iiSum19 = 0 ;
 
 //bunch of RDS constants
 #define USE_FEC 1  //set to zero to disable FEC correction
@@ -3900,6 +3922,96 @@ void loop() {
       const float32_t WFM_scaling_factor = 0.24f; //
 #endif
 
+
+//#############################################################################################################
+//#############################################################################################################
+//#############################################################################################################
+// Martin Ossmann 2015 Elektor - Enhanced FM Stereo on Red Pitaya
+// input: raw I & Q - float_buffer_L = I, float_buffer_R = Q
+// output: iFFT_buffer, float_buffer_L, size: BUFFER_SIZE * WFM_BLOCKS 
+//#define OSSI_WFM_DEMOD 
+#if defined(OSSI_WFM_DEMOD)
+          for (int i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+              O_phase = ApproxAtan2(float_buffer_L[i], float_buffer_R[i]);
+              O_frequency = O_phase - O_lastPhase;
+              O_lastPhase = O_phase;
+              if(O_frequency < -PI)
+              {
+                O_frequency += TWO_PI;
+              }
+              if(O_frequency > PI)
+              {
+                O_frequency -= TWO_PI;
+              }
+              O_MPXsignal = O_frequency;
+              O_phase19 = O_phase19 + O_frequency19 + O_vco19;
+              if(O_phase19 > TWO_PI) O_phase19 -= TWO_PI;
+              O_integrate19 += arm_cos_f32(O_phase19) * O_MPXsignal;
+              //O_LminusRraw = 2.0 * sin(2.0 * O_phase19) * O_MPX_signal;
+              //O_LplusRraw = O_MPX_signal;
+    
+              iFFT_buffer[i] =    O_MPXsignal * 0.00000000001f;
+              float_buffer_L[i] = 2.0 * arm_sin_f32(2.0f * O_phase19 + m_PilotPhaseAdjust + (stereo_factor/100.0f)) * iFFT_buffer[i]; 
+    
+              O_integrateCount19++ ;
+              if(O_integrateCount19 >= N2 )
+              {
+                  O_Pcontrol = 0.99 * O_Pcontrol + O_gainP * O_iiSum19 / ( N2 * O_cicR);
+                  O_Icontrol += O_gainI * O_Pcontrol;
+                  if(  O_Pcontrol >  O_limit ) {  O_Pcontrol= O_limit ; }
+                  if(  O_Pcontrol < -O_limit ) {  O_Pcontrol=-O_limit ; }
+                  if(  O_Icontrol >  O_limit ) {  O_Icontrol= O_limit ; }
+                  if(  O_Icontrol < -O_limit ) {  O_Icontrol=-O_limit ; }
+                  O_vco19 = ( O_Pcontrol + O_Icontrol )*5e8;
+                O_iiSum19 = 0 ;
+                O_integrateCount19 = 0 ;
+              }
+          }
+
+        // decimate-by-4 --> 64ksps
+          arm_fir_decimate_f32(&WFM_decimation_R, iFFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+          arm_fir_decimate_f32(&WFM_decimation_L, float_buffer_L, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
+            // make L & R channels
+          for(unsigned i = 0; i < WFM_DEC_SAMPLES; i++)
+          {
+            float hilfsV = float_buffer_R[i]; // L+R
+            float_buffer_R[i] = float_buffer_R[i] + iFFT_buffer[i]; // left channel
+            iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
+          }
+    
+     //   5   lowpass filter 15kHz & deemphasis
+            // Right channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES);
+    
+            // Left channel: lowpass filter with 15kHz Fstop & deemphasis
+            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, WFM_DEC_SAMPLES, 64000, rawFM_old_L);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
+    
+     //   6   notch filter 19kHz to eliminate pilot tone from audio
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+    
+          // interpolate-by-4 to 256ksps before sending audio to DAC
+            arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
+            arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
+          // scaling after interpolation !
+            arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+
+          
+           // decimation-by-4
+           // adding/subtracting 
+           // IIR lowpass 15k
+                 
+
+#else
+//#############################################################################################################
+//#############################################################################################################
+//#############################################################################################################
+
       if(atan2_approx)
       {
           FFT_buffer[0] = WFM_scaling_factor * ApproxAtan2(I_old * float_buffer_R[0] - float_buffer_L[0] * Q_old,
@@ -4033,12 +4145,12 @@ void loop() {
             //    4   multiply audio with 2 times (2 x 19kHz) the phase of the pilot tone --> L-R signal !
             if (atan2_approx)
             {
-              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + m_PilotPhaseAdjust) * 2.0f);
+              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * arm_sin_f32(m_PilotPhase[i] * 2.0f);
 //              LminusR = FFT_buffer[i] * arm_sin_f32((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
             }
             else
             {
-              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * sin((m_PilotPhase[i] + m_PilotPhaseAdjust) * 2.0f);
+              LminusR = (stereo_factor / 100.0f) * FFT_buffer[i] * sin(m_PilotPhase[i] * 2.0f);
 //              LminusR = FFT_buffer[i] * sin((m_PilotPhase[i] + stereo_factor / 1000.0f) * 2.0f);
             }
             //float_buffer_R[i] = FFT_buffer[i] + LminusR;
@@ -4084,6 +4196,13 @@ void loop() {
             
             else // no decimation/interpolation
             {
+            // make L & R channels
+          for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
+          {
+            float hilfsV = float_buffer_R[i]; // L+R
+            float_buffer_R[i] = float_buffer_R[i] + iFFT_buffer[i]; // left channel
+            iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
+          }
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
             rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_R);
@@ -4102,7 +4221,7 @@ void loop() {
         { //no pilot so is mono. Just copy real FM demod into both right and left channels
         // plus MONO post-processing
         // decimate-by-4 --> 64ksps
-          arm_fir_decimate_f32(&WFM_decimation_R, FFT_buffer, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+          arm_fir_decimate_f32(&WFM_decimation_R, UKW_buffer_1, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
     
      //   5   lowpass filter 15kHz & deemphasis
             // lowpass filter with 15kHz Fstop & deemphasis
@@ -4118,7 +4237,8 @@ void loop() {
              arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
              arm_copy_f32(iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS); 
         }
-
+        
+#endif // Martin Ossmann Demodulation
 
       if (Q_in_L.available() >  25)
       {
