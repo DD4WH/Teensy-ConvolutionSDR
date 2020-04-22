@@ -4017,6 +4017,14 @@ void loop() {
             float_buffer_R[i] = float_buffer_R[i] + iFFT_buffer[i]; // left channel
             iFFT_buffer[i] = hilfsV - iFFT_buffer[i]; // right channel
           }
+
+// do we need a DC removal ???
+
+              // DC removal filter -----------------------
+//              w = audiotmp + wold * 0.9999f; // yes, I want a superb bass response ;-)
+//              float_buffer_L[i] = w - wold;
+//              wold = w;
+
     
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
@@ -11015,7 +11023,7 @@ void prepare_WFM(void)
     biquad_WFM_19k_coeffs[i] = coefficient_set[i];
   }
 
-  // high Q IIR bandpass filter for wideband FM at 38k
+  // high Q IIR bandpass filter for wideband FM at 19k
   set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
