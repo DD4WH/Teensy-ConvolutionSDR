@@ -235,18 +235,15 @@
 #endif
 
 //  this allows simultaneous calculation of sin and cos to save processor time for SAM demodulation  
-#if (!defined(T4))
 extern "C"
 {
   void sincosf(float err, float *s, float *c);
+  void sincos(double err, double *s, double *c);
 }
-#else
+
+#if (defined(T4))
 extern "C" 
 uint32_t set_arm_clock(uint32_t frequency);
-extern "C"
-{
-  void sincosf(float err, float *s, float *c);
-}
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
 uint32_t T4_CPU_FREQUENCY  =  600000000;
@@ -2295,8 +2292,6 @@ const int8_t pos_x_date = 14;
 const int8_t pos_y_date = 68;
 const int16_t pos_x_time = 232; // 14;
 const int16_t pos_y_time = pos_y_frequency; //114;
-const int16_t pos_x_a_time = 298;
-const int16_t pos_y_a_time = 21; //pos_y_frequency +16;
 int helpmin; // definitions for time and date adjust - Menu
 int helphour;
 int helpday;
@@ -11693,38 +11688,24 @@ void encoders () {
   }
 }
 
+/*************************************** CLOCK DISPLAY *************************************************/
+
 #define DISPLAY_ANALOG_CLOCK 1
+
 void displayClock()
 {
-  uint8_t hour10 = hour() / 10 % 10;
-  uint8_t hour1 = hour() % 10;
-  uint8_t minute10 = minute() / 10 % 10;
-  uint8_t minute1 = minute() % 10;
-  uint8_t second10 = second() / 10 % 10;
-  uint8_t second1 = second() % 10;
-  uint8_t time_pos_shift = 12; // distance between figures
-  uint8_t dp = 7; // distance between ":" and figures
 
-  /*  if (mesz != mesz_old && mesz >= 0) {
-      tft.setTextColor(ILI9341_ORANGE);
-      tft.setFont(Arial_16);
-      tft.setCursor(pos_x_date, pos_y_date+20);
-      tft.fillRect(pos_x_date, pos_y_date+20, 150-pos_x_date, 20, ILI9341_BLACK);
-      tft.printf((mesz==0)?"(CET)":"(CEST)");
-    }
-  */
-
-/*  Serial.print(hour10);
-  Serial.print(hour1);
-  Serial.print(" : ");
-  Serial.print(minute10);
-  Serial.print(minute1);
-  Serial.print(" : ");
-  Serial.print(second10);
-  Serial.println(second1);
-*/
   if (!DISPLAY_ANALOG_CLOCK)
   {
+    uint8_t hour10 = hour() / 10 % 10;
+    uint8_t hour1 = hour() % 10;
+    uint8_t minute10 = minute() / 10 % 10;
+    uint8_t minute1 = minute() % 10;
+    uint8_t second10 = second() / 10 % 10;
+    uint8_t second1 = second() % 10;
+    uint8_t time_pos_shift = 12; // distance between figures
+    uint8_t dp = 7; // distance between ":" and figures
+
     tft.setFont(Arial_14);
     tft.setTextColor(ILI9341_WHITE);
 
@@ -11769,176 +11750,157 @@ void displayClock()
       tft.print(second1);  // always display
     }
     tft.setFont(Arial_10);
+    hour1_old = hour1;
+    hour10_old = hour10;
+    minute1_old = minute1;
+    minute10_old = minute10;
+    second1_old = second1;
+    second10_old = second10;
+    mesz_old = mesz;
+    timeflag = 1;
   }
   else
   {
     // put code for analog clock here
-    if (second1 != second1_old)
-    {
-      clock_draw_second(second());
-    }
-    if ((minute1 != minute1_old || !timeflag) || (second() == (minute() + 1)) || (second() == (minute() + 2)))
-    {
-      clock_draw_minute(minute());
-      clock_draw_hour(hour(), minute());
-    }
+      clock_display();
   }
 
-  hour1_old = hour1;
-  hour10_old = hour10;
-  minute1_old = minute1;
-  minute10_old = minute10;
-  second1_old = second1;
-  second10_old = second10;
-  mesz_old = mesz;
-  timeflag = 1;
 } // end function displayTime
 
-#define clock_circle_size 21
 
+#define CLOCK_BORDER  ILI9341_BLUE
+#define CLOCK_BG      ILI9341_NAVY
+#define CLOCK_SECOND  ILI9341_ORANGE
+#define CLOCK_MINUTE  ILI9341_LIGHTGREY
+#define CLOCK_HOUR    ILI9341_WHITE
+
+static const int pos_x_a_time = 296;
+static const int clock_circle_size = 23;
+static const int pos_y_a_time = clock_circle_size;
+
+static void clock_draw_second(int s, boolean del)
+{
+  static int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+  if (del) {
+    tft.drawLine(x1, y1, x2, y2 , CLOCK_BG);
+    return;
+  }
+
+  float SIN, COS;
+  sincosf( (s * 6 + 270) * 0.0175f, &SIN, &COS);
+  x1 = (clock_circle_size - 7) * COS + pos_x_a_time;
+  y1 = (clock_circle_size - 7) * SIN + pos_y_a_time;
+  x2 = 2.0f * COS + pos_x_a_time;
+  y2 = 2.0f * SIN + pos_y_a_time;
+  tft.drawLine(x1, y1, x2, y2, CLOCK_SECOND);
+}
+
+static void clock_draw_minute (int m, boolean del)
+{
+  static int x1 = 0, y1 = 0, x2 = 0, y2 = 0;
+
+  if (del) {
+    tft.drawLine(x1, y1, x2, y2, CLOCK_BG);
+    return;
+  }
+
+  float SIN, COS;
+  sincosf( (m * 6 + 270) * 0.0175f, &SIN, &COS);
+  x1 = (clock_circle_size - 7) * COS + pos_x_a_time;
+  y1 = (clock_circle_size - 7) * SIN + pos_y_a_time;
+  x2 = 2.0f * COS + pos_x_a_time;
+  y2 = 2.0f * SIN + pos_y_a_time;
+  tft.drawLine(x1, y1, x2 , y2 , CLOCK_MINUTE);
+}
+
+static void clock_draw_hour(int h, int m, boolean del)
+{
+  static int x1 = 0, y1 = 0, x2 = 0, y2 = 0, x3 = 0, y3 = 0, x4 = 0, y4 = 0;
+
+  if (del) {
+    tft.drawLine(x1, y1, x3, y3, CLOCK_BG);
+    tft.drawLine(x3, y3, x2, y2, CLOCK_BG);
+    tft.drawLine(x2, y2, x4, y4, CLOCK_BG);
+    tft.drawLine(x4, y4, x1, y1, CLOCK_BG);
+    return;
+  }
+
+  float SIN, COS;
+  float fh = h * 30 + m / 2.0f + 270;
+  sincosf( fh * 0.0175f, &SIN, &COS);
+  x1 = (clock_circle_size - 10) * COS + pos_x_a_time;
+  y1 = (clock_circle_size - 10) * SIN + pos_y_a_time;
+  x2 = -2.0f * COS + pos_x_a_time;
+  y2 = -2.0f * SIN + pos_y_a_time;
+
+  sincosf( (h + 12) * 0.0175f, &SIN, &COS);
+  x3 = 2.0f * COS + pos_x_a_time;
+  y3 = 2.0f * SIN + pos_y_a_time;
+
+  sincosf( (h - 12) * 0.0175f, &SIN, &COS);
+  x4 = -2.0f * COS + pos_x_a_time;
+  y4 = -2.0f * SIN + pos_y_a_time;
+
+  tft.drawLine(x1, y1, x3, y3, CLOCK_HOUR);
+  tft.drawLine(x3, y3, x2, y2, CLOCK_HOUR);
+  tft.drawLine(x2, y2, x4, y4, CLOCK_HOUR);
+  tft.drawLine(x4, y4, x1, y1, CLOCK_HOUR);
+}
+
+void clock_display() {
+  static int sec;
+  int s = second();
+  if (s != sec) {
+
+    sec = s;
+    int m = minute();
+    int h = hour();
+
+    clock_draw_hour(h, m, true);
+    clock_draw_minute(m, true);
+    clock_draw_second(sec, true);
+
+    clock_draw_hour(h, m, false);
+    clock_draw_minute(m, false);
+    clock_draw_second(sec, false);
+
+    tft.drawCircle(pos_x_a_time, pos_y_a_time, 1, CLOCK_HOUR);
+    tft.drawCircle(pos_x_a_time, pos_y_a_time, 2, CLOCK_HOUR);
+
+  }
+}
+
+FLASHMEM
+static void clock_draw_marks(int hour)
+{
+  double SIN, COS;
+  sincos((hour * 30 + 270) * 0.0175, &SIN, &COS);
+  uint16_t color, len;
+  if (hour == 0 || hour == 3 || hour == 6 || hour == 9) {
+    color = ILI9341_WHITE; 
+    len = 6;
+  } else
+  {
+    color = ILI9341_DARKGREY; 
+    len = 4;
+  }
+  int x1 = (clock_circle_size - 1) * COS;
+  int y1 = (clock_circle_size - 1) * SIN;
+  int x2 = (clock_circle_size - len) * COS;
+  int y2 = (clock_circle_size - len) * SIN;
+ 
+  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, color);
+}
+
+FLASHMEM
 void Init_Display_Clock()
 {
   // Draw Clockface
-  for (int16_t i = 0; i < 2; i++)
-  {
-    tft.drawCircle(pos_x_a_time, pos_y_a_time, clock_circle_size - i, ILI9341_WHITE);
-  }
-  for (int16_t i = 0; i < 2; i++)
-  {
-    tft.drawCircle(pos_x_a_time, pos_y_a_time, i, ILI9341_WHITE);
-  }
-
+  tft.fillCircle(pos_x_a_time, pos_y_a_time + 1, clock_circle_size, CLOCK_BORDER);
+  tft.fillCircle(pos_x_a_time, pos_y_a_time + 1, clock_circle_size - 3, CLOCK_BG);
   // Draw a small mark for every hour
-  for (int i = 0; i < 12; i++)
-  {
-    clock_draw_marks(i);
-  }
-}
-
-void clock_draw_marks(int hour)
-{
-  float x1, y1, x2, y2;
-
-  hour = hour * 30;
-  hour = hour + 270;
-  float COS = cosf(hour * 0.0175f);
-  float SIN = sinf(hour * 0.0175f);
-  x1 = (clock_circle_size - 2) * COS;
-  y1 = (clock_circle_size - 2) * SIN;
-  x2 = (clock_circle_size - 6) * COS;
-  y2 = (clock_circle_size - 6) * SIN;
-
-  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_WHITE);
-}
-
-/*
-   drawLine(int16_t x0, int16_t y0,
-  int16_t x1, int16_t y1, uint16_t color)
-*/
-
-void clock_draw_second(int s)
-{
-  static float x1 = 0;
-  static float y1 = 0;
-  static float x2 = 0;
-  static float y2 = 0;
-
-  s = s * 6;
-  s = s + 270;
-
-  {
-    tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_BLACK);
-  }
-
-  float COS = cosf(s * 0.0175f);
-  float SIN = sinf(s * 0.0175f);
-
-  x1 = (clock_circle_size - 7) * COS; // outer
-  y1 = (clock_circle_size - 7) * SIN;
-  x2 = 2 * COS; // inner
-  y2 = 2 * SIN;
-
-  //   if (!((s % 5) == 0))
-  { // prevent overwriting hour marks
-    tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_RED);
-  }
-}
-
-void clock_draw_minute (int m)
-{
-  static float x1 = 0;
-  static float y1 = 0;
-  static float x2 = 0;
-  static float y2 = 0;
-
-  m = m * 6;
-  m = m + 270;
-
-  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_BLACK);
-
-  float COS = cosf(m * 0.0175f);
-  float SIN = sinf(m * 0.0175f);
-
-  x1 = (clock_circle_size - 6) * COS;
-  y1 = (clock_circle_size - 6) * SIN;
-  x2 = 2 * COS;
-  y2 = 2 * SIN;
-  // x3=10*cosf((m+8)*0.0175);
-  // y3=10*sinf((m+8)*0.0175);
-  // x4=10*cosf((m-8)*0.0175);
-  // y4=10*sinf((m-8)*0.0175);
-
-  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_WHITE);
-
-  //  tft.drawLine(x1+pos_x_a_time, y1+pos_y_a_time, x3+pos_x_a_time, y3+pos_y_a_time, ILI9341_WHITE);
-  //  tft.drawLine(x3+pos_x_a_time, y3+pos_y_a_time, x2+pos_x_a_time, y2+pos_y_a_time, ILI9341_WHITE);
-  //  tft.drawLine(x2+pos_x_a_time, y2+pos_y_a_time, x4+pos_x_a_time, y4+pos_y_a_time, ILI9341_WHITE);
-  //  tft.drawLine(x4+pos_x_a_time, y4+pos_y_a_time, x1+pos_x_a_time, y1+pos_y_a_time, ILI9341_WHITE);
-}
-
-void clock_draw_hour(int h, int m)
-{
-  static float x1 = 0;
-  static float y1 = 0;
-  static float x2 = 0;
-  static float y2 = 0;
-  static float x3 = 0;
-  static float y3 = 0 ;
-  static float x4 = 0;
-  static float y4 = 0;
-
-  h = (h * 30) + (m / 2);
-  h = h + 270;
-
-  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x3 + pos_x_a_time, y3 + pos_y_a_time, ILI9341_BLACK);
-  tft.drawLine(x3 + pos_x_a_time, y3 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_BLACK);
-  tft.drawLine(x2 + pos_x_a_time, y2 + pos_y_a_time, x4 + pos_x_a_time, y4 + pos_y_a_time, ILI9341_BLACK);
-  tft.drawLine(x4 + pos_x_a_time, y4 + pos_y_a_time, x1 + pos_x_a_time, y1 + pos_y_a_time, ILI9341_BLACK);
-
-  float COS = cosf(h * 0.0175f);
-  float SIN = sinf(h * 0.0175f);
-
-  x1 = (clock_circle_size - 10) * COS;
-  y1 = (clock_circle_size - 10) * SIN;
-  x2 = 2 * COS;
-  y2 = 2 * SIN;
-
-  COS = cosf((h + 12) * 0.0175f);
-  SIN = sinf((h + 12) * 0.0175f);
-
-  x3 = 6 * COS;
-  y3 = 6 * SIN;
-
-  COS = cosf((h - 12) * 0.0175f);
-  SIN = sinf((h - 12) * 0.0175f);
-
-  x4 = 6 * COS;
-  y4 = 6 * SIN;
-
-  tft.drawLine(x1 + pos_x_a_time, y1 + pos_y_a_time, x3 + pos_x_a_time, y3 + pos_y_a_time, ILI9341_WHITE);
-  tft.drawLine(x3 + pos_x_a_time, y3 + pos_y_a_time, x2 + pos_x_a_time, y2 + pos_y_a_time, ILI9341_WHITE);
-  tft.drawLine(x2 + pos_x_a_time, y2 + pos_y_a_time, x4 + pos_x_a_time, y4 + pos_y_a_time, ILI9341_WHITE);
-  tft.drawLine(x4 + pos_x_a_time, y4 + pos_y_a_time, x1 + pos_x_a_time, y1 + pos_y_a_time, ILI9341_WHITE);
+  for (int i = 0; i < 12; i++) clock_draw_marks(i);
 }
 
 void displayDate() {
@@ -11949,6 +11911,8 @@ void displayDate() {
   //FIXME
   tft.printf("%s, %02d.%02d.%04d", Days[weekday() % 7], day(), month(), year());
 } // end function displayDate
+
+/*************************************** CLOCK DISPLAY END *************************************************/
 
 void set_SAM_PLL() {
   // DX adjustments: zeta = 0.15, omegaN = 100.0
