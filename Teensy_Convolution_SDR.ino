@@ -199,6 +199,7 @@
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
+//#define HARDWARE_FRANKB2
 
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
 //#define HARDWARE_DO7JBH
@@ -941,6 +942,43 @@ Encoder encoder3  (15, 16); //(26, 28);
 #define TFT_TOUCH_CS    6
 #define LED_PIN         13
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
+
+#elif defined(HARDWARE_FRANKB2)
+
+#undef Si_5351_crystal
+#undef Si_5351_clock
+#define Si_5351_crystal 25000000
+#define Si_5351_clock  SI5351_CLK1
+Si5351 si5351;
+#define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
+#define BACKLIGHT_PIN   6 
+#define TFT_DC          9
+#define TFT_CS          10
+#define TFT_RST         255  // 255 = unused. connect to 3.3V
+#define TFT_MOSI        11
+#define TFT_SCLK        13
+#define TFT_MISO        12
+ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+Encoder tune      (16, 17);
+Encoder filter    (15, 14);
+Encoder encoder3  (5, 4); //(26, 28);
+#define   BUTTON_1_PIN      32 //#joystick links band-     
+#define   BUTTON_2_PIN      29 //#joystick rechts band+
+#define   BUTTON_3_PIN      28 //#joystick runter
+#define   BUTTON_4_PIN      30 //#joystick hoch
+#define   BUTTON_7_PIN      31 //#joystick center
+#define   BUTTON_5_PIN      25 //pushbutton pin of the tune encoder
+#define   BUTTON_6_PIN      27 //pushbutton pin of the filter encoder   
+#define   BUTTON_8_PIN      24 //pushbutton pin of encoder 3
+
+Bounce button1 = Bounce(BUTTON_1_PIN, 50);
+Bounce button2 = Bounce(BUTTON_2_PIN, 50);
+Bounce button3 = Bounce(BUTTON_3_PIN, 50);
+Bounce button4 = Bounce(BUTTON_4_PIN, 50);
+Bounce button5 = Bounce(BUTTON_5_PIN, 50);
+Bounce button6 = Bounce(BUTTON_6_PIN, 50);
+Bounce button7 = Bounce(BUTTON_7_PIN, 50);
+Bounce button8 = Bounce(BUTTON_8_PIN, 50);
 
 #elif defined(HARDWARE_DD4WH_T4)
 Si5351 si5351;
@@ -3253,7 +3291,7 @@ void setup() {
 
 
   tft.begin();
-#if defined(HARDWARE_FRANKB)
+#if defined(HARDWARE_FRANKB) || defined(HARDWARE_FRANKB2)
   tft.setRotation( 1 );
 #else
   tft.setRotation( 3 );
