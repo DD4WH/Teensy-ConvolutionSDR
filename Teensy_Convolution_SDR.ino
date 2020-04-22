@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_19
+   (c) Frank DD4WH 2020_04_22
 
    "TEENSY CONVOLUTION SDR"
 
@@ -199,7 +199,7 @@
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
-//#define HARDWARE_FRANKB2
+
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
 //#define HARDWARE_DO7JBH
 
@@ -250,8 +250,6 @@ extern "C"
 // should we make this available in the menu to adjust during runtime? --> DONE
 uint32_t T4_CPU_FREQUENCY  =  600000000;
 //uint32_t T4_CPU_FREQUENCY  =  300000000;
-// use PLL for stereo FM reception only if T4 processing power is available 
-#define NEW_STEREO_PATH
 #endif
 
 #include <Audio.h>
@@ -943,43 +941,6 @@ Encoder encoder3  (15, 16); //(26, 28);
 #define TFT_TOUCH_CS    6
 #define LED_PIN         13
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST);
-
-#elif defined(HARDWARE_FRANKB2)
-
-#undef Si_5351_crystal
-#undef Si_5351_clock
-#define Si_5351_crystal 25000000
-#define Si_5351_clock  SI5351_CLK1
-Si5351 si5351;
-#define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
-#define BACKLIGHT_PIN   6 
-#define TFT_DC          9
-#define TFT_CS          10
-#define TFT_RST         255  // 255 = unused. connect to 3.3V
-#define TFT_MOSI        11
-#define TFT_SCLK        13
-#define TFT_MISO        12
-ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
-Encoder tune      (16, 17);
-Encoder filter    (15, 14);
-Encoder encoder3  (5, 4); //(26, 28);
-#define   BUTTON_1_PIN      32 //#joystick links band-     
-#define   BUTTON_2_PIN      29 //#joystick rechts band+
-#define   BUTTON_3_PIN      28 //#joystick runter
-#define   BUTTON_4_PIN      30 //#joystick hoch
-#define   BUTTON_7_PIN      31 //#joystick center
-#define   BUTTON_5_PIN      25 //pushbutton pin of the tune encoder
-#define   BUTTON_6_PIN      27 //pushbutton pin of the filter encoder   
-#define   BUTTON_8_PIN      24 //pushbutton pin of encoder 3
-
-Bounce button1 = Bounce(BUTTON_1_PIN, 50);
-Bounce button2 = Bounce(BUTTON_2_PIN, 50);
-Bounce button3 = Bounce(BUTTON_3_PIN, 50);
-Bounce button4 = Bounce(BUTTON_4_PIN, 50);
-Bounce button5 = Bounce(BUTTON_5_PIN, 50);
-Bounce button6 = Bounce(BUTTON_6_PIN, 50);
-Bounce button7 = Bounce(BUTTON_7_PIN, 50);
-Bounce button8 = Bounce(BUTTON_8_PIN, 50);
 
 #elif defined(HARDWARE_DD4WH_T4)
 Si5351 si5351;
@@ -2492,27 +2453,27 @@ float32_t biquad_lowpass1_state [N_stages_biquad_lowpass1 * 4];
 float32_t biquad_lowpass1_coeffs[5 * N_stages_biquad_lowpass1] = {0, 0, 0, 0, 0};
 arm_biquad_casd_df1_inst_f32 biquad_lowpass1;
 
-const uint32_t N_stages_biquad_WFM = 4;
-float32_t biquad_WFM_state [N_stages_biquad_WFM * 4];
-float32_t biquad_WFM_coeffs[5 * N_stages_biquad_WFM] = {0, 0, 0, 0, 0,  0, 0, 0, 0, 0,  0, 0, 0, 0, 0,  0, 0, 0, 0, 0};
-arm_biquad_casd_df1_inst_f32 biquad_WFM;
+const uint32_t N_stages_biquad_WFM_15k_L = 4;
+float32_t biquad_WFM_15k_L_state [N_stages_biquad_WFM_15k_L * 4];
+float32_t biquad_WFM_15k_L_coeffs[5 * N_stages_biquad_WFM_15k_L] = {0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_15k_L;
 
-const uint32_t N_stages_biquad_WFM_R = 4;
-float32_t biquad_WFM_R_state [N_stages_biquad_WFM_R * 4];
-//float32_t biquad_WFM_coeffs[5 * N_stages_biquad_WFM] = {0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0};
-arm_biquad_casd_df1_inst_f32 biquad_WFM_R;
+const uint32_t N_stages_biquad_WFM_15k_R = 4;
+float32_t biquad_WFM_15k_R_state [N_stages_biquad_WFM_15k_R * 4];
+float32_t biquad_WFM_15k_R_coeffs[5 * N_stages_biquad_WFM_15k_R] = {0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0,  0,0,0,0,0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_15k_R;
 
 //biquad_WFM_19k
-const uint32_t N_stages_biquad_WFM_19k = 1;
-float32_t biquad_WFM_19k_state [N_stages_biquad_WFM_19k * 4];
-float32_t biquad_WFM_19k_coeffs[5 * N_stages_biquad_WFM_19k] = {0, 0, 0, 0, 0};
-arm_biquad_casd_df1_inst_f32 biquad_WFM_19k;
+const uint32_t N_stages_biquad_WFM_pilot_19k_I = 1;
+float32_t biquad_WFM_pilot_19k_I_state [N_stages_biquad_WFM_pilot_19k_I * 4];
+float32_t biquad_WFM_pilot_19k_I_coeffs[5 * N_stages_biquad_WFM_pilot_19k_I] = {0, 0, 0, 0, 0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_pilot_19k_I;
 
 //biquad_WFM_38k
-const uint32_t N_stages_biquad_WFM_38k = 1;
-float32_t biquad_WFM_38k_state [N_stages_biquad_WFM_38k * 4];
-float32_t biquad_WFM_38k_coeffs[5 * N_stages_biquad_WFM_38k] = {0, 0, 0, 0, 0};
-arm_biquad_casd_df1_inst_f32 biquad_WFM_38k;
+const uint32_t N_stages_biquad_WFM_pilot_19k_Q = 1;
+float32_t biquad_WFM_pilot_19k_Q_state [N_stages_biquad_WFM_pilot_19k_Q * 4];
+float32_t biquad_WFM_pilot_19k_Q_coeffs[5 * N_stages_biquad_WFM_pilot_19k_Q] = {0, 0, 0, 0, 0};
+arm_biquad_casd_df1_inst_f32 biquad_WFM_pilot_19k_Q;
 
 //biquad_WFM_notch_19k
 const uint32_t N_stages_biquad_WFM_notch_19k = 1;
@@ -3292,7 +3253,7 @@ void setup() {
 
 
   tft.begin();
-#if defined(HARDWARE_FRANKB) || defined(HARDWARE_FRANKB2)
+#if defined(HARDWARE_FRANKB)
   tft.setRotation( 1 );
 #else
   tft.setRotation( 3 );
@@ -3466,37 +3427,37 @@ void setup() {
   }
   biquad_lowpass1.pState = biquad_lowpass1_state; // set pointer to the state variables
 
-  biquad_WFM.numStages = N_stages_biquad_WFM; // set number of stages
-  biquad_WFM.pCoeffs = biquad_WFM_coeffs; // set pointer to coefficients file
-  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM; i++)
+  biquad_WFM_15k_L.numStages = N_stages_biquad_WFM_15k_L; // set number of stages
+  biquad_WFM_15k_L.pCoeffs = biquad_WFM_15k_L_coeffs; // set pointer to coefficients file
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_15k_L; i++)
   {
-    biquad_WFM_state[i] = 0.0; // set state variables to zero
+    biquad_WFM_15k_L_state[i] = 0.0; // set state variables to zero
   }
-  biquad_WFM.pState = biquad_WFM_state; // set pointer to the state variables
+  biquad_WFM_15k_L.pState = biquad_WFM_15k_L_state; // set pointer to the state variables
 
-  biquad_WFM_R.numStages = N_stages_biquad_WFM_R; // set number of stages
-  biquad_WFM_R.pCoeffs = biquad_WFM_coeffs; // set pointer to coefficients file
-  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_R; i++)
+  biquad_WFM_15k_R.numStages = N_stages_biquad_WFM_15k_R; // set number of stages
+  biquad_WFM_15k_R.pCoeffs = biquad_WFM_15k_L_coeffs; // set pointer to coefficients file --> YES, right channel filter uses the left channels´ coeffs!
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_15k_R; i++)
   {
-    biquad_WFM_R_state[i] = 0.0; // set state variables to zero
+    biquad_WFM_15k_R_state[i] = 0.0; // set state variables to zero
   }
-  biquad_WFM_R.pState = biquad_WFM_R_state; // set pointer to the state variables
+  biquad_WFM_15k_R.pState = biquad_WFM_15k_R_state; // set pointer to the state variables
 
-  biquad_WFM_19k.numStages = N_stages_biquad_WFM_19k; // set number of stages
-  biquad_WFM_19k.pCoeffs = biquad_WFM_19k_coeffs; // set pointer to coefficients file
-  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_19k; i++)
+  biquad_WFM_pilot_19k_I.numStages = N_stages_biquad_WFM_pilot_19k_I; // set number of stages
+  biquad_WFM_pilot_19k_I.pCoeffs = biquad_WFM_pilot_19k_I_coeffs; // set pointer to coefficients file
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_pilot_19k_I; i++)
   {
-    biquad_WFM_19k_state[i] = 0.0; // set state variables to zero
+    biquad_WFM_pilot_19k_I_state[i] = 0.0; // set state variables to zero
   }
-  biquad_WFM_19k.pState = biquad_WFM_19k_state; // set pointer to the state variables
+  biquad_WFM_pilot_19k_I.pState = biquad_WFM_pilot_19k_I_state; // set pointer to the state variables
 
-  biquad_WFM_38k.numStages = N_stages_biquad_WFM_38k; // set number of stages
-  biquad_WFM_38k.pCoeffs = biquad_WFM_38k_coeffs; // set pointer to coefficients file
-  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_38k; i++)
+  biquad_WFM_pilot_19k_Q.numStages = N_stages_biquad_WFM_pilot_19k_Q; // set number of stages
+  biquad_WFM_pilot_19k_Q.pCoeffs = biquad_WFM_pilot_19k_Q_coeffs; // set pointer to coefficients file
+  for (unsigned i = 0; i < 4 * N_stages_biquad_WFM_pilot_19k_Q; i++)
   {
-    biquad_WFM_38k_state[i] = 0.0; // set state variables to zero
+    biquad_WFM_pilot_19k_Q_state[i] = 0.0; // set state variables to zero
   }
-  biquad_WFM_38k.pState = biquad_WFM_38k_state; // set pointer to the state variables
+  biquad_WFM_pilot_19k_Q.pState = biquad_WFM_pilot_19k_Q_state; // set pointer to the state variables
 
   biquad_WFM_notch_19k_R.numStages = N_stages_biquad_WFM_notch_19k; // set number of stages
   biquad_WFM_notch_19k_R.pCoeffs = biquad_WFM_notch_19k_R_coeffs; // set pointer to coefficients file
@@ -4115,8 +4076,8 @@ void loop() {
         arm_fir_f32(&UKW_FIR_HILBERT_Q, FFT_buffer, UKW_buffer_2, BUFFER_SIZE * WFM_BLOCKS);      
 
 //    2   BPF 19kHz for pilote tone in both, I & Q
-        arm_biquad_cascade_df1_f32 (&biquad_WFM_19k, UKW_buffer_1, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS);
-        arm_biquad_cascade_df1_f32 (&biquad_WFM_38k, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_pilot_19k_I, UKW_buffer_1, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS);
+        arm_biquad_cascade_df1_f32 (&biquad_WFM_pilot_19k_Q, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS);
 
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
@@ -4220,12 +4181,12 @@ void loop() {
     
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
-            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES, 64000, rawFM_old_R);
-            arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES);
+            rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES, WFM_SAMPLE_RATE / 4.0f, rawFM_old_R);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_R, FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES);
     
             // Left channel: lowpass filter with 15kHz Fstop & deemphasis
-            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, WFM_DEC_SAMPLES, 64000, rawFM_old_L);
-            arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
+            rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, WFM_DEC_SAMPLES, WFM_SAMPLE_RATE / 4.0f, rawFM_old_L);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_L, float_buffer_L, FFT_buffer, WFM_DEC_SAMPLES);
     
      //   6   notch filter 19kHz to eliminate pilot tone from audio
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
@@ -4251,11 +4212,11 @@ void loop() {
      //   5   lowpass filter 15kHz & deemphasis
             // Right channel: lowpass filter with 15kHz Fstop & deemphasis
             rawFM_old_R = deemphasis_wfm_ff (float_buffer_R, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_R);
-            arm_biquad_cascade_df1_f32 (&biquad_WFM, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_R, FFT_buffer, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
     
             // Left channel: lowpass filter with 15kHz Fstop & deemphasis
             rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_L);
-            arm_biquad_cascade_df1_f32 (&biquad_WFM_R, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_L, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
     
             arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
             arm_scale_f32(FFT_buffer, 1, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
@@ -4271,7 +4232,7 @@ void loop() {
      //   5   lowpass filter 15kHz & deemphasis
             // lowpass filter with 15kHz Fstop & deemphasis
             rawFM_old_R = deemphasis_wfm_ff (FFT_buffer, float_buffer_R, WFM_DEC_SAMPLES, WFM_SAMPLE_RATE / 4.0f, rawFM_old_R);
-            arm_biquad_cascade_df1_f32 (&biquad_WFM, float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES);
+            arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_L, float_buffer_R, FFT_buffer, WFM_DEC_SAMPLES);
     
      //   6   notch filter 19kHz to eliminate pilot tone from audio
              arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
@@ -11003,31 +10964,31 @@ void prepare_WFM(void)
     onem_deemp_alpha = 1.0 - deemp_alpha;
 
   // IIR lowpass filter for wideband FM at 15k
-  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)64000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)WFM_SAMPLE_RATE / 4.0, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_coeffs[i] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 10] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 10] = coefficient_set[i];
   }
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)64000, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)WFM_SAMPLE_RATE / 4.0, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_coeffs[i + 5] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 15] = coefficient_set[i];
-  }
-
-  // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
-  for (int i = 0; i < 5; i++)
-  { // fill coefficients into the right file
-    biquad_WFM_19k_coeffs[i] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 5] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 15] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
   set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+    biquad_WFM_pilot_19k_I_coeffs[i] = coefficient_set[i];
+  }
+
+  // high Q IIR bandpass filter for wideband FM at 19k
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+  for (int i = 0; i < 5; i++)
+  { // fill coefficients into the right file
+    biquad_WFM_pilot_19k_Q_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
@@ -11053,38 +11014,38 @@ void prepare_WFM(void)
   set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)WFM_SAMPLE_RATE, 0); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_coeffs[i] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 10] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 10] = coefficient_set[i];
   }
-  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)WFM_SAMPLE_RATE, 0); // 1st stage
+  set_IIR_coeffs ((float32_t)15000, 1.3, (float32_t)WFM_SAMPLE_RATE, 0); // 2nd stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_coeffs[i + 5] = coefficient_set[i];
-    biquad_WFM_coeffs[i + 15] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 5] = coefficient_set[i];
+    biquad_WFM_15k_L_coeffs[i + 15] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
   set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_19k_coeffs[i] = coefficient_set[i];
+    biquad_WFM_pilot_19k_I_coeffs[i] = coefficient_set[i];
   }
 
-  // high Q IIR bandpass filter for wideband FM at 38k
+  // high Q IIR bandpass filter for wideband FM at 19k
   set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
-    biquad_WFM_38k_coeffs[i] = coefficient_set[i];
+    biquad_WFM_pilot_19k_Q_coeffs[i] = coefficient_set[i];
   }
 
-  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+  // high Q IIR 19kHz notch filter for wideband FM at WFM sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
   }
-  // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+  // high Q IIR 19kHz notch filter for wideband FM at WFM sample rate
+  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
