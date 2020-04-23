@@ -6507,7 +6507,10 @@ if(0)
   {
     wait_flag = 0;
     displayClock();
-    show_frequency(Pilot_tone_freq * 100000.0, 0);
+    if(bands[current_band].mode == DEMOD_WFM && WFM_is_stereo)
+    {
+      show_frequency(Pilot_tone_freq * 100000.0, 0);
+    }
   }
 
   //    if(dbm_check.check() == 1) Calculatedbm();
@@ -9100,7 +9103,7 @@ void show_frequency(double freq, uint8_t text_size) {
       {
         tft.print("SAM carrier ");
       }
-      else if (bands[current_band].mode == DEMOD_WFM)
+      else if (bands[current_band].mode == DEMOD_WFM && WFM_is_stereo)
       {
         tft.print("Pilot tone "); // gimmick to print out exact pilot tone frequency ;-)
       }
