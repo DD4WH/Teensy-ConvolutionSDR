@@ -1639,6 +1639,10 @@ uint16_t autotune_counter = 0;
  * = 128 * (512 / 2 / 128 * 8) / 8
  */
 
+#ifdef FLASHMEM
+#define FLASHMEM
+#endif
+
 #if defined(T4)
 const uint32_t FFT_L = 512; //
 //const uint32_t FFT_L = 1024; // 
