@@ -1532,10 +1532,11 @@ const uint32_t WFM_BLOCKS = 8;
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / WFM_SAMPLE_RATE) //to normalize Hz to radians
 #define PILOTPLL_FREQ     19000.0f  //Centerfreq of pilot tone
 #define PILOTPLL_RANGE    20.0f
-#define PILOTPLL_BW       10.0f
+#define PILOTPLL_BW       50.0f // was 10.0, but then it did not lock properly
 #define PILOTPLL_ZETA     0.707f
-#define PILOTPLL_LOCK_TIME_CONSTANT 0.6f // lock filter time in seconds
-#define WFM_LOCK_MAG_THRESHOLD      0.11f //0.108f // lock error magnitude
+#define PILOTPLL_LOCK_TIME_CONSTANT 1.0f // lock filter time in seconds
+#define PILOTTONEDISPLAYALPHA 0.002f
+#define WFM_LOCK_MAG_THRESHOLD     0.045f // 0.001f bei taps==20 //0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
@@ -1553,7 +1554,7 @@ float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS];
 
 #define decimate_WFM 1
-
+const uint16_t UKW_FIR_HILBERT_num_taps = 10;
 float32_t WFM_Sin = 0.0;
 float32_t WFM_Cos = 1.0;
 float32_t WFM_tmp_re = 0.0;
@@ -1639,6 +1640,10 @@ uint16_t autotune_counter = 0;
  * = 128 * (512 / 2 / 128 * 8) / 8
  */
 
+#ifndef FLASHMEM
+#define FLASHMEM
+#endif
+
 #if defined(T4)
 const uint32_t FFT_L = 512; //
 //const uint32_t FFT_L = 1024; // 
@@ -1698,7 +1703,6 @@ const static arm_cfft_instance_f32 *NR_iFFT;
 // we dont need this any more, we reuse the NR_FFT_buffer and save 2kbytes ;-)
 //float32_t NR_iFFT_buffer [512] __attribute__ ((aligned (4)));
 
-const uint16_t UKW_FIR_HILBERT_num_taps = 8;
 arm_fir_instance_f32 UKW_FIR_HILBERT_I;
 float32_t DMAMEM UKW_FIR_HILBERT_I_Coef[UKW_FIR_HILBERT_num_taps];
 float32_t DMAMEM UKW_FIR_HILBERT_I_state [WFM_BLOCKS * BUFFER_SIZE + UKW_FIR_HILBERT_num_taps - 1]; // numTaps+blockSize-1
@@ -3593,7 +3597,8 @@ void setup() {
      Coefficients for WFM Hilbert filters
   ****************************************************************************************/
   // calculate Hilbert filter pair for splitting of UKW MPX signal
-  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)WFM_SAMPLE_RATE);
+//  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)10000, (float32_t)75000, (float)WFM_SAMPLE_RATE);
+  calc_cplx_FIR_coeffs (UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_Q_Coef, UKW_FIR_HILBERT_num_taps, (float32_t)17000, (float32_t)75000, (float)WFM_SAMPLE_RATE);
 
   // Hilbert filters to generate PLL for 19kHz pilote tone
   arm_fir_init_f32 (&UKW_FIR_HILBERT_I, UKW_FIR_HILBERT_num_taps, UKW_FIR_HILBERT_I_Coef, UKW_FIR_HILBERT_I_state, (uint32_t)WFM_BLOCKS * BUFFER_SIZE);
@@ -4115,8 +4120,8 @@ void loop() {
 // copy MPX-signal to UKW_buffer_1 for spectrum MPX signal view
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
-          Pilot_tone_freq = Pilot_tone_freq * 0.995f + 0.005f * m_PilotNcoFreq * WFM_SAMPLE_RATE / TWO_PI;
-          //Serial.println(m_PhaseErrorMagAve, 10);
+          Pilot_tone_freq = Pilot_tone_freq * (1.0f - PILOTTONEDISPLAYALPHA) + PILOTTONEDISPLAYALPHA * m_PilotNcoFreq * WFM_SAMPLE_RATE / TWO_PI;
+          Serial.println(m_PhaseErrorMagAve, 10);
           //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //Serial.println(m_PilotNcoPhase, 10);
