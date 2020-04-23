@@ -4121,7 +4121,7 @@ void loop() {
         arm_copy_f32(FFT_buffer, UKW_buffer_1, BUFFER_SIZE * WFM_BLOCKS);
 
           Pilot_tone_freq = Pilot_tone_freq * (1.0f - PILOTTONEDISPLAYALPHA) + PILOTTONEDISPLAYALPHA * m_PilotNcoFreq * WFM_SAMPLE_RATE / TWO_PI;
-          Serial.println(m_PhaseErrorMagAve, 10);
+          //Serial.println(m_PhaseErrorMagAve, 10);
           //Serial.println(Pilot_tone_freq,4);
           //Serial.println(m_PilotNcoFreq * 256000.0f / TWO_PI ,10);
           //Serial.println(m_PilotNcoPhase, 10);
@@ -9096,11 +9096,11 @@ void show_frequency(double freq, uint8_t text_size) {
       tft.print("  ");
       tft.setCursor(pos_x_frequency + 10, pos_y_frequency + 26);
       tft.setTextColor(ILI9341_ORANGE);
-      if(bands[current_band].mode != DEMOD_WFM)
+      if(bands[current_band].mode == DEMOD_SAM)
       {
         tft.print("SAM carrier ");
       }
-      else
+      else if (bands[current_band].mode == DEMOD_WFM)
       {
         tft.print("Pilot tone "); // gimmick to print out exact pilot tone frequency ;-)
       }
