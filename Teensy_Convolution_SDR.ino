@@ -1639,7 +1639,7 @@ uint16_t autotune_counter = 0;
  * = 128 * (512 / 2 / 128 * 8) / 8
  */
 
-#ifdef FLASHMEM
+#ifndef FLASHMEM
 #define FLASHMEM
 #endif
 
