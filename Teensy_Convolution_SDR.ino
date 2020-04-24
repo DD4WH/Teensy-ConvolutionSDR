@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_23
+   (c) Frank DD4WH 2020_04_24
 
    "TEENSY CONVOLUTION SDR"
 
@@ -1528,6 +1528,7 @@ float32_t Q_old = 0.2;
 float32_t rawFM_old_L = 0.0;
 float32_t rawFM_old_R = 0.0;
 const uint32_t WFM_BLOCKS = 8;
+uint32_t UKW_spectrum_offset = 0;
 
 #define WFM_SAMPLE_RATE_NORM    (TWO_PI / WFM_SAMPLE_RATE) //to normalize Hz to radians
 #define PILOTPLL_FREQ     19000.0f  //Centerfreq of pilot tone
@@ -3288,8 +3289,13 @@ void setup() {
   //  pinMode(AUDIO_AMP_ENABLE, OUTPUT);
   //  digitalWrite(AUDIO_AMP_ENABLE, HIGH);
 
-
+     // Serial.println("before tft init");
+#if defined(T4)    
+  // 70MHz, wow!   
+  tft.begin(70000000);
+#else
   tft.begin();
+#endif
 #if defined(HARDWARE_FRANKB) || defined(HARDWARE_FRANKB2)
   tft.setRotation( 1 );
 #else
@@ -3309,6 +3315,7 @@ void setup() {
   tft.print(" Convolution SDR");
   tft.setFont(Arial_10);
   prepare_spectrum_display();
+  
   Init_Display_Clock();
 
   /****************************************************************************************
@@ -3735,10 +3742,12 @@ void setup() {
      start local oscillator Si5351
   ****************************************************************************************/
   setAttenuator(RF_attenuation);
+  //Serial.println("before Si5351 init");
   si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
   setfreq();
   delay(100);
   //show_frequency(bands[current_band].freq, 1);
+  //Serial.println("after Si5351 init");
 
   /****************************************************************************************
       Initialize band settings, set frequency, show frequency etc.
@@ -4343,6 +4352,17 @@ void loop() {
           if(spectrum_zoom == SPECTRUM_ZOOM_1)
           {
             calc_256_magn();
+            show_spectrum();
+            UKW_spectrum_offset += 256;
+            calc_256_magn();
+            show_spectrum();
+            UKW_spectrum_offset += 256;
+            calc_256_magn();
+            show_spectrum();
+            UKW_spectrum_offset += 256;
+            calc_256_magn();
+            show_spectrum();
+            UKW_spectrum_offset = 0;
           }
           else
           {
@@ -4354,7 +4374,7 @@ void loop() {
         {
           //            if(stereo_factor < 0.1)
           {
-            show_spectrum();
+//            show_spectrum();
           }
           WFM_spectrum_flag = 0;
         }
@@ -7910,7 +7930,7 @@ void calc_256_magn()
       for (int i = 0; i < 256; i++)
       { // interleave real and imaginary input values [real, imag, real, imag . . .]
         // apply Hann window
-        buffer_spec_FFT[i * 2] =      UKW_buffer_1[i] * nuttallWindow256[i];
+        buffer_spec_FFT[i * 2] =      UKW_buffer_1[i + UKW_spectrum_offset] * nuttallWindow256[i];
         buffer_spec_FFT[i * 2 + 1] =  0; //float_buffer_R[i] * nuttallWindow256[i];
       }
   }
@@ -16703,7 +16723,7 @@ void set_CPU_freq_T4(void)
 #endif
 }
 */
-//#define USE_T4_PLL2 
+#define USE_T4_PLL2 
 
 // by FrankB April 2020
 // disable ADCs, enable spread spectrum, overclock IGP to reduce electromagnetic interference in the T4
