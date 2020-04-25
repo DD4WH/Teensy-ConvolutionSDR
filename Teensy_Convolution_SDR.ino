@@ -4512,14 +4512,13 @@ void loop() {
           }
           //need to XOR with previous bit to get actual data bit value
 //          ProcessNewRdsBit(bit^m_RdsLastBit);   //go process new RDS Bit
-          //Serial.print(bit^WFM_RDS_LastBit); Serial.print(" ");
+          //Bitbuffer[i] = 
+          //Serial.print(bit^WFM_RDS_LastBit); Serial.print(";");
           WFM_RDS_LastBit = bit;
         }
         WFM_RDS_LastData = Data;   //keep last bit since is differential data
         WFM_RDS_LastSyncSlope = Slope;
       }
-      // process extracted bits
-      // now its your turn, FrankB ;-)
      
 #endif     
       // it should be possible to do RDS decoding???
