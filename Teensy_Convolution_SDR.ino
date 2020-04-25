@@ -1603,7 +1603,7 @@ int32_t O_iiSum19 = 0 ;
 #define RDSPLL_RANGE 12.0 //maximum deviation limit of PLL
 #define RDSPLL_BW 1.0 //natural frequency ~loop bandwidth
 #define RDSPLL_ZETA .707  //PLL Loop damping factor
-
+uint32_t RDS_counter = 0;
 
 #define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
 const uint16_t WFM_decimation_taps = 20;
@@ -1646,7 +1646,8 @@ float32_t WFM_RDS_LastSync = 0.0f;
 // N taps = 30 / (22 * (29.6 / 256 - 2.4 / 256) ) = 30 / 2.34 = 13 taps
 
 #define WFM_RDS_DEC1_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / WFM_RDS_M1)
-const uint16_t WFM_RDS_DEC1_taps = 14;
+//const uint16_t WFM_RDS_DEC1_taps = 14;
+const uint16_t WFM_RDS_DEC1_taps = 42;
 // decimation-by-8
 arm_fir_decimate_instance_f32 WFM_RDS_DEC1_I;
 float32_t DMAMEM WFM_RDS_DEC1_I_state [WFM_RDS_DEC1_taps + WFM_BLOCKS * BUFFER_SIZE]; // numTaps+blockSize-1
@@ -3717,7 +3718,7 @@ void setup() {
 
 #if defined(RDS_PROTOTYPE)
 // void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
-  calc_FIR_coeffs (WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_taps, (float32_t)2400, 30.0f, 0, 0.0, WFM_SAMPLE_RATE);
+  calc_FIR_coeffs (WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_taps, (float32_t)2400, 60.0f, 0, 0.0, WFM_SAMPLE_RATE);
 
   if (arm_fir_decimate_init_f32(&WFM_RDS_DEC1_I, WFM_RDS_DEC1_taps, (uint8_t)WFM_RDS_M1, WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_I_state, (uint32_t)BUFFER_SIZE * WFM_BLOCKS)) 
   {
@@ -3731,7 +3732,7 @@ void setup() {
     while(1);
   }
 
-  calc_FIR_coeffs (WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_taps, (float32_t)2400, 30, 0, 0.0, WFM_SAMPLE_RATE / WFM_RDS_M1);
+  calc_FIR_coeffs (WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_taps, (float32_t)2400, 60.0f, 0, 0.0, WFM_SAMPLE_RATE / WFM_RDS_M1);
   if (arm_fir_decimate_init_f32(&WFM_RDS_DEC2_I, WFM_RDS_DEC2_taps, (uint8_t)WFM_RDS_M2, WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_I_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)WFM_RDS_M1)) 
   {
     Serial.println("Init of RDS decimation I 2 failed");
@@ -3745,7 +3746,7 @@ void setup() {
 
   for(int i = 0; i <= WFM_RDS_FIR_biphase_num_taps / 2; i++)
   {
-    double t = (double)i / (WFM_SAMPLE_RATE);
+    double t = (double)i / (WFM_SAMPLE_RATE / WFM_RDS_M1 / WFM_RDS_M2);
     double x = t * RDS_BITRATE;
     double x64 = 64.0 * x;
     WFM_RDS_FIR_biphase_coeffs[i + WFM_RDS_FIR_biphase_num_taps / 2] =  (float32_t)  (.75 * cos(2.0 * TWO_PI * x) * ( (1.0/(1.0/x-x64)) - (1.0/(9.0/x-x64)) ));
@@ -4438,14 +4439,36 @@ void loop() {
       arm_fir_decimate_f32(&WFM_RDS_DEC1_I, UKW_buffer_2, UKW_buffer_2, BUFFER_SIZE * WFM_BLOCKS);
       
       // decimate-by-4
-      arm_fir_decimate_f32(&WFM_RDS_DEC2_I, UKW_buffer_2, UKW_buffer_2, BUFFER_SIZE * WFM_BLOCKS / 8);
+      arm_fir_decimate_f32(&WFM_RDS_DEC2_I, UKW_buffer_2, UKW_buffer_2, BUFFER_SIZE * WFM_BLOCKS / WFM_RDS_M1);
       
       // RDS-PLL at baseband in 8ksps
       // skip this too
+      if(RDS_counter < 1000000) RDS_counter++;
+      if(RDS_counter > 10000 && RDS_counter < 10004)
+      {
+          Serial.println("RDS-signal decimated to 8ksps");
+          for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / 32; i++)
+          {
+            Serial.print(UKW_buffer_2[i], 10); Serial.print(";");
+          }
+          Serial.println();
+          Serial.println();
+      }
+      // --> that looks similar to an RDS-signal
       
       // FIR-biphase-Filter
       // now we are in 8ksps --> 256k / 32
-      arm_fir_f32(&WFM_RDS_FIR_biphase, UKW_buffer_2, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS / 32);      
+      arm_fir_f32(&WFM_RDS_FIR_biphase, UKW_buffer_2, UKW_buffer_3, BUFFER_SIZE * WFM_BLOCKS / WFM_RDS_M1 / WFM_RDS_M2);      
+      if(RDS_counter > 10000 && RDS_counter < 10004)
+      {
+          Serial.println("FIR biphase RDS-signal decimated to 8ksps filtered");
+          for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / 32; i++)
+          {
+            Serial.print(UKW_buffer_3[i], 10); Serial.print(";");
+          }
+          Serial.println();
+          Serial.println();
+      }
       
       // squaring the signal
       for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / 32; i++)
@@ -4453,13 +4476,22 @@ void loop() {
         UKW_buffer_2[i] = UKW_buffer_3[i] * UKW_buffer_3[i];
       }
       // IIR Bandpass at RDS signal rate
-      arm_biquad_cascade_df1_f32 (&WFM_RDS_IIR_bitrate, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS / 32);
+      arm_biquad_cascade_df1_f32 (&WFM_RDS_IIR_bitrate, UKW_buffer_2, UKW_buffer_4, BUFFER_SIZE * WFM_BLOCKS / WFM_RDS_M1 / WFM_RDS_M2);
 
       // raw RDS data:          UKW_buffer_3
       // squared and filtered:  UKW_buffer_4
-
+      if(RDS_counter > 10000 && RDS_counter < 10004)
+      {
+          Serial.println("squared and filtered FIR biphase RDS-signal decimated to 8ksps filtered");
+          for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / 32; i++)
+          {
+            Serial.print(UKW_buffer_4[i], 10); Serial.print(";");
+          }
+          Serial.println();
+          Serial.println();
+      }
       // extract single bits
-      for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / 32; i++)
+      for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS / WFM_RDS_M1 / WFM_RDS_M2; i++)
       {
         float32_t Data = UKW_buffer_3[i];
         float32_t SyncVal = UKW_buffer_4[i];
@@ -4480,14 +4512,12 @@ void loop() {
           }
           //need to XOR with previous bit to get actual data bit value
 //          ProcessNewRdsBit(bit^m_RdsLastBit);   //go process new RDS Bit
-          Serial.print(bit^WFM_RDS_LastBit); Serial.print(" ");
+          //Serial.print(bit^WFM_RDS_LastBit); Serial.print(" ");
           WFM_RDS_LastBit = bit;
         }
         WFM_RDS_LastData = Data;   //keep last bit since is differential data
         WFM_RDS_LastSyncSlope = Slope;
       }
-
-      
       // process extracted bits
       // now its your turn, FrankB ;-)
      
@@ -11258,7 +11288,7 @@ void prepare_WFM(void)
       }
     
       // high Q IIR BP filter for RDS bitrate at 8ksps sample rate
-      set_IIR_coeffs ((float32_t)RDS_BITRATE, 500.0, (float32_t)WFM_SAMPLE_RATE / 32.0, 2); // 1st stage
+      set_IIR_coeffs ((float32_t)RDS_BITRATE, 500.0, (float32_t)WFM_SAMPLE_RATE / WFM_RDS_M1 / WFM_RDS_M2, 2); // 1st stage
       for (int i = 0; i < 5; i++)
       { // fill coefficients into the right file
         WFM_RDS_IIR_bitrate_coeffs[i] = coefficient_set[i];
@@ -11315,7 +11345,7 @@ void prepare_WFM(void)
         biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
       }
       // high Q IIR BP filter for RDS bitrate at 8ksps sample rate
-      set_IIR_coeffs ((float32_t)RDS_BITRATE, 500.0, (float32_t)WFM_SAMPLE_RATE / 32.0, 2); // 1st stage
+      set_IIR_coeffs ((float32_t)RDS_BITRATE, 500.0, (float32_t)WFM_SAMPLE_RATE / WFM_RDS_M1 / WFM_RDS_M2, 2); // 1st stage
       for (int i = 0; i < 5; i++)
       { // fill coefficients into the right file
         WFM_RDS_IIR_bitrate_coeffs[i] = coefficient_set[i];
