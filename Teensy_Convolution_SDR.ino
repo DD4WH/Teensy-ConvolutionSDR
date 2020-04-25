@@ -1537,11 +1537,11 @@ uint32_t UKW_spectrum_offset = 0;
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 1.0f // lock filter time in seconds
 #define PILOTTONEDISPLAYALPHA 0.002f
-#define WFM_LOCK_MAG_THRESHOLD     0.045f // 0.001f bei taps==20 //0.108f // lock error magnitude
+#define WFM_LOCK_MAG_THRESHOLD     0.013f // 0.001f bei taps==20 //0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = 0.4;
+float32_t m_PilotPhaseAdjust = 0.4; //0.17607;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
@@ -1555,7 +1555,7 @@ float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS];
 
 #define decimate_WFM 1
-const uint16_t UKW_FIR_HILBERT_num_taps = 10;
+const uint16_t UKW_FIR_HILBERT_num_taps = 12;
 float32_t WFM_Sin = 0.0;
 float32_t WFM_Cos = 1.0;
 float32_t WFM_tmp_re = 0.0;
@@ -11039,27 +11039,31 @@ void prepare_WFM(void)
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_pilot_19k_I_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_pilot_19k_Q_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
   }
   // high Q IIR 19kHz notch filter for wideband FM at 64ksps sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE / 4.0, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
@@ -11086,27 +11090,31 @@ void prepare_WFM(void)
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_pilot_19k_I_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR bandpass filter for wideband FM at 19k
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 2); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_pilot_19k_Q_coeffs[i] = coefficient_set[i];
   }
 
   // high Q IIR 19kHz notch filter for wideband FM at WFM sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_R_coeffs[i] = coefficient_set[i];
   }
   // high Q IIR 19kHz notch filter for wideband FM at WFM sample rate
-  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
+//  set_IIR_coeffs ((float32_t)19000, 1000.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
+  set_IIR_coeffs ((float32_t)19000, 200.0, (float32_t)WFM_SAMPLE_RATE, 3); // 1st stage
   for (int i = 0; i < 5; i++)
   { // fill coefficients into the right file
     biquad_WFM_notch_19k_L_coeffs[i] = coefficient_set[i];
