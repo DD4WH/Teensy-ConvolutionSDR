@@ -1537,7 +1537,7 @@ uint32_t UKW_spectrum_offset = 0;
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 1.0f // lock filter time in seconds
 #define PILOTTONEDISPLAYALPHA 0.002f
-#define WFM_LOCK_MAG_THRESHOLD     0.013f // 0.001f bei taps==20 //0.108f // lock error magnitude
+#define WFM_LOCK_MAG_THRESHOLD     0.04f //0.013f // 0.001f bei taps==20 //0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
@@ -1555,7 +1555,7 @@ float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS];
 
 #define decimate_WFM 1
-const uint16_t UKW_FIR_HILBERT_num_taps = 12;
+const uint16_t UKW_FIR_HILBERT_num_taps = 10;
 float32_t WFM_Sin = 0.0;
 float32_t WFM_Cos = 1.0;
 float32_t WFM_tmp_re = 0.0;
@@ -1606,7 +1606,7 @@ int32_t O_iiSum19 = 0 ;
 
 
 #define WFM_DEC_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / 4)
-const uint32_t WFM_decimation_taps = 20;
+const uint16_t WFM_decimation_taps = 20;
 // decimation-by-4 after FM PLL
 arm_fir_decimate_instance_f32 WFM_decimation_R;
 float32_t DMAMEM WFM_decimation_R_state [WFM_decimation_taps + WFM_BLOCKS * BUFFER_SIZE]; 
@@ -1621,6 +1621,56 @@ float32_t DMAMEM WFM_interpolation_R_state [WFM_decimation_taps / 4 + WFM_BLOCKS
 arm_fir_interpolate_instance_f32 WFM_interpolation_L;
 float32_t DMAMEM WFM_interpolation_L_state [WFM_decimation_taps / 4 + WFM_BLOCKS * BUFFER_SIZE / 4]; 
 float32_t DMAMEM WFM_interpolation_coeffs[WFM_decimation_taps];
+
+// two-stage decimation for RDS I & Q in preparation for the baseband RDS signal PLL
+// decimate from 256ksps down to 8ksps --> by 32: 1st stage: 8, 2nd stage: 4
+//                                                   1 - sqrt(M * F / 2 - F)
+// first stage decimation factor M optimal = 2 * M  ------------------------  
+//                                                       2 - F (M + 1)
+// total M = 32, F = (fstop - B´) / fstop = (2.4kHz - 1.5kHz) / 2.4kHz 
+// M optimal is about 10 --> it has to be an integer of 2, so M1 1st stage == 8, M2 2nd stage == 4
+  
+#define WFM_RDS_M1  8
+#define WFM_RDS_M2  4
+
+// 1st stage
+// Att = 30dB, fstop = fnew - fpass
+// fs = 256k; DF = 8; fnew = 32k
+// fstop = 32k - 2.4k = 29.6k; fpass = 2.4k; 
+// N taps = 30 / (22 * (29.6 / 256 - 2.4 / 256) ) = 30 / 2.34 = 13 taps
+
+#define WFM_RDS_DEC1_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / WFM_RDS_M1)
+const uint16_t WFM_RDS_DEC1_taps = 14;
+// decimation-by-8
+arm_fir_decimate_instance_f32 WFM_RDS_DEC1_I;
+float32_t DMAMEM WFM_RDS_DEC1_I_state [WFM_RDS_DEC1_taps + WFM_BLOCKS * BUFFER_SIZE]; // numTaps+blockSize-1
+arm_fir_decimate_instance_f32 WFM_RDS_DEC1_Q;
+float32_t DMAMEM WFM_RDS_DEC1_Q_state [WFM_RDS_DEC1_taps + WFM_BLOCKS * BUFFER_SIZE]; // numTaps+blockSize-1
+float32_t DMAMEM WFM_RDS_DEC1_coeffs[WFM_RDS_DEC1_taps]; // common coefficient file
+
+// 2nd stage
+// Att = 30dB, fstop = fnew - fpass
+// fs = 32k; DF = 4; fnew = 8k
+// fstop = 8k - 2.4k = 5.6k; fpass = 2.4k; 
+// N taps = 30 / (22 * (5.6 / 32 - 2.4 / 32) ) = 30 / 2.2 = 14 taps
+
+#define WFM_RDS_DEC2_SAMPLES (WFM_BLOCKS * BUFFER_SIZE / WFM_RDS_M1 / WFM_RDS_M2)
+const uint16_t WFM_RDS_DEC2_taps = 14;
+// decimation-by-4
+arm_fir_decimate_instance_f32 WFM_RDS_DEC2_I;
+float32_t DMAMEM WFM_RDS_DEC2_I_state [WFM_RDS_DEC2_taps + WFM_BLOCKS * BUFFER_SIZE / WFM_RDS_M1]; // numTaps+blockSize-1
+arm_fir_decimate_instance_f32 WFM_RDS_DEC2_Q;
+float32_t DMAMEM WFM_RDS_DEC2_Q_state [WFM_RDS_DEC2_taps + WFM_BLOCKS * BUFFER_SIZE / WFM_RDS_M1]; // numTaps+blockSize-1
+float32_t DMAMEM WFM_RDS_DEC2_coeffs[WFM_RDS_DEC2_taps]; // common coefficient file
+
+
+// RDS: FIR biphase filter for bit extraction
+// runs at 8ksps sample rate, with block size of WFM_BLOCKS * BUFFER_SIZE / 32
+// m_MatchCoefLength = SampleRate / RDS_BITRATE; 256000 / 1187.5 = 215.579
+const uint16_t WFM_RDS_FIR_biphase_num_taps = 216;
+float32_t WFM_RDS_FIR_biphase_coeffs[WFM_RDS_FIR_biphase_num_taps * 2];
+arm_fir_instance_f32 WFM_RDS_FIR_biphase;
+float32_t DMAMEM WFM_RDS_FIR_biphase_state [WFM_RDS_FIR_biphase_num_taps * 2 + WFM_BLOCKS * BUFFER_SIZE / (WFM_RDS_M1 * WFM_RDS_M2)]; // numTaps+blockSize-1
 
 // T = 1.0/sample_rate;
 // alpha = 1 - e^(-T/tau);
@@ -3641,6 +3691,49 @@ void setup() {
     Serial.println("Init of interpolation failed");
     while(1);
   }
+
+// void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t Astop, int type, float dfc, float Fsamprate)
+  calc_FIR_coeffs (WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_taps, (float32_t)2400, 30.0f, 0, 0.0, WFM_SAMPLE_RATE);
+
+  if (arm_fir_decimate_init_f32(&WFM_RDS_DEC1_I, WFM_RDS_DEC1_taps, (uint8_t)WFM_RDS_M1, WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_I_state, (uint32_t)BUFFER_SIZE * WFM_BLOCKS)) 
+  {
+    Serial.println("Init of RDS decimation I 1 failed");
+    while(1);
+  }
+ 
+  if (arm_fir_decimate_init_f32(&WFM_RDS_DEC1_Q, WFM_RDS_DEC1_taps, (uint8_t)WFM_RDS_M1, WFM_RDS_DEC1_coeffs, WFM_RDS_DEC1_Q_state, (uint32_t)BUFFER_SIZE * WFM_BLOCKS)) 
+  {
+    Serial.println("Init of RDS decimation Q 1 failed");
+    while(1);
+  }
+
+  calc_FIR_coeffs (WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_taps, (float32_t)2400, 30, 0, 0.0, WFM_SAMPLE_RATE / WFM_RDS_M1);
+  if (arm_fir_decimate_init_f32(&WFM_RDS_DEC2_I, WFM_RDS_DEC2_taps, (uint8_t)WFM_RDS_M2, WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_I_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)WFM_RDS_M1)) 
+  {
+    Serial.println("Init of RDS decimation I 2 failed");
+    while(1);
+  }
+  if (arm_fir_decimate_init_f32(&WFM_RDS_DEC2_Q, WFM_RDS_DEC2_taps, (uint8_t)WFM_RDS_M2, WFM_RDS_DEC2_coeffs, WFM_RDS_DEC2_Q_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)WFM_RDS_M1)) 
+  {
+    Serial.println("Init of RDS decimation Q 2 failed");
+    while(1);
+  }
+
+  for(int i = 0; i <= WFM_RDS_FIR_biphase_num_taps; i++)
+  {
+    double t = (double)i / (WFM_SAMPLE_RATE);
+    double x = t * RDS_BITRATE;
+    double x64 = 64.0 * x;
+    WFM_RDS_FIR_biphase_coeffs[i + WFM_RDS_FIR_biphase_num_taps] =  (float32_t)  (.75 * cos(2.0 * TWO_PI * x) * ( (1.0/(1.0/x-x64)) - (1.0/(9.0/x-x64)) ));
+    WFM_RDS_FIR_biphase_coeffs[WFM_RDS_FIR_biphase_num_taps - i] =  (float32_t) (-.75 * cos(2.0 * TWO_PI * x) * ( (1.0/(1.0/x-x64)) - (1.0/(9.0/x-x64)) ));
+  }
+
+  for(unsigned i = 0; i < WFM_RDS_FIR_biphase_num_taps * 2; i++)
+  {
+    Serial.println(WFM_RDS_FIR_biphase_coeffs[i],10);
+  }
+  //arm_fir_init_f32 (arm_fir_instance_f32 *S, uint16_t numTaps, const float32_t *pCoeffs, float32_t *pState, uint32_t blockSize)
+  arm_fir_init_f32 (&WFM_RDS_FIR_biphase, WFM_RDS_FIR_biphase_num_taps * (uint16_t)2, WFM_RDS_FIR_biphase_coeffs, WFM_RDS_FIR_biphase_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)(WFM_RDS_M1 * WFM_RDS_M2) );
 
   prepare_WFM();
 
@@ -7025,6 +7118,11 @@ void calc_FIR_coeffs (float * coeffs_I, int numCoeffs, float32_t fc, float32_t A
     Beta = 0.1102 * (Astop - 8.71);
   else
     Beta = 0.5842 * powf((Astop - 20.96), 0.4) + 0.07886 * (Astop - 20.96);
+
+  for (int i = 0; i < numCoeffs; i++) //zero pad entire coefficient buffer, important for variables from DMAMEM
+  {
+    coeffs_I[i] = 0.0;
+  }
 
   izb = Izero (Beta);
   if (type == 0) // low pass filter
