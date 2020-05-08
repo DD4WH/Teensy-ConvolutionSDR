@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_04_24
+   (c) Frank DD4WH 2020_05_8
 
    "TEENSY CONVOLUTION SDR"
 
@@ -16,7 +16,7 @@
 
 
    SOFTWARE:
-   - FFT Fast Convolution = Digital Convolution
+   - FFT Fast Convolution = Digital Convolutionbuffer_spec_FFT
    - with overlap - save = overlap-discard complex bandpass main filtering
    - spectral NR uses FFT-iFFT overlap-add with 50% overlap
 
@@ -24,6 +24,7 @@
    - tested on Teensy 3.6 (using its single precision FPU) and on Teensy 4.0 (with its double precision FPU)
    - with Teensy 3.6: compile with 180MHz F_CPU, other speeds not supported. Maybe with the newest fix in Teensyduino, higher speeds could work, but this is untested
    - with Teensy 4.0: compile with "Optimize: Faster", never use "Optimize: smallest code", the latter will not work!
+   - tested with Arduino 1.8.12 & Teensyduino 1.52 beta-4
 
    Part of the evolution of this project has been documented here:
    https://forum.pjrc.com/threads/40188-Fast-Convolution-filtering-in-floating-point-with-Teensy-3-6/page2
@@ -139,7 +140,7 @@
    Wheatley (2011): cuteSDR https://github.com/satrian/cutesdr-se [BSD]
    Robert Dick (1999): Tune SSB Automatically. in QEX: http://www.arrl.org/files/file/QEX%20Binaries/1999/ssbtune.zip ["code is in the public domain . . .", thus I assume GNU GPL]
    Martin Ossmann (2019): unpublished source code for decoders for RTTY and ERF time signals, thank you, Martin, for the permission to include your code here!
-   sample-rate-change-on-the-fly code by Frank Bösing [MIT]
+   A great thank you and lots of credit go to Frank Bösing: from sample-rate-change-on-the-fly code to many many code snippets !
    GREAT THANKS FOR ALL THE HELP AND INPUT BY WALTER, WMXZ !
    Audio queue optimized by Pete El Supremo 2016_10_27, thanks Pete!
    An important hint on the implementation came from Alberto I2PHD, thanks for that!
@@ -195,7 +196,7 @@
 #define HARDWARE_DD4WH_T4
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
-#define HARDWARE_AD8331
+//#define HARDWARE_AD8331
 
 /*  If you use the hardware made by FrankB uncomment the next line */
 //#define HARDWARE_FRANKB
@@ -246,7 +247,7 @@ extern "C"
 uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
-uint32_t T4_CPU_FREQUENCY  =  600000000;
+uint32_t T4_CPU_FREQUENCY  =  444000000;
 //uint32_t T4_CPU_FREQUENCY  =  300000000;
 #endif
 
@@ -261,8 +262,8 @@ uint32_t T4_CPU_FREQUENCY  =  600000000;
 #include <arm_math.h>
 #include <arm_const_structs.h>
 #include <si5351.h>
-//#include <Encoder.h>
-#include <EncoderBounce.h> // https://github.com/FrankBoesing/EncoderBounce
+#include <Encoder.h>
+//#include <EncoderBounce.h> // https://github.com/FrankBoesing/EncoderBounce, does not work with my cheap encoders ... DD4WH
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1157,7 +1158,7 @@ int n_R;
 long int n_clear;
 //float32_t notch_amp[1024];
 //float32_t FFT_magn[4096];
-float32_t DMAMEM FFT_spec[256];
+float32_t DMAMEM FFT_spec[1024];
 float32_t DMAMEM FFT_spec_old[256];
 int16_t DMAMEM pixelnew[256];
 int16_t DMAMEM pixelold[256];
@@ -1826,9 +1827,48 @@ float32_t DMAMEM FIR_WFM_Q_state [WFM_BLOCKS * BUFFER_SIZE + FIR_WFM_num_taps - 
 };*/
 
 const float32_t FIR_WFM_Coef[] =
+#if 0
 { // FIR Parks, Kaiser window, Iowa Hills FIR Filter designer, DD4WH, 14.4.2020
   // Fs = 256kHz, Fc = 90kHz, Kaiser beta 4.0, 36 taps, transition width 0.1
 0.001437731130470903,-623.9079482748925330E-6,-0.004018433368130255, 0.001693442534629599,-0.002682456468612093,-0.004117403292228528, 0.007938424317278257,-0.010291511355663908, 0.001333534912806927, 0.013360590278797045,-0.026974989329346208, 0.023034885610990461, 0.004661522731698597,-0.048752097499373287, 0.080517395346191983,-0.060432870537842909,-0.064654364368022313, 0.580477053053593206, 0.580477053053593206,-0.064654364368022313,-0.060432870537842909, 0.080517395346191983,-0.048752097499373287, 0.004661522731698597, 0.023034885610990461,-0.026974989329346208, 0.013360590278797045, 0.001333534912806927,-0.010291511355663908, 0.007938424317278257,-0.004117403292228528,-0.002682456468612093, 0.001693442534629599,-0.004018433368130255,-623.9079482748925330E-6, 0.001437731130470903};
+#endif
+// filter by FrankB 
+{ 0.024405154540077401,
+ 0.152055989770877281,
+ 0.390115413186706617,
+ 0.479032479716888671,
+ 0.174727105673974092,
+-0.204033825420417675,
+-0.149450624869351067,
+ 0.129118576221562753,
+ 0.093080019683336526,
+-0.102082295940738380,
+-0.043415978850535761,
+ 0.079969610654177556,
+ 0.007057413581358905,
+-0.054442211502033454,
+ 0.012783211116867430,
+ 0.029370378191609491,
+-0.017671723888926162,
+-0.010629639307850618,
+ 0.013493486514306215,
+ 599.8054155519106420E-6,
+-0.007062707888932793,
+ 0.002275020017800628,
+ 0.002251300239881718,
+-0.001861415601825186,
+-165.4992192582411690E-6,
+ 786.6717809775776690E-6,
+-257.8915879454064000E-6,
+-164.0510491491323820E-6,
+ 144.9767054771550360E-6,
+-8.011506011505582950E-6,
+-34.81432996292749490E-6,
+ 14.82004405549755430E-6,
+ 943.8477012610577500E-9,
+-2.016532405155152310E-6,
+ 215.5452254228744380E-9,
+ 115.0469292380613950E-9};
 
 #endif
 
@@ -3166,7 +3206,8 @@ void setup() {
 
   // get TIME from real time clock with 3V backup battery
   setSyncProvider(getTeensy3Time);
-  //Teensy3Clock.set(now()); // set the RTC
+  setTime (now());
+  Teensy3Clock.set(now()); // set the RTC
 #if defined (T4)
   T4_rtc_set(Teensy3Clock.get());
 #endif
@@ -3387,11 +3428,19 @@ void setup() {
   ****************************************************************************************/
   for (unsigned i = 0; i < 256; i++)
   {
-      FFT_spec[i] = 0.0;
       FFT_spec_old[i] = 0.0;
       pixelnew[i] = 0;
       pixelold[i] = 0;
   }
+  for (unsigned i = 0; i < 512; i++)
+  {
+    buffer_spec_FFT[i] = 0.0;
+  }
+  for (unsigned i = 0; i < 1024; i++)
+  {
+      FFT_spec[i] = 0.0;
+  }
+
   for (unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
   {
       UKW_buffer_1[i] = 0.0;
@@ -4170,8 +4219,8 @@ void loop() {
             arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
             arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
           // scaling after interpolation !
-            arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-            arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(float_buffer_R, 4.0f, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
 
           
            // decimation-by-4
@@ -4363,8 +4412,8 @@ void loop() {
             arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
             arm_fir_interpolate_f32(&WFM_interpolation_L, iFFT_buffer, FFT_buffer, WFM_DEC_SAMPLES);
           // scaling after interpolation !
-            arm_scale_f32(float_buffer_R, 4, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-            arm_scale_f32(FFT_buffer, 4, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(float_buffer_R, 4.0f, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 4.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
             }
             
             else // no decimation/interpolation
@@ -4385,8 +4434,8 @@ void loop() {
             rawFM_old_L = deemphasis_wfm_ff (iFFT_buffer, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS, WFM_SAMPLE_RATE, rawFM_old_L);
             arm_biquad_cascade_df1_f32 (&biquad_WFM_15k_L, float_buffer_L, FFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
     
-            arm_scale_f32(float_buffer_R, 1, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
-            arm_scale_f32(FFT_buffer, 1, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(float_buffer_R, 1.0f, float_buffer_L, BUFFER_SIZE * WFM_BLOCKS);
+            arm_scale_f32(FFT_buffer, 1.0f, iFFT_buffer, BUFFER_SIZE * WFM_BLOCKS);
             }
               
         }
@@ -4563,18 +4612,20 @@ void loop() {
           zoom_display = 1;
           if(spectrum_zoom == SPECTRUM_ZOOM_1)
           {
-            calc_256_magn();
+            WFM_calc_256_magn();
             show_spectrum();
-            UKW_spectrum_offset += 256;
-            calc_256_magn();
+            UKW_spectrum_offset = 512;
+            WFM_calc_256_magn();
             show_spectrum();
-            UKW_spectrum_offset += 256;
-            calc_256_magn();
+#if 0
+            UKW_spectrum_offset = 512;
+            WFM_calc_256_magn();
             show_spectrum();
-            UKW_spectrum_offset += 256;
+            UKW_spectrum_offset = 767;
             calc_256_magn();
             show_spectrum();
             UKW_spectrum_offset = 0;
+#endif
           }
           else
           {
@@ -8221,6 +8272,57 @@ void calc_256_magn()
   }
 } // end calc_256_magn
 #endif
+
+void WFM_calc_256_magn()
+{
+  arm_rfft_fast_instance_f32 WFM_spectrum_FFT;
+  arm_rfft_fast_init_f32(&WFM_spectrum_FFT, 512);
+
+  float32_t spec_help = 0.0f;
+  // adjust lowpass filter coefficient, so that
+  // "spectrum display smoothness" is the same across the different sample rates
+  float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
+  if (LPFcoeff > 1.0f) LPFcoeff = 1.0f;
+
+  for (int i = 0; i < 256; i++)
+  {
+    pixelold[i] = pixelnew[i];
+  }
+      for (int i = 0; i < 512; i++)
+      { // apply window
+//        FFT_spec[i] =      UKW_buffer_1[i + UKW_spectrum_offset] * nuttallWindow256[i];
+        buffer_spec_FFT[i] =      UKW_buffer_1[i + UKW_spectrum_offset];
+      }
+
+  // perform FFT
+//  arm_rfft_fast_f32(&WFM_spectrum_FFT, FFT_spec, buffer_spec_FFT, 0);
+  arm_rfft_fast_f32(&WFM_spectrum_FFT, buffer_spec_FFT, FFT_spec, 0);
+  // calculate magnitudes and put into FFT_spec
+  // we do not need to calculate magnitudes with square roots, it would seem to be sufficient to
+  // calculate mag = I*I + Q*Q, because we are doing a log10-transformation later anyway
+  // and simultaneously put them into the right order
+#if 1
+      for (int i = 0; i < 256; i++)
+      {
+        buffer_spec_FFT[i] = (FFT_spec[i * 2] * FFT_spec[i * 2] + FFT_spec[i * 2 + 1] * FFT_spec[i * 2 + 1]);
+      }
+#endif
+  // apply low pass filter and scale the magnitude values and convert to int for spectrum display
+  for (int16_t x = 0; x < 256; x++)
+  {
+//    spec_help = LPFcoeff * FFT_spec[x] + (1.0 - LPFcoeff) * FFT_spec_old[x];
+    spec_help = LPFcoeff * buffer_spec_FFT[x] + (1.0f - LPFcoeff) * FFT_spec_old[x];
+    FFT_spec_old[x] = spec_help;
+#ifdef USE_LOG10FAST
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+#else
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+#endif
+  }
+} // end WFM_calc_256_magn
+
 /*
   // leave this here for REFERENCE !
   void calc_spectrum_mags(uint32_t zoom, float32_t LPFcoeff) {
@@ -11352,6 +11454,8 @@ void prepare_WFM(void)
   }
 }
 
+#define ENCODER_FACTOR 0.25f
+
 void encoders () {
   static long encoder_pos = 0, last_encoder_pos = 0;
   long encoder_change;
@@ -11393,11 +11497,11 @@ void encoders () {
       //
 //      tune_help1 = (double)(833333.3333 * ((double)encoder_change / 4.0));
       // tunestep in FM = 100kHz
-      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change));
+      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change * ENCODER_FACTOR));
     }
     else
     {
-      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change);
+      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change * ENCODER_FACTOR);
     }
     //    long long tune_help1 = tunestep  * SI5351_FREQ_MULT * encoder_change;
     old_freq = bands[current_band].freq;
@@ -11425,11 +11529,11 @@ void encoders () {
     {
       if (abs(bands[current_band].FHiCut) < 500)
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 50;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 50 * ENCODER_FACTOR;
       }
       else
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 100;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 100 * ENCODER_FACTOR;
       }
       control_filter_f();
       // set Menu2 to MENU_F_LO_CUT
@@ -11442,7 +11546,7 @@ void encoders () {
     {
       //       if(encoder2_change < 0) spectrum_zoom--;
       //            else spectrum_zoom++;
-      spectrum_zoom += encoder2_change;
+      spectrum_zoom += encoder2_change * ENCODER_FACTOR;
       //        Serial.println(encoder2_change);
       //        Serial.println((int)((float)encoder2_change / 4.0));
       if (spectrum_zoom > SPECTRUM_ZOOM_MAX) spectrum_zoom = SPECTRUM_ZOOM_MAX;
@@ -11462,13 +11566,13 @@ void encoders () {
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(K_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
 
-      IQ_amplitude_correction_factor += encoder2_change / 1000.0f;
+      IQ_amplitude_correction_factor += encoder2_change / 1000.0f * ENCODER_FACTOR;
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(IQ_amplitude_correction_factor * 1000000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
     } // END IQadjust
     else if (Menu_pointer == MENU_SPECTRUM_BRIGHTNESS)
     {
-      spectrum_brightness += encoder2_change * 10;
+      spectrum_brightness += encoder2_change * 10 * ENCODER_FACTOR;
       if (spectrum_brightness > 255) spectrum_brightness = 255;
       if (spectrum_brightness < 10) spectrum_brightness = 10;
 #if defined(BACKLIGHT_PIN)
@@ -11483,11 +11587,11 @@ void encoders () {
       Serial.println(encoder2_change);
       Serial.println((float)encoder2_change);
 #endif
-      if (encoder2_change < -1)
+      if (encoder2_change  * ENCODER_FACTOR < -1)
       {
         SAMPLE_RATE -= 1;
       }
-      else if (encoder2_change > 1)
+      else if (encoder2_change  * ENCODER_FACTOR > 1)
       {
         SAMPLE_RATE += 1;
       }
@@ -11497,13 +11601,13 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_LPF_SPECTRUM)
     {
-      LPF_spectrum += encoder2_change / 100.0f;
+      LPF_spectrum += encoder2_change / 100.0f * ENCODER_FACTOR;
       if (LPF_spectrum < 0.00001f) LPF_spectrum = 0.00001f;
       if (LPF_spectrum > 1.0f) LPF_spectrum = 1.0f;
     } // END LPFSPECTRUM
     else if (Menu_pointer == MENU_SPECTRUM_OFFSET)   // added pixel offsets  <PUA>
     {
-        bands[current_band].pixel_offset += (float)encoder2_change;
+        bands[current_band].pixel_offset += (float)encoder2_change * ENCODER_FACTOR;
 /*      offsetDisplayDB += 0.25 * displayScale[currentScale].offsetIncrement * (float)encoder2_change; // 4 changes per detent
       if (offsetDisplayDB > 100.0)       // This offset is in dB
         offsetDisplayDB = 100.0;
@@ -11516,7 +11620,7 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
     {
-      currentScale -= encoder2_change;
+      currentScale -= encoder2_change * ENCODER_FACTOR;
       // wait_flag = 1;
       if (currentScale > 4)
         currentScale = 4;
@@ -11534,23 +11638,23 @@ void encoders () {
       //          P_dirty += (float32_t)encoder2_change / 1000.0;
       //          Serial.print("IQ Phase corr factor:  "); Serial.println(P_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
-      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 1000.0f;
+      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 1000.0f * ENCODER_FACTOR;
       //          Serial.print("IQ Phase corr factor"); Serial.println(IQ_phase_correction_factor * 1000000);
 
     } // END IQadjust
     else if (Menu_pointer == MENU_CALIBRATION_FACTOR)
     {
-      calibration_factor += encoder2_change * 100;
+      calibration_factor += encoder2_change * 100 * ENCODER_FACTOR;
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_CALIBRATION_CONSTANT)
     {
-      calibration_constant += encoder2_change * 100;
+      calibration_constant += encoder2_change * 100 * ENCODER_FACTOR;
       si5351.set_correction(calibration_constant, SI5351_PLL_INPUT_XO);
       //  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_TIME_SET) {
       helpmin = minute(); helphour = hour();
-      helpmin = helpmin + encoder2_change;
+      helpmin = helpmin + encoder2_change * ENCODER_FACTOR;
       if (helpmin > 59) {
         helpmin = 0; helphour = helphour + 1;
       }
@@ -11570,7 +11674,7 @@ void encoders () {
       helpyear = year();
       helpmonth = month();
       helpday = day();
-      helpday = helpday + encoder2_change;
+      helpday = helpday + encoder2_change * ENCODER_FACTOR;
       if (helpday < 1) {
         helpday = 31;
         helpmonth = helpmonth - 1;
@@ -11612,7 +11716,7 @@ void encoders () {
         Menus[MENU_RF_GAIN].text2 = "  gain  ";
         //          Serial.println ("auto = 0");
       }
-      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change;
+      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change * ENCODER_FACTOR;
       if (bands[current_band].RFgain < 0)
       {
         auto_codec_gain = 1; //Serial.println ("auto = 1");
@@ -11632,7 +11736,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_VOLUME)
     {
-      audio_volume = audio_volume + encoder3_change * 5;
+      audio_volume = audio_volume + encoder3_change * 5 * ENCODER_FACTOR;
       if (audio_volume < 0) audio_volume = 0;
       else if (audio_volume > 100) audio_volume = 100;
       //      AudioNoInterrupts();
@@ -11642,35 +11746,35 @@ void encoders () {
     }
     else if (Menu2 == MENU_RF_ATTENUATION)
     {
-      RF_attenuation = RF_attenuation + encoder3_change;
+      RF_attenuation = RF_attenuation + encoder3_change * ENCODER_FACTOR;
       if (RF_attenuation < 0) RF_attenuation = 0;
       else if (RF_attenuation > 31) RF_attenuation = 31;
       setAttenuator(RF_attenuation);
     }
     else if (Menu2 == MENU_SAM_ZETA)
     {
-      zeta_help = zeta_help + encoder3_change;
+      zeta_help = zeta_help + encoder3_change * ENCODER_FACTOR;
       if (zeta_help < 15) zeta_help = 15;
       else if (zeta_help > 99) zeta_help = 99;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_OMEGA)
     {
-      omegaN = omegaN + encoder3_change * 10;
+      omegaN = omegaN + encoder3_change * 10 * ENCODER_FACTOR;
       if (omegaN < 20) omegaN = 20;
       else if (omegaN > 1000) omegaN = 1000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_CATCH_BW)
     {
-      pll_fmax = pll_fmax + encoder3_change * 100;
+      pll_fmax = pll_fmax + encoder3_change * 100 * ENCODER_FACTOR;
       if (pll_fmax < 200) pll_fmax = 200;
       else if (pll_fmax > 6000) pll_fmax = 6000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_NOTCH_1)
     {
-      notches[0] = notches[0] + encoder3_change * 10;
+      notches[0] = notches[0] + encoder3_change * 10 * ENCODER_FACTOR;
       if (notches[0] < -9900) //
       {
         notches[0] = -9900;
@@ -11685,7 +11789,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_NOTCH_1_BW)
     {
-      notches_BW[0] = notches_BW[0] + encoder3_change;
+      notches_BW[0] = notches_BW[0] + encoder3_change * ENCODER_FACTOR;
       if (notches_BW[0] < 1)
       {
         notches_BW[0] = 1;
@@ -11723,7 +11827,7 @@ void encoders () {
     */
     else if (Menu2 == MENU_AGC_MODE)
     {
-      AGC_mode = AGC_mode + encoder3_change;
+      AGC_mode = AGC_mode + encoder3_change * ENCODER_FACTOR;
       if (AGC_mode > 5) AGC_mode = 5;
       else if (AGC_mode < 0) AGC_mode = 0;
       agc_switch_mode = 1;
@@ -11731,34 +11835,34 @@ void encoders () {
     }
     else if (Menu2 == MENU_AGC_THRESH)
     {
-      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change;
+      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change * ENCODER_FACTOR;
       if (bands[current_band].AGC_thresh < -20) bands[current_band].AGC_thresh = -20;
       else if (bands[current_band].AGC_thresh > 120) bands[current_band].AGC_thresh = 120;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_DECAY)
     {
-      agc_decay = agc_decay + encoder3_change * 100;
+      agc_decay = agc_decay + encoder3_change * 100 * ENCODER_FACTOR;
       if (agc_decay < 100) agc_decay = 100;
       else if (agc_decay > 5000) agc_decay = 5000;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_SLOPE)
     {
-      agc_slope = agc_slope + encoder3_change * 10;
+      agc_slope = agc_slope + encoder3_change * 10 * ENCODER_FACTOR;
       if (agc_slope < 0) agc_slope = 0;
       else if (agc_slope > 200) agc_slope = 200;
       AGC_prep();
     }
     else if (Menu2 == MENU_STEREO_FACTOR)
     {
-      stereo_factor = stereo_factor + encoder3_change * 10;
+      stereo_factor = stereo_factor + encoder3_change * 10 * ENCODER_FACTOR;
       if (stereo_factor < 0) stereo_factor = 0;
       else if (stereo_factor > 400) stereo_factor = 400;
     }
     else if (Menu2 == MENU_BASS)
     {
-      bass = bass + (float32_t)encoder3_change / 20.0f;
+      bass = bass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (bass > 1.0) bass = 1.0;
       else if (bass < -1.0) bass = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11768,7 +11872,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MIDBASS)
     {
-      midbass = midbass + (float32_t)encoder3_change / 20.0f;
+      midbass = midbass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (midbass > 1.0) midbass = 1.0;
       else if (midbass < -1.0) midbass = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11777,7 +11881,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MID)
     {
-      mid = mid + (float32_t)encoder3_change / 20.0f;
+      mid = mid + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (mid > 1.0) mid = 1.0;
       else if (mid < -1.0) mid = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11786,7 +11890,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_MIDTREBLE)
     {
-      midtreble = midtreble + (float32_t)encoder3_change / 20.0f;
+      midtreble = midtreble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (midtreble > 1.0) midtreble = 1.0;
       else if (midtreble < -1.0) midtreble = -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11795,7 +11899,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_TREBLE)
     {
-      treble = treble + (float32_t)encoder3_change / 20.0f;
+      treble = treble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (treble > 1.0) treble = 1.0;
       else if (treble < -1.0) treble =  -1.0;
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -11805,41 +11909,41 @@ void encoders () {
     }
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
-      if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change;
+      if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change * ENCODER_FACTOR;
       else spectrum_display_scale = spectrum_display_scale + encoder3_change * 5;
       if (spectrum_display_scale > 2000) spectrum_display_scale = 2000;
       else if (spectrum_display_scale < 1) spectrum_display_scale =  1;
     }
     else if (Menu2 == MENU_BIT_NUMBER)
     {
-      bitnumber = bitnumber + encoder3_change;
+      bitnumber = bitnumber + encoder3_change * ENCODER_FACTOR;
       if (bitnumber > 16) bitnumber = 16;
       else if (bitnumber < 3) bitnumber = 3;
     }
     else if (Menu2 == MENU_ANR_TAPS)
     {
-      ANR_taps = ANR_taps + encoder3_change;
+      ANR_taps = ANR_taps + encoder3_change * ENCODER_FACTOR;
       if (ANR_taps < ANR_delay) ANR_taps = ANR_delay;
       if (ANR_taps < 16) ANR_taps = 16;
       else if (ANR_taps > 128) ANR_taps = 128;
     }
     else if (Menu2 == MENU_ANR_DELAY)
     {
-      ANR_delay = ANR_delay + encoder3_change;
+      ANR_delay = ANR_delay + encoder3_change * ENCODER_FACTOR;
       if (ANR_delay > ANR_taps) ANR_delay = ANR_taps;
       if (ANR_delay < 2) ANR_delay = 2;
       else if (ANR_delay > 128) ANR_delay = 128;
     }
     else if (Menu2 == MENU_ANR_MU)
     {
-      if (encoder3_change > 0) ANR_two_mu *= 2.0;
+      if (encoder3_change  * ENCODER_FACTOR > 0) ANR_two_mu *= 2.0;
       else ANR_two_mu /= 2.0;
       if (ANR_two_mu < 1.0e-07) ANR_two_mu = 1.0e-7;
       else if (ANR_two_mu > 8.192e-02) ANR_two_mu = 8.192e-02;
     }
     else if (Menu2 == MENU_ANR_GAMMA)
     {
-      if (encoder3_change > 0) ANR_gamma *= 2.0;
+      if (encoder3_change * ENCODER_FACTOR > 0) ANR_gamma *= 2.0;
       else ANR_gamma /= 2.0;
       //      ANR_two_mu = ANR_two_mu + encoder3_change / 4000000.0;
       if (ANR_gamma < 1.0e-03) ANR_gamma = 1.0e-3;
@@ -11847,19 +11951,19 @@ void encoders () {
     }
     else if (Menu2 == MENU_NB_THRESH)
     {
-      NB_thresh = NB_thresh + (float32_t)encoder3_change / 10.0f;
+      NB_thresh = NB_thresh + (float32_t)encoder3_change / 10.0f * ENCODER_FACTOR;
       if (NB_thresh > 20.0) NB_thresh = 20.0;
       else if (NB_thresh < 0.1) NB_thresh =  0.1;
     }
     else if (Menu2 == MENU_NB_TAPS)
     {
-      NB_taps = NB_taps + encoder3_change;
+      NB_taps = NB_taps + encoder3_change * ENCODER_FACTOR;
       if (NB_taps > 40) NB_taps = 40;
       else if (NB_taps < 6) NB_taps =  6;
     }
     else if (Menu2 == MENU_NB_IMPULSE_SAMPLES)
     {
-      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 5.0f;
+      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 5.0f * ENCODER_FACTOR;
       if (NB_impulse_samples > 41) NB_impulse_samples = 41;
       else if (NB_impulse_samples < 3) NB_impulse_samples =  3;
     }
@@ -11867,11 +11971,11 @@ void encoders () {
     {
       if (abs(bands[current_band].FLoCut) < 500)
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 50;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 50 * ENCODER_FACTOR;
       }
       else
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 100;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 100 * ENCODER_FACTOR;
       }
       control_filter_f();
       filter_bandwidth();
@@ -11892,20 +11996,20 @@ void encoders () {
         } */
     else if (Menu2 == MENU_NR_PSI)
     {
-      NR_PSI = NR_PSI + (float32_t)encoder3_change / 4.0f;
+      NR_PSI = NR_PSI + (float32_t)encoder3_change / 4.0f * ENCODER_FACTOR;
       if (NR_PSI < 0.2) NR_PSI = 0.2;
       else if (NR_PSI > 20.0) NR_PSI = 20.0;
     }
     else if (Menu2 == MENU_NR_ALPHA)
     {
-      NR_alpha = NR_alpha + (float32_t)encoder3_change / 200.0f;
+      NR_alpha = NR_alpha + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
       if (NR_alpha < 0.7) NR_alpha = 0.7;
       else if (NR_alpha > 0.999) NR_alpha = 0.999;
       NR_onemalpha = (1.0 - NR_alpha);
     }
     else if (Menu2 == MENU_NR_BETA)
     {
-      NR_beta = NR_beta + (float32_t)encoder3_change / 200.0f;
+      NR_beta = NR_beta + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
       if (NR_beta < 0.1) NR_beta = 0.1;
       else if (NR_beta > 0.999) NR_beta = 0.999;
       NR_onemtwobeta = (1.0 - (2.0 * NR_beta));
@@ -11913,27 +12017,27 @@ void encoders () {
     }
     else if (Menu2 == MENU_NR_KIM_K)
     {
-      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 200.0f;
+      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
       if (NR_KIM_K < 0.8) NR_KIM_K = 0.8;
       else if (NR_KIM_K > 1.0) NR_KIM_K = 1.0;
     }
     else if (Menu2 == MENU_LMS_NR_STRENGTH)
     {
-      LMS_nr_strength = LMS_nr_strength + encoder3_change;
+      LMS_nr_strength = LMS_nr_strength + encoder3_change * ENCODER_FACTOR;
       if (LMS_nr_strength < 0) LMS_nr_strength = 0;
       else if (LMS_nr_strength > 40) LMS_nr_strength = 40;
       Init_LMS_NR ();
     }
     else if (Menu2 == MENU_CW_DECODER_THRESH)
     {
-      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 10.0f;
+      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 10.0f * ENCODER_FACTOR;
       if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
       else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
 #if defined (T4)
     else if (Menu2 == MENU_CPU_SPEED)
     {
-      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 12000000;
+      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 12000000 * ENCODER_FACTOR;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
 //      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
 //      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
@@ -16926,9 +17030,13 @@ float ApproxAtan2(float y, float x)
   return 0.0f; // x,y = 0. Could return NaN instead.
 }
 
+
+// not needed anymore!
+// is added in Teensyduino 1.52 beta-4, so this can be deleted !?
 void T4_rtc_set(unsigned long t)
 {
-#if defined (T4)  
+//#if defined (T4)  
+#if 0  
    // stop the RTC
    SNVS_HPCR &= ~(SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS);
    while (SNVS_HPCR & SNVS_HPCR_RTC_EN); // wait
@@ -16962,7 +17070,7 @@ void set_CPU_freq_T4(void)
 #endif
 }
 */
-#define USE_T4_PLL2 
+//#define USE_T4_PLL2 
 
 // by FrankB April 2020
 // disable ADCs, enable spread spectrum, overclock IGP to reduce electromagnetic interference in the T4
