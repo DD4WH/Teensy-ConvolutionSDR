@@ -3400,6 +3400,10 @@ void setup() {
 #if defined(T4)    
   // 70MHz, wow!   
   tft.begin(70000000,10000000);
+    uint32_t iospeed_display = IOMUXC_PAD_DSE(3) | IOMUXC_PAD_SPEED(1);
+  *(digital_pin_to_info_PGM + 13)->pad = iospeed_display; //clk
+  *(digital_pin_to_info_PGM + 11)->pad = iospeed_display; //MOSI
+  *(digital_pin_to_info_PGM + TFT_CS)->pad = iospeed_display;
 #else
   tft.begin();
 #endif
