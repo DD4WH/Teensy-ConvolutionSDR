@@ -115,7 +115,9 @@
    - automatic STEREO detection in WFM
    - new debouncing of encoder (new lib by FrankB)
    - audio volume encoder logarithmic feel (thanks to FrankB) 
-   - bugfix Auto-IQ correction Moseley & Slump (2006) (thanks to FrankB) 
+   - bugfix Auto-IQ correction Moseley & Slump (2006) (thanks to FrankB)
+   - introduce ENCODER_FACTOR in order to be flexible with encoder library (DD4WH T4 setup does only work with the standard encoder lib and hardware debouncing with 4n7 caps at the encoder contacts)
+   - change ILI9341 screen update --> credit to FrankB [frees up CPU load considerably !]  
    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -247,8 +249,8 @@ extern "C"
 uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
-uint32_t T4_CPU_FREQUENCY  =  444000000;
-//uint32_t T4_CPU_FREQUENCY  =  300000000;
+//uint32_t T4_CPU_FREQUENCY  =  444000000;
+uint32_t T4_CPU_FREQUENCY  =  300000000;
 #endif
 
 #include <Audio.h>
@@ -3397,7 +3399,7 @@ void setup() {
      // Serial.println("before tft init");
 #if defined(T4)    
   // 70MHz, wow!   
-  tft.begin(70000000);
+  tft.begin(70000000,10000000);
 #else
   tft.begin();
 #endif
@@ -3406,6 +3408,10 @@ void setup() {
 #else
   tft.setRotation( 3 );
 #endif
+#if defined(T4)
+  tft.useFrameBuffer(1);
+  tft.updateScreenAsync(true);
+#endif  
   tft.fillScreen(ILI9341_BLACK);
   tft.setCursor(10, 1);
   tft.setTextSize(2);
@@ -11454,7 +11460,7 @@ void prepare_WFM(void)
   }
 }
 
-#define ENCODER_FACTOR 0.25f
+#define ENCODER_FACTOR 0.25f  // use 0.25f with those cheap encoders that have 4 detents per step, for other encoders or libs maybe better use 1.0f
 
 void encoders () {
   static long encoder_pos = 0, last_encoder_pos = 0;
