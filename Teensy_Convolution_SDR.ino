@@ -197,6 +197,9 @@
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
 #define HARDWARE_DD4WH_T4
 
+// hardware made by Frank DD4WH & the T4 & T4 audio shield
+#define HARDWARE_SGTL5000_T4
+
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
 //#define HARDWARE_AD8331
 
@@ -252,6 +255,9 @@ uint32_t set_arm_clock(uint32_t frequency);
 //uint32_t T4_CPU_FREQUENCY  =  444000000;
 uint32_t T4_CPU_FREQUENCY  =  300000000;
 #endif
+
+#include <ADC.h>        //Tisho
+#include <ADC_util.h>
 
 #include <Audio.h>
 //#include <Time.h>
@@ -360,6 +366,38 @@ static uint32_t s_roomC_hotC; /*!< The value of s_roomCount minus s_hotCount.*/
 #define DIGIMODE_LAST   5
 
 uint8_t digimode = 0;
+
+//Tisho
+char Ext_Speacker_Enable = 1;     //flag indicating if external speaker is enabled (Tisho)
+char RF_Switch_PanAdapt = 3;      //flag for the switches on the panadapter itselve (Tisho)
+int MSI_RF_Atten = 40;            //MSI001 RF Atenuation Tisho  (Don't need any more now it is implemented in the RF_attenuation- have to remove the MENU as well)
+
+//BPF Tisho
+#define MaxBPF  7       //8 BPF channels active at the moment 
+int8_t ActiveBPF = 2;   //Start with active 1.5MHz-4.5MHz BPF
+
+//Range Tisho   //Set the RF switches on the main board for the corespomding range
+#define MaxRange  6 
+int8_t ActiveRange = 0;   //Start with active 0-12MHz range
+//int8_t ActiveRange = 1;   //Start with active 12-30MHz range
+
+uint8_t RF_Amp_EN = 0;   //flag for the enable of the RF Amp on the main board
+
+uint8_t ANT_BIAST = 0;   //flag for the enable of the second antena input (modified BPF board) having BIAS-T
+
+const int8_t PWR_EN_OUT_pin = 0;
+uint8_t PWR_State = 0;    //actual power state (on or off) - used to determine by pressing the mode button long what to do  
+
+uint8_t Menu_1_Assistant = 0;
+uint8_t Menu_2_Assistant = 0;         //Flag for the menu assistant function (by long pressing the encode it is cold the menu with small description)
+uint8_t Menu_1_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
+uint8_t Menu_2_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
+
+const int BattMeas_pin = A8; // ADC0
+
+ADC *adc = new ADC(); // adc object;
+
+//end Tisho addition
 
 float lastII = 0;
 float lastQQ = 0;
@@ -994,9 +1032,9 @@ Si5351 si5351;
 
 ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
 
-Encoder tune      (16, 17);
+Encoder tune      (17, 16);
 Encoder filter    (14, 15);
-Encoder encoder3  (4, 5); //(26, 28);
+Encoder encoder3  (5, 4); //(26, 28);
 
 #define   BUTTON_1_PIN      24 // encoder2 button = button3SW
 #define   BUTTON_2_PIN      26 // BAND+ = button2SW
@@ -1069,6 +1107,8 @@ Metro ms_500 = Metro(500); // Set up a Metro
 Metro encoder_check = Metro(100); // Set up a Metro
 //Metro dbm_check = Metro(25);
 uint8_t wait_flag = 0;
+
+
 
 #ifdef HARDWARE_DO7JBH
 const uint8_t Band1 = 26; // band selection pins for LPF relays, used with 2N7000: HIGH means LPF is activated
@@ -1147,7 +1187,7 @@ AudioConnection          patchCord8(playAac, 1, mixright, 2);
 AudioConnection          patchCord9(mixleft, 0,  i2s_out, 1);
 AudioConnection          patchCord10(mixright, 0, i2s_out, 0);
 
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
 AudioControlSGTL5000     sgtl5000_1;
 #endif
 
@@ -1191,6 +1231,7 @@ uint16_t SPECTRUM_DRAW_COLOUR = ILI9341_WHITE;
 #define SPECTRUM_ZOOM_MAX         11
 
 int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
+uint8_t spectrum_view_WFM = 0;      //0 - Clacis view; 1 - Band spectrum  //Tisho
 
 // Text and position for the FFT spectrum display scale
 
@@ -1257,7 +1298,7 @@ const SR_Descriptor SR [18] =
 };
 int32_t IF_FREQ = SR[SAMPLE_RATE].rate / 4;     // IF (intermediate) frequency
 #define F_MAX 3700000000
-#define F_MIN 1200000
+#define F_MIN 12000         //tisho
 
 // out of the nine implemented AM detectors, only
 // two proved to be of acceptable quality:
@@ -1293,7 +1334,7 @@ int32_t IF_FREQ = SR[SAMPLE_RATE].rate / 4;     // IF (intermediate) frequency
 
 uint8_t autotune_wait = 10;
 
-#ifdef USE_W7PUA
+//#ifdef USE_W7PUA                                  //Tisho
 #define BAND_VLF    0  // Revised <PUA>
 #define BAND_LW     1
 #define BAND_MW     2
@@ -1316,10 +1357,11 @@ uint8_t autotune_wait = 10;
 #define BAND_12M   19
 #define BAND_10M   20
 #define BAND_UKW   21
+#define BAND_2M   22
 
 #define FIRST_BAND   BAND_VLF
-#define LAST_BAND    BAND_UKW
-#define NUM_BANDS    22
+#define LAST_BAND    BAND_2M
+#define NUM_BANDS    23
 #define STARTUP_BAND BAND_VLF
 
 //Added band limits and band type, gain correction on a band basis    <PUA>
@@ -1336,7 +1378,8 @@ struct band {
   int FLoCut;
   int RFgain;
   uint8_t band_type;
-  float32_t gainCorrection; // is hardware dependent and has to be calibrated ONCE and hardcoded in the table below
+  float32_t gainCorrection;     // is hardware dependent and has to be calibrated ONCE and hardcoded in the table below
+  float32_t RFAmpGain;        // Tisho is hardware dependent and has to be calibrated ONCE and hardcoded in the table below
   int AGC_thresh;
   int16_t pixel_offset;
 };
@@ -1346,89 +1389,34 @@ struct band {
 #define MISC_BAND 2
 #define WFM_BAND 3
 
-struct band bands[NUM_BANDS] = {
-  13560000,    1200000,   14000000, "VLF", DEMOD_USB, 800, 100, 0, MISC_BAND,      6.0,     30,    22,
-  22500000,   14000000,   52000000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 6.0,     30,    2,
-  63900000,   52000000,  170000000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 7.0,     30,    42,
-  185000000,  180000000,  200000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       6.0,     30,    2,
-  370000000,  350000000,  380000000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      6.0,     30,    2,
-  399500000,  390000000,  400000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
-  485000000,  475000000,  510000000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, 6.0,     30,    2,
-  584000000,  590000000,  620000000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 5.0,     30,    22,
-  710000000,  700000000,  730000000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       4.0,     30,    2,
-  735000000,  720000000,  745000000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, 4.0,     30,    2,
-  952000000,  940000000,  990000000, "31M", DEMOD_SAM, 4900, -4900, 0, BROADCAST_BAND, 4.0,     30,    52,
-  1012500000, 1010000000, 1015000000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       4.0,     30,    2,
-  1167000000, 1160000000, 1210000000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, 3.0,     30,    42,
-  1367000000, 1357000000, 1387000000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, 7.0,     30,    2,
-  1420000000, 1400000000, 1435000000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       7.0,     30,    2,
-  1580500000, 1510000000, 1580000000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, 7.0,     30,    42,
-  1778000000, 1748000000, 1790000000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, 6.0,     30,    42,
-  1810000000, 1806800000, 1816800000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
-  2120000000, 2100000000, 2145000000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       6.0,     30,    2,
-  2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
-  2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
-#if defined(HARDWARE_DD4WH_T4)
-  3173600000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 95.4MHz
-#else
-  3500807300, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 105.2MHz
-#endif        
+//Msi001 modified Tisho
+struct band bands[NUM_BANDS] = {                      
+  135600,    12000,   140000, "VLF", DEMOD_USB, 800, 100, 0, MISC_BAND,      -53.2,   9.6,     30,    22,
+  225000,   140000,   520000,  "LW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, -52.5,    10.0,     30,    2,
+  639000,   520000,  1700000,  "MW", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, -50.5,    10.1,     30,    2,
+  1850000,  1800000,  2000000, "160", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       -51.0,   10.5,     30,    2,
+  3700000,  3500000,  3800000, "80M", DEMOD_LSB, -100, -2700, 15, HAM_BAND,      -52.1,   11.5,     30,    2,
+  3995000,  3900000,  4000000, "75M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, -52.1,   11.5,     30,    2,
+  4850000,  4750000,  5100000, "60M", DEMOD_SAM, 3600, -3600, 7, BROADCAST_BAND, -48.4,   12.3,     30,    2,
+  5840000,  5900000,  6200000, "49M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, -51.6,   12.5,     30,    2,
+  7100000,  7000000,  7300000, "40M", DEMOD_LSB, -100, -2700, 0, HAM_BAND,       -52.5,   12.9,     30,    2,
+  7350000,  7200000,  7450000, "41M", DEMOD_SAM, 3600, -3600, 0, BROADCAST_BAND, -52.5,   12.9,     30,    2,
+  9520000,  9400000,  9900000, "31M", DEMOD_SAM, 4900, -4900, 0, BROADCAST_BAND, -51.9,   13.7,     30,    2,
+  10125000, 10100000, 10150000, "30M", DEMOD_USB, 2700,   100, 0, HAM_BAND,       -51.7,  13.7,     30,    2,
+  11670000, 11600000, 12100000, "25M", DEMOD_SAM, 4800, -4800, 2, BROADCAST_BAND, -49.4,  14.0,     30,    2,
+  13670000, 13570000, 13870000, "22M", DEMOD_SAM, 3600, -3600, 2, BROADCAST_BAND, -53.0,  14.6,     30,    2,
+  14200000, 14000000, 14350000, "20M", DEMOD_USB, 3600,   100, 0, HAM_BAND,       -53.0,  14.7,     30,    2,
+  15805000, 15100000, 15800000, "19M", DEMOD_SAM, 3600, -3600, 4, BROADCAST_BAND, -53.0,  14.7,     30,    2,
+  17780000, 17480000, 17900000, "16M", DEMOD_SAM, 3600, -3600, 5, BROADCAST_BAND, -53.0,  15.0,     30,    2,
+  18100000, 18068000, 18168000, "17M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       -53.0,  15.0,     30,    2,
+  21200000, 21000000, 21450000, "15M", DEMOD_USB, 3600,   100, 5, HAM_BAND,       -52.8,  15.0,     30,    2,
+  24920000, 24890000, 24990000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       -52.8,  15.3,     30,    2,
+  28350000, 28000000, 29700000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       -51.6,  15.6,     30,    2,
+  90350000, 64000000, 108000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      -53.6, 16.0,     30,    2,
+  144000000, 144000000, 148000000, "2M", DEMOD_SAM, 3600, -3600, 15, HAM_BAND,      -52.0,  16.0,     30,    2     
 };
 
-//
-#else
 
-#define BAND_LW     0
-#define BAND_MW     1
-#define BAND_120M   2
-#define BAND_90M    3
-#define BAND_75M    4
-#define BAND_60M    5
-#define BAND_49M    6
-#define BAND_41M    7
-#define BAND_31M    8
-#define BAND_25M    9
-#define BAND_22M   10
-#define BAND_19M   11
-#define BAND_16M   12
-#define BAND_15M   13
-#define BAND_13M   14
-#define BAND_11M   15
-
-#define FIRST_BAND BAND_LW
-#define LAST_BAND  BAND_13M
-#define NUM_BANDS  16
-#define STARTUP_BAND BAND_MW    // 
-struct band {
-  unsigned long long freq; // frequency in Hz
-  const char* name; // name of band
-  int mode;
-  int FHiCut;
-  int FLoCut;
-  int RFgain;
-};
-// f, band, mode, bandwidth, RFgain
-struct band bands[NUM_BANDS] = {
-  //  7750000 ,"VLF", DEMOD_AM, 3600,3600,0,
-  22500000, "LW", DEMOD_SAM, 3600, -3600, 0,
-  63900000, "MW",  DEMOD_SAM, 3600, -3600, 0,
-  248500000, "120M",  DEMOD_SAM, 3600, -3600, 0,
-  350000000, "90M",  DEMOD_LSB, 3600, -3600, 6,
-  390500000, "75M",  DEMOD_SAM, 3600, -3600, 4,
-  502500000, "60M",  DEMOD_SAM, 3600, -3600, 7,
-  597000000, "49M",  DEMOD_SAM, 3600, -3600, 0,
-  712000000, "41M",  DEMOD_SAM, 3600, -3600, 0,
-  942000000, "31M",  DEMOD_SAM, 3600, -3600, 0,
-  1173500000, "25M", DEMOD_SAM, 3600, -3600, 2,
-  1357000000, "22M", DEMOD_SAM, 3600, -3600, 2,
-  1514000000, "19M", DEMOD_SAM, 3600, -3600, 4,
-  1748000000, "16M", DEMOD_SAM, 3600, -3600, 5,
-  3175200000, "15M", DEMOD_WFM, 3600, -3600, 21,
-  2145000000, "13M", DEMOD_SAM, 3600, -3600, 6,
-  2567000000, "11M", DEMOD_SAM, 3600, -3600, 6
-};
-
-#endif
 
 int current_band = STARTUP_BAND;
 
@@ -1514,7 +1502,7 @@ float32_t stereo_factor = 100.0;
 uint8_t half_clip = 0;
 uint8_t quarter_clip = 0;
 uint8_t auto_codec_gain = 1;
-int8_t RF_attenuation = 0;
+int8_t RF_attenuation = 40;           //Tisho -40db 
 
 /*********************************************************************************************************************************************************
 
@@ -1742,6 +1730,9 @@ const uint32_t N_DEC_B = N_B / (uint32_t)DF;
 float32_t DMAMEM float_buffer_L [BUFFER_SIZE * N_B];
 float32_t DMAMEM float_buffer_R [BUFFER_SIZE * N_B];
 
+float32_t DMAMEM float_buffer_L_T [BUFFER_SIZE * N_B];        //Tisho
+float32_t DMAMEM float_buffer_R_T [BUFFER_SIZE * N_B];        //Tisho
+
 float32_t DMAMEM FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
 float32_t DMAMEM last_sample_buffer_L [BUFFER_SIZE * N_DEC_B];
 float32_t DMAMEM last_sample_buffer_R [BUFFER_SIZE * N_DEC_B];
@@ -1941,7 +1932,7 @@ float32_t DMAMEM FIR_int2_coeffs[32];
 // constants for display
 //////////////////////////////////////
 //int spectrum_y = 120; // upper edge
-//#define USE_WATERFALL
+//#define USE_WATERFALL           
 int spectrum_y =              115; // upper edge
 const int spectrum_x =              10;
 int spectrum_height =         96;
@@ -1999,6 +1990,8 @@ float32_t m_AverageMagdbm = -73.0;
 float32_t m_AttackAvedbmhz = -103.0;
 float32_t m_DecayAvedbmhz = -103.0;
 float32_t m_AverageMagdbmhz = -103.0;
+float32_t snr = 0;              //tisho
+
 
 #ifdef HARDWARE_DO7JBH
 float32_t dbm_calibration = 3.0; //
@@ -2013,8 +2006,8 @@ float32_t dbm_calibration = 22.0; //
 //  50ms   0.3297
 // 100ms   0.1812
 // 500ms   0.0391
-float32_t m_AttackAlpha = 0.03; //0.1; //0.08; //0.2;
-float32_t m_DecayAlpha  = 0.01; //0.02; //0.05;
+float32_t m_AttackAlpha = 0.1;  //0.03; //0.1; //0.08; //0.2;   //Tisho
+float32_t m_DecayAlpha  = 0.1; //0.01; //0.02; //0.05;         //Tisho
 int16_t pos_x_dbm = pos_x_smeter + 170;
 int16_t pos_y_dbm = pos_y_smeter - 7;
 #define DISPLAY_S_METER_DBM       0
@@ -2024,14 +2017,11 @@ uint8_t dbm_state = 0;
 
 
 #define TUNE_STEP_MIN   0
-#define TUNE_STEP1   0    // shortwave
-#define TUNE_STEP2   1   // fine tuning
-#define TUNE_STEP3   2    //
-#define TUNE_STEP4   3    //
-#define TUNE_STEP_MAX 3
+
+#define TUNE_STEP_MAX 9
 #define first_tunehelp 1
 #define last_tunehelp 3
-uint8_t tune_stepper = 0;
+uint8_t tune_stepper = 4;
 int tunestep = 5000; //TUNE_STEP1;
 const char* tune_text = "Fast Tune";
 uint8_t autotune_flag = 0;
@@ -2100,75 +2090,80 @@ const DEMOD_Descriptor DEMOD [16] =
 #define MENU_RESET_CODEC                  16
 #define MENU_SPECTRUM_BRIGHTNESS          17
 #define MENU_SHOW_SPECTRUM                18
+#define MENU_WFM_SPECTRUM_VIEW            19          //Tisho
 
 #define first_menu                        0
-#define last_menu                         18
+#define last_menu                         19          //Tisho
 #define start_menu                        0
 int8_t Menu_pointer =                    start_menu;
 
-#define MENU_VOLUME                       19
-#define MENU_RF_GAIN                      20
-#define MENU_RF_ATTENUATION               21
-#define MENU_BASS                         22
-#define MENU_MIDBASS                      23
-#define MENU_MID                          24
-#define MENU_MIDTREBLE                    25
-#define MENU_TREBLE                       26
-#define MENU_SAM_ZETA                     27
-#define MENU_SAM_OMEGA                    28
-#define MENU_SAM_CATCH_BW                 29
-#define MENU_NOTCH_1                      30
-#define MENU_NOTCH_1_BW                   31
+#define MENU_VOLUME                       20
+#define MENU_RF_GAIN                      21
+#define MENU_RF_ATTENUATION               22
+#define MENU_BASS                         23
+#define MENU_MIDBASS                      24
+#define MENU_MID                          25
+#define MENU_MIDTREBLE                    26
+#define MENU_TREBLE                       27
+#define MENU_SAM_ZETA                     28
+#define MENU_SAM_OMEGA                    29
+#define MENU_SAM_CATCH_BW                 30
+#define MENU_NOTCH_1                      31
+#define MENU_NOTCH_1_BW                   32
 //#define MENU_NOTCH_2                      31
 //#define MENU_NOTCH_2_BW                   32
-#define MENU_AGC_MODE                     32
-#define MENU_AGC_THRESH                   33
-#define MENU_AGC_DECAY                    34
-#define MENU_AGC_SLOPE                    35
-#define MENU_ANR_NOTCH                    36
-#define MENU_ANR_TAPS                     37
-#define MENU_ANR_DELAY                    38
-#define MENU_ANR_MU                       39
-#define MENU_ANR_GAMMA                    40
-#define MENU_NB_THRESH                    41
-#define MENU_NB_TAPS                      42
-#define MENU_NB_IMPULSE_SAMPLES           43
-#define MENU_STEREO_FACTOR                44
-#define MENU_BIT_NUMBER                   45
-#define MENU_F_LO_CUT                     46
+#define MENU_AGC_MODE                     33
+#define MENU_AGC_THRESH                   34
+#define MENU_AGC_DECAY                    35
+#define MENU_AGC_SLOPE                    36
+#define MENU_ANR_NOTCH                    37
+#define MENU_ANR_TAPS                     38
+#define MENU_ANR_DELAY                    39
+#define MENU_ANR_MU                       40
+#define MENU_ANR_GAMMA                    41
+#define MENU_NB_THRESH                    42
+#define MENU_NB_TAPS                      43
+#define MENU_NB_IMPULSE_SAMPLES           44
+#define MENU_STEREO_FACTOR                45
+#define MENU_BIT_NUMBER                   46
+#define MENU_F_LO_CUT                     47
 //#define MENU_NR_L                         46
 //#define MENU_NR_N                         47
-#define MENU_NR_PSI                       47
-#define MENU_NR_ALPHA                     48
-#define MENU_NR_BETA                      49
-#define MENU_NR_USE_X                     50
-#define MENU_NR_USE_KIM                   51
-#define MENU_NR_KIM_K                     52
-#define MENU_LMS_NR_STRENGTH              53
-#define MENU_CW_DECODER_ATC               54
-#define MENU_CW_DECODER_THRESH            55
-#define MENU_RTTY_DECODER_BAUD            56
-#define MENU_RTTY_DECODER_SHIFT           57
-#define MENU_RTTY_DECODER_STOPBIT         58
+#define MENU_NR_PSI                       48
+#define MENU_NR_ALPHA                     49
+#define MENU_NR_BETA                      50
+#define MENU_NR_USE_X                     51
+#define MENU_NR_USE_KIM                   52
+#define MENU_NR_KIM_K                     53
+#define MENU_LMS_NR_STRENGTH              54
+#define MENU_CW_DECODER_ATC               55
+#define MENU_CW_DECODER_THRESH            56
+#define MENU_RTTY_DECODER_BAUD            57
+#define MENU_RTTY_DECODER_SHIFT           58
+#define MENU_RTTY_DECODER_STOPBIT         59
 #if defined (T4)
-#define MENU_CPU_SPEED                    59
-#define MENU_POWER_SAVE                   60
-#define MENU_USE_ATAN2                    61
-#define MENU_DIGIMODE                     62
-#define last_menu2                        62
+#define MENU_CPU_SPEED                    60
+#define MENU_POWER_SAVE                   61
+#define MENU_USE_ATAN2                    62
+#define MENU_DIGIMODE                     63
+#define MENU_SPK_EN                       64          //tisho
+#define MENU_RF_Range                     65          //tisho
+#define MENU_RF_Preamp                    66          //tisho
+#define MENU_ANT_BIAST                    67          //tisho
+#define MENU_RF_BPF                       68          //tisho
+
+#define last_menu2                        68          //tisho
 #else
 #define MENU_USE_ATAN2                    59
 #define MENU_POWER_SAVE                   60
 #define MENU_DIGIMODE                     61
 #define last_menu2                        61
 #endif
-//#define MENU_NR_VAD_ENABLE                53
-//#define MENU_NR_VAD_THRESH                54
-//#define MENU_NR_ENABLE                    55
-#define MENU_AGC_HANG_ENABLE              63
-#define MENU_AGC_HANG_TIME                64
-#define MENU_AGC_HANG_THRESH              65
-#define first_menu2                       19
+
+//#define MENU_AGC_HANG_ENABLE              63        Tisho
+//#define MENU_AGC_HANG_TIME                64        Tisho 
+//#define MENU_AGC_HANG_THRESH              65        Tisho
+#define first_menu2                       20          //Tisho
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
 
@@ -2178,79 +2173,84 @@ typedef struct Menu_Descriptor
   const char* const text1; // upper text
   const char* text2; // lower text
   const uint8_t menu2; // 0 = belongs to Menu, 1 = belongs to Menu2
+  const uint8_t SubSelec;   //0 = only "on" or "off" choise; 1 = multiple choise
 } Menu_D;
 
 
 Menu_D Menus [last_menu2 + 1] {
-  { MENU_F_HI_CUT, "  Filter", "Hi Cut", 0 },
-  { MENU_SPECTRUM_ZOOM, " Spectr", " Zoom ", 0 },
-  { MENU_SAMPLE_RATE, "Sample", " Rate ", 0 },
-  { MENU_SAVE_EEPROM, " Save ", "Eeprom", 0 },
-  { MENU_LOAD_EEPROM, " Load ", "Eeprom", 0 },
-  { MENU_PLAYER, "  MP3  ", " Player", 0 },
-  { MENU_LPF_SPECTRUM, "Spectr", " LPF  ", 0 },
-  { MENU_SPECTRUM_OFFSET, "Spectr", "offset", 0 },
-  { MENU_SPECTRUM_DISPLAY_SCALE, "Spectr", " scale ", 0 },
-  { MENU_IQ_AUTO, "  IQ  ", " Auto ", 0 },
-  { MENU_IQ_AMPLITUDE, "  IQ  ", " gain ", 0 },
-  { MENU_IQ_PHASE, "   IQ  ", "  phase ", 0 },
-  { MENU_CALIBRATION_FACTOR, "F-calib", "factor", 0 },
-  { MENU_CALIBRATION_CONSTANT, "F-calib", "const", 0 },
-  { MENU_TIME_SET, " Time ", " Set  ", 0},
-  { MENU_DATE_SET, " Date ", " Set  ", 0},
-  { MENU_RESET_CODEC, " Reset", " codec ", 0},
-  { MENU_SPECTRUM_BRIGHTNESS, "Display", "  dim ", 0},
-  { MENU_SHOW_SPECTRUM, " Show ", " spectr", 0},
-  { MENU_VOLUME, "Volume", "      ", 1},
-  { MENU_RF_GAIN, "   RF  ", "  gain ", 1},
-  { MENU_RF_ATTENUATION, "   RF  ", " atten", 1},
-  { MENU_BASS, "  Bass ", "  gain ", 1},
-  { MENU_MIDBASS, "MidBas", "  gain ", 1},
-  { MENU_MID, "  Mids ", "  gain ", 1},
-  { MENU_MIDTREBLE, "Midtreb", "  gain ", 1},
-  { MENU_TREBLE, "Treble", "  gain ", 1},
-  { MENU_SAM_ZETA, "  SAM  ", "  zeta ", 1},
-  { MENU_SAM_OMEGA, "  SAM  ", " omega ", 1},
-  { MENU_SAM_CATCH_BW, "  SAM  ", "catchB", 1},
-  { MENU_NOTCH_1, " notch ", "  freq ", 1},
-  { MENU_NOTCH_1, " notch ", "  BW ", 1},
-  //{ MENU_NOTCH_2, "notch 2", " freq ", 1},
-  //{ MENU_NOTCH_2, "notch 2", "  BW ", 1},
-  { MENU_AGC_MODE, "  AGC  ", "  mode  ", 1},
-  { MENU_AGC_THRESH, "  AGC  ", " thresh ", 1},
-  { MENU_AGC_DECAY, "  AGC  ", " decay ", 1},
-  { MENU_AGC_SLOPE, "  AGC  ", " slope  ", 1},
-  { MENU_ANR_NOTCH, "  LMS  ", "  type ", 1},
-  { MENU_ANR_TAPS, "  LMS  ", "  taps ", 1},
-  { MENU_ANR_DELAY, "  LMS  ", " delay ", 1},
-  { MENU_ANR_MU, "  LMS  ", "  gain ", 1},
-  { MENU_ANR_GAMMA, "  LMS  ", "  leak ", 1},
-  { MENU_NB_THRESH, "  NB  ", " thresh ", 1},
-  { MENU_NB_TAPS, "  NB  ", " taps ", 1},
-  { MENU_NB_IMPULSE_SAMPLES, " NB # ", "impul.", 1},
-  { MENU_STEREO_FACTOR, "Stereo", " factor", 1},
-  { MENU_BIT_NUMBER, "  Bit ", "number", 1},
-  { MENU_F_LO_CUT, "  Filter", "Lo Cut", 1 },
-  //  { MENU_NR_L, "  L  ", "  NR ", 1 },
-  //  { MENU_NR_N, "  N  ", "  NR ", 1 },
-  { MENU_NR_PSI, " PSI ", "  NR ", 1 },
-  { MENU_NR_ALPHA, " alpha ", "  NR ", 1 },
-  { MENU_NR_BETA, " beta ", "  NR ", 1 },
-  { MENU_NR_USE_X, "X or E", "  NR ", 1 },
-  { MENU_NR_USE_KIM, " type ", "  NR ", 1 },
-  { MENU_NR_KIM_K, "Kim K ", "  NR ", 1 },
-  { MENU_LMS_NR_STRENGTH, " LMS ", "strengt", 1 },
-  { MENU_CW_DECODER_ATC, " CW ", " ATC ", 1 },
-  { MENU_CW_DECODER_THRESH, " CW ", "thresh", 1 },
-  { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1 },
-  { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1 },
-  { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1 },
+  { MENU_F_HI_CUT, "  Filter", "Hi Cut", 0, 1 },
+  { MENU_SPECTRUM_ZOOM, " Spectr", " Zoom ", 0, 1 },
+  { MENU_SAMPLE_RATE, "Sample", " Rate ", 0, 1 },
+  { MENU_SAVE_EEPROM, " Save ", "Eeprom", 0, 0 },
+  { MENU_LOAD_EEPROM, " Load ", "Eeprom", 0, 0 },
+  { MENU_PLAYER, "  MP3  ", " Player", 0, 0 },
+  { MENU_LPF_SPECTRUM, "Spectr", " LPF  ", 0, 1 },
+  { MENU_SPECTRUM_OFFSET, "Spectr", "offset", 0, 1 },
+  { MENU_SPECTRUM_DISPLAY_SCALE, "Spectr", " scale ", 0, 1 },
+  { MENU_IQ_AUTO, "  IQ  ", " Auto ", 0, 0 },
+  { MENU_IQ_AMPLITUDE, "  IQ  ", " gain ", 0, 1 },
+  { MENU_IQ_PHASE, "   IQ  ", "  phase ", 0, 1 },
+  { MENU_CALIBRATION_FACTOR, "F-calib", "factor", 0, 1 },
+  { MENU_CALIBRATION_CONSTANT, "F-calib", "const", 0, 1 },
+  { MENU_TIME_SET, " Time ", " Set  ", 0, 1},
+  { MENU_DATE_SET, " Date ", " Set  ", 0, 1},
+  { MENU_RESET_CODEC, " Reset", " codec ", 0, 0},
+  { MENU_SPECTRUM_BRIGHTNESS, "Display", "  dim ", 0, 1},
+  { MENU_SHOW_SPECTRUM, " Show ", " spectr", 0, 0},
+  { MENU_WFM_SPECTRUM_VIEW, " WFM ", " spectr", 0, 0},
+  { MENU_VOLUME, "Volume", "      ", 1, 1},
+  { MENU_RF_GAIN, "   RF  ", "  gain ", 1, 1},
+  { MENU_RF_ATTENUATION, "   RF  ", " atten", 1, 1},
+  { MENU_BASS, "  Bass ", "  gain ", 1, 1},
+  { MENU_MIDBASS, "MidBas", "  gain ", 1, 1},
+  { MENU_MID, "  Mids ", "  gain ", 1, 1},
+  { MENU_MIDTREBLE, "Midtreb", "  gain ", 1, 1},
+  { MENU_TREBLE, "Treble", "  gain ", 1, 1},
+  { MENU_SAM_ZETA, "  SAM  ", "  zeta ", 1, 1},
+  { MENU_SAM_OMEGA, "  SAM  ", " omega ", 1, 1},
+  { MENU_SAM_CATCH_BW, "  SAM  ", "catchB", 1, 1},
+  { MENU_NOTCH_1, " notch ", "  freq ", 1, 1},
+  { MENU_NOTCH_1, " notch ", "  BW ", 1, 1},
+  { MENU_AGC_MODE, "  AGC  ", "  mode  ", 1, 1},
+  { MENU_AGC_THRESH, "  AGC  ", " thresh ", 1, 1},
+  { MENU_AGC_DECAY, "  AGC  ", " decay ", 1, 1},
+  { MENU_AGC_SLOPE, "  AGC  ", " slope  ", 1, 1},
+  { MENU_ANR_NOTCH, "  LMS  ", "  type ", 1, 0},
+  { MENU_ANR_TAPS, "  LMS  ", "  taps ", 1, 1},
+  { MENU_ANR_DELAY, "  LMS  ", " delay ", 1, 1},
+  { MENU_ANR_MU, "  LMS  ", "  gain ", 1, 1},
+  { MENU_ANR_GAMMA, "  LMS  ", "  leak ", 1, 1},
+  { MENU_NB_THRESH, "  NB  ", " thresh ", 1, 1},
+  { MENU_NB_TAPS, "  NB  ", " taps ", 1, 1},
+  { MENU_NB_IMPULSE_SAMPLES, " NB # ", "impul.", 1, 1},
+  { MENU_STEREO_FACTOR, "Stereo", " factor", 1, 1},
+  { MENU_BIT_NUMBER, "  Bit ", "number", 1, 1},
+  { MENU_F_LO_CUT, "  Filter", "Lo Cut", 1 , 1},
+  { MENU_NR_PSI, " PSI ", "  NR ", 1, 1},
+  { MENU_NR_ALPHA, " alpha ", "  NR ", 1, 1 },
+  { MENU_NR_BETA, " beta ", "  NR ", 1, 1 },
+  { MENU_NR_USE_X, "X or E", "  NR ", 1, 0 },
+  { MENU_NR_USE_KIM, " type ", "  NR ", 1, 0 },
+  { MENU_NR_KIM_K, "Kim K ", "  NR ", 1, 1 },
+  { MENU_LMS_NR_STRENGTH, " LMS ", "strengt", 1, 1 },
+  { MENU_CW_DECODER_ATC, " CW ", " ATC ", 1, 0 },
+  { MENU_CW_DECODER_THRESH, " CW ", "thresh", 1, 1 },
+  { MENU_RTTY_DECODER_BAUD, "RTTY", " baud ", 1, 0 },
+  { MENU_RTTY_DECODER_SHIFT, "RTTY", " shift ", 1, 0 },
+  { MENU_RTTY_DECODER_STOPBIT, "RTTY", "stopbit", 1, 0 },
 #if defined (T4)
-  { MENU_CPU_SPEED, " CPU ", " speed ", 1 },
+  { MENU_CPU_SPEED, " CPU ", " speed ", 1, 1 },
 #endif
-  { MENU_POWER_SAVE, "Power", " save ", 1 },
-  { MENU_USE_ATAN2, " ATAN2 ", "approx.", 1 },
-  { MENU_DIGIMODE, " DIGI- ", " mode ", 1 },
+  { MENU_POWER_SAVE, "Power", " save ", 1,0 },
+  { MENU_USE_ATAN2, " ATAN2 ", "approx.", 1, 0 },
+  { MENU_DIGIMODE, " DIGI- ", " mode ", 1, 0 },
+  { MENU_SPK_EN, "  EN   ", "  SPK  ", 1, 0 },           //Tisho
+  { MENU_RF_Range, "  RF   ", "Range ", 1, 1 },          //Tisho
+  { MENU_RF_Preamp, "  RF   ", "Preamp", 1, 0 },         //Tisho
+  { MENU_ANT_BIAST, "  ANT. ", "BIAS-T", 1, 0 },         //Tisho
+  { MENU_RF_BPF, "  RF   ", " BPF ", 1, 1 },             //Tisho
+
+  
   //  { MENU_NR_VAD_ENABLE, " VAD ", "  NR ", 1 },
   //  { MENU_NR_VAD_THRESH, " VAD ", "thresh", 1 },
   //  { MENU_NR_ENABLE, "spectral", "  NR ", 1 }
@@ -3178,6 +3178,20 @@ void flexRamInfo(void)
 
 PROGMEM
 void setup() {
+
+pinMode (PWR_EN_OUT_pin, OUTPUT);      //Tisho
+digitalWrite(PWR_EN_OUT_pin, LOW);
+
+pinMode(BattMeas_pin, INPUT);
+
+adc->adc0->setAveraging(16); // set number of averages
+adc->adc0->setResolution(12); // set bits of resolution
+adc->adc0->setConversionSpeed(ADC_CONVERSION_SPEED::VERY_LOW_SPEED); // change the conversion speed
+adc->adc0->setSamplingSpeed(ADC_SAMPLING_SPEED::MED_SPEED); // change the sampling speed
+
+
+
+  
 #ifdef HARDWARE_DO7JBH
   pinMode(On_set, OUTPUT);
   digitalWrite (On_set, HIGH);      // Hold switch on
@@ -3190,6 +3204,7 @@ void setup() {
 
   Serial.begin(115200);
   delay(1000);
+     
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
   //  AudioMemory(130);  // good for 176ksps sample rate, but MP3 playing is not possible
@@ -3285,8 +3300,8 @@ void setup() {
       load saved settings from EEPROM
    ****************************************************************************************/
   // this can be left as-is, because fresh eePROM is detected if loaded for the first time - thanks to Mike / bicycleguy
-  EEPROM_LOAD();
-#if (!defined(HARDWARE_DD4WH_T4))
+  //EEPROM_LOAD();     //Tisho - commented because couldn't change already programed settings
+#if (defined(HARDWARE_SGTL5000_T4))
   // Enable the audio shield. select input. and enable output
   sgtl5000_1.enable();
   sgtl5000_1.inputSelect(myInput);
@@ -3921,7 +3936,8 @@ void setup() {
   ****************************************************************************************/
   setAttenuator(RF_attenuation);
   //Serial.println("before Si5351 init");
-  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
+  //si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
+  mirisdr_init();
   setfreq();
   delay(100);
   //show_frequency(bands[current_band].freq, 1);
@@ -3980,7 +3996,6 @@ void setup() {
   delay(100);
   Q_in_L.begin();
   Q_in_R.begin();
-
 } // END SETUP
 
 FASTRUN
@@ -4140,10 +4155,18 @@ void loop() {
       arm_fir_f32 (&FIR_WFM_Q, float_buffer_R, float_buffer_R, BUFFER_SIZE * WFM_BLOCKS);
 #endif
 #if defined(HARDWARE_DD4WH_T4)
-      const float32_t WFM_scaling_factor = 1.0f / (RF_attenuation + 1.0f); //
+      //const float32_t WFM_scaling_factor = 1.0f / (RF_attenuation + 1.0f); //
+      const float32_t WFM_scaling_factor = 1.0f;  //Tisho     
 #else
       const float32_t WFM_scaling_factor = 0.24f; //
 #endif
+
+//Tisho
+	for (int i = 0; i < (BUFFER_SIZE * N_BLOCKS)/2; i++)
+          {
+		  float_buffer_L_T[i] = float_buffer_L[i*2];
+		  float_buffer_R_T[i] = float_buffer_R[i*2];
+		  }
 
 
 //#############################################################################################################
@@ -4618,24 +4641,26 @@ void loop() {
       WFM_spectrum_flag++;
       if (WFM_spectrum_flag == 2)
         {
-          //            spectrum_zoom == SPECTRUM_ZOOM_1;
+          spectrum_zoom = SPECTRUM_ZOOM_1;            //Tisho uncoment the line
           zoom_display = 1;
           if(spectrum_zoom == SPECTRUM_ZOOM_1)
           {
-            WFM_calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 512;
-            WFM_calc_256_magn();
-            show_spectrum();
-#if 0
-            UKW_spectrum_offset = 512;
-            WFM_calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 767;
-            calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 0;
-#endif
+            /* Tisho addon for 2 options of the spectrum display in WFM mode */
+            if(spectrum_view_WFM)                     
+              {                           //Band Spectrum (original was only this view option)                      
+              WFM_calc_256_magn();
+              show_spectrum();
+              UKW_spectrum_offset = 512;
+              WFM_calc_256_magn();
+              show_spectrum();
+              }
+
+            else     //Clasic view
+              {
+              calc_256_magn_T();                        
+              show_spectrum();
+              }
+            /* END Tisho addon */                             
           }
           else
           {
@@ -6304,6 +6329,7 @@ if(0)
             for (int bindx = VAD_low; bindx < VAD_high; bindx++) // take first 128 bin values of the FFT result
             {
               NR_T = NR_X[bindx][NR_X_pointer] / NR_M[bindx]; // dies scheint mir besser zu funktionieren !
+              
               if (NR_T > NR_PSI)
               {
                 NR_lambda[bindx] = NR_M[bindx];
@@ -6744,6 +6770,21 @@ if(0)
         {
           tft.setTextColor(ILI9341_GREEN);
         }
+
+//Tisho
+//Measure the current battery voltage and indicate
+  float BatVoltage;
+    
+  BatVoltage = adc->adc0->analogRead(BattMeas_pin); // read a new value, will return ADC_ERROR_VALUE if the comparison is false.
+  BatVoltage = (BatVoltage*3.3/adc->adc0->getMaxValue())*2;
+
+  tft.fillRect(225, 25, 35, 10, ILI9341_BLACK);
+  tft.setTextColor(ILI9341_WHITE);
+  tft.drawFloat(BatVoltage, 2, 225,25); // 
+  tft.print("V");
+
+
+  tft.setTextColor(ILI9341_GREEN);      
 #if defined (T4)
         if(processor_load < 100.0)
         {
@@ -7249,7 +7290,7 @@ void AGC()
 void filter_bandwidth()
 {
   AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
   sgtl5000_1.dacVolume(0.0);
 #endif
   calc_cplx_FIR_coeffs (FIR_Coef_I, FIR_Coef_Q, m_NumTaps, (float32_t)bands[current_band].FLoCut, (float32_t)bands[current_band].FHiCut, (float)SR[SAMPLE_RATE].rate / DF);
@@ -7268,7 +7309,7 @@ void filter_bandwidth()
   set_dec_int_filters();
 
   show_bandwidth ();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
   sgtl5000_1.dacVolume(1.0);
 #endif
   delay(1);
@@ -8055,7 +8096,7 @@ void codec_gain()
         }
         timer = 0;  // reset the adjustment timer
         AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
         sgtl5000_1.lineInLevel(bands[current_band].RFgain);
 #endif
         AudioInterrupts();
@@ -8074,7 +8115,7 @@ void codec_gain()
         bands[current_band].RFgain = 15;
       }
       AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
 #endif
       AudioInterrupts();
@@ -8087,7 +8128,7 @@ void codec_gain()
 
 //#define USE_MULTIPLE_FFT_DISPLAY
 #ifdef USE_MULTIPLE_FFT_DISPLAY
-// calc_256_magn() takes the current input data, in 2048 word chunks, float_buffer_L[] and  _R[],
+//  takes the current input data, in 2048 word chunks, float_buffer_L[] and  _R[],
 // uses some 256 word blocks to get the display spectrum.  Originally only one block. now nDisplay blocks. <PUA>
 void calc_256_magn()
 {
@@ -8189,7 +8230,6 @@ void calc_256_magn()
   }
 } // end calc_256_magn
 #else
-
 void calc_256_magn()
 {
   float32_t spec_help = 0.0;
@@ -8262,6 +8302,86 @@ void calc_256_magn()
       }
     }
   }
+       
+  // apply low pass filter and scale the magnitude values and convert to int for spectrum display
+  for (int16_t x = 0; x < 256; x++)
+  {
+    spec_help = LPFcoeff * FFT_spec[x] + (1.0 - LPFcoeff) * FFT_spec_old[x];
+    FFT_spec_old[x] = spec_help;
+    // insert display offset, AGC etc. here
+    //    spec_help = 10.0 * log10f(spec_help + 1.0);
+    //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
+#ifdef USE_LOG10FAST
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+#else
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+#endif
+
+  }
+} 
+#endif
+
+//Tisho
+void calc_256_magn_T()
+{
+  arm_rfft_fast_instance_f32 WFM_spectrum_FFT;
+  arm_rfft_fast_init_f32(&WFM_spectrum_FFT, 512);
+  
+  float32_t spec_help = 0.0;
+  // adjust lowpass filter coefficient, so that
+  // "spectrum display smoothness" is the same across the different sample rates
+  float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
+  if (LPFcoeff > 1.0) LPFcoeff = 1.0;
+
+  for (int i = 0; i < 256; i++)
+  {
+    pixelold[i] = pixelnew[i];
+  }
+
+      for (int i = 0; i < 256; i++)
+      { // interleave real and imaginary input values [real, imag, real, imag . . .]
+        // apply Hann window
+        // cosf is much much faster than arm_cos_f32 !
+        // Thanks, Bob for pointing me to the bug! fixed now:
+        buffer_spec_FFT[i * 2] =      float_buffer_L_T[i] * nuttallWindow256[i];
+        buffer_spec_FFT[i * 2 + 1] =  float_buffer_R_T[i] * nuttallWindow256[i];
+      }
+  
+  // perform complex FFT
+  // calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
+  //arm_cfft_f32(spec_FFT, buffer_spec_FFT, 0, 1);
+  arm_rfft_fast_f32(&WFM_spectrum_FFT, buffer_spec_FFT, FFT_spec, 0);
+  
+  //int test = sizeof(buffer_spec_FFT);
+  //Serial.println(test);
+  
+  // calculate magnitudes and put into FFT_spec
+  // we do not need to calculate magnitudes with square roots, it would seem to be sufficient to
+  // calculate mag = I*I + Q*Q, because we are doing a log10-transformation later anyway
+  // and simultaneously put them into the right order
+  // 38.50%, saves 0.05% of processor power and 1kbyte RAM ;-)
+
+   
+  
+  if (NR_Kim == 1 || NR_Kim == 2)
+  {
+    for (int i = 0; i < 128; i++)
+    {
+      FFT_spec[i * 2] = NR_G[i];
+      FFT_spec[i * 2 + 1] = NR_G[i];
+    }
+  }
+  else
+  {
+      for (int i = 0; i < 128; i++)
+      {
+        FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+        FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+      }
+    
+  }
 
   // apply low pass filter and scale the magnitude values and convert to int for spectrum display
   for (int16_t x = 0; x < 256; x++)
@@ -8280,8 +8400,7 @@ void calc_256_magn()
 #endif
 
   }
-} // end calc_256_magn
-#endif
+} // END calc_256_magn_T
 
 void WFM_calc_256_magn()
 {
@@ -8301,7 +8420,7 @@ void WFM_calc_256_magn()
       for (int i = 0; i < 512; i++)
       { // apply window
 //        FFT_spec[i] =      UKW_buffer_1[i + UKW_spectrum_offset] * nuttallWindow256[i];
-        buffer_spec_FFT[i] =      UKW_buffer_1[i + UKW_spectrum_offset];
+        buffer_spec_FFT[i] =      UKW_buffer_1[i + UKW_spectrum_offset];   
       }
 
   // perform FFT
@@ -8330,6 +8449,7 @@ void WFM_calc_256_magn()
     //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
     pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
 #endif
+    
   }
 } // end WFM_calc_256_magn
 
@@ -8447,15 +8567,15 @@ void show_spectrum()
     h = h - 40;
     spectrum_height = spectrum_height - 40;
   }
-  if (spectrum_zoom != SPECTRUM_ZOOM_1)                 //  Change the color for the center frequency
+  if ((spectrum_zoom != SPECTRUM_ZOOM_1) || (bands[current_band].mode == DEMOD_WFM))     //Tisho            //  Change the color for the center frequency
   {
     tft.drawFastVLine (spectrum_x + 63,  spectrum_y, h, ILI9341_MAROON);
     tft.drawFastVLine (spectrum_x + 127, spectrum_y, h, ILI9341_GREEN);
   }
   else
   {
-    tft.drawFastVLine (spectrum_x + 63,  spectrum_y, h, ILI9341_GREEN);
-    tft.drawFastVLine (spectrum_x + 127, spectrum_y, h, ILI9341_MAROON);
+      tft.drawFastVLine (spectrum_x + 63,  spectrum_y, h, ILI9341_GREEN);
+      tft.drawFastVLine (spectrum_x + 127, spectrum_y, h, ILI9341_MAROON);                                                     
   }
   tft.drawFastVLine (spectrum_x + 191, spectrum_y, h, ILI9341_MAROON);
 
@@ -8991,7 +9111,7 @@ void showSpectrumCorners(void)
   }
 }
 
-void FrequencyBarText()
+void FrequencyBarText()       //Tisho
 { // This function draws the frequency bar at the bottom of the spectrum scope, putting markers at every graticule and the full frequency
   // (rounded to the nearest kHz) in the "center".  (by KA7OEI, 20140913) modified from the mcHF source code
   float   freq_calc;
@@ -9008,16 +9128,29 @@ void FrequencyBarText()
   //    tft.fillRect(0, spectrum_y + spectrum_height + pos_grat_y, 320, 8, ILI9341_BLACK);
   tft.fillRect(0, spectrum_y + spectrum_WF_height + 5, 320, 240 - spectrum_y - spectrum_height - 5, ILI9341_BLACK);
 
-  freq_calc = (float)(bands[current_band].freq / SI5351_FREQ_MULT);      // get current frequency in Hz
-  if (bands[current_band].mode == DEMOD_WFM)
-  { // undersampling mode with 3x undersampling
-    // grat *= 5.0;
-    freq_calc = 3.0 * freq_calc + 0.75 * SR[SAMPLE_RATE].rate;
-  }
+  freq_calc = (float)(bands[current_band].freq);      // get current frequency in Hz
 
+  
+  if ((bands[current_band].mode == DEMOD_WFM) && spectrum_view_WFM)                   //Tisho
+  { 
+  tft.setCursor(spectrum_x, spectrum_y + spectrum_WF_height + pos_grat_y);
+  tft.print("0kHz");
+  tft.setCursor(spectrum_x + 52, spectrum_y + spectrum_WF_height + pos_grat_y);
+  tft.print("25kHz");
+  tft.setCursor(spectrum_x + 116, spectrum_y + spectrum_WF_height + pos_grat_y);
+  tft.print("50kHz");
+  tft.setCursor(spectrum_x + 180, spectrum_y + spectrum_WF_height + pos_grat_y);
+  tft.print("75kHz");
+  tft.setCursor(spectrum_x + 238, spectrum_y + spectrum_WF_height + pos_grat_y);
+  tft.print("100kHz");
+  //{62, 94, 140, 160, 192};
+  
+  }
+  else
+  {
   if (spectrum_zoom == 0)        //
   {
-    freq_calc += (float32_t)SR[SAMPLE_RATE].rate / 4.0;
+    ;//freq_calc += (float32_t)SR[SAMPLE_RATE].rate / 4.0;
   }
 
   if (spectrum_zoom < 3)
@@ -9134,11 +9267,18 @@ void FrequencyBarText()
   // center line
   if (spectrum_zoom == 0)
   {
+    if (bands[current_band].mode != DEMOD_WFM)          //don't print the YELLOW underline (badwidth) only in WFM mode 
+    {
     tft.drawFastVLine(spectrum_x + 62, base_y + 1, 10, ILI9341_RED);
     tft.drawFastVLine(spectrum_x + 65, base_y + 1, 10, ILI9341_RED);
     tft.drawFastVLine(spectrum_x + 63, base_y + 1, 10, ILI9341_RED);
     tft.drawFastVLine(spectrum_x + 64, base_y + 1, 10, ILI9341_RED);
+    } 
+    else
+      tft.drawFastVLine(spectrum_x + 63, base_y + 1, 10, ILI9341_YELLOW);
+    
     tft.drawFastVLine(spectrum_x + 127, base_y + 1, 10, ILI9341_YELLOW);
+     
   }
   else
   {
@@ -9154,7 +9294,7 @@ void FrequencyBarText()
   tft.drawFastVLine(spectrum_x + 255, base_y + 1, 10, ILI9341_YELLOW);
   tft.drawFastVLine(spectrum_x + 256, base_y + 1, 10, ILI9341_YELLOW);
   tft.drawFastVLine(spectrum_x + 191, base_y + 1, 10, ILI9341_YELLOW);
-
+  
   if (spectrum_zoom < 3 && freq_calc <= 1000)
   {
     tft.drawFastVLine(spectrum_x + 31, base_y + 1, 10, ILI9341_YELLOW);
@@ -9162,8 +9302,13 @@ void FrequencyBarText()
     tft.drawFastVLine(spectrum_x + 159, base_y + 1, 10, ILI9341_YELLOW);
     tft.drawFastVLine(spectrum_x + 223, base_y + 1, 10, ILI9341_YELLOW);
   }
-  showFreqBand();
-  show_bandwidth();
+  
+  if (bands[current_band].mode != DEMOD_WFM)          //don't print the YELLOW underline (badwidth) only in WFM mode 
+    {
+      showFreqBand();
+      show_bandwidth();
+    }
+  }
 }
 
 //showFreqBand() Display the frequency bandin lower left corner.  <PUA>
@@ -9423,6 +9568,7 @@ int ExtractDigit(unsigned long long int n, int k) {
   }
 }
 
+/* Tisho
 // show frequency
 void show_frequency(double freq, uint8_t text_size) {
   // text_size 0 --> small display
@@ -9558,6 +9704,133 @@ void show_frequency(double freq, uint8_t text_size) {
   //      Serial.print("SAM carrier frequency = "); Serial.println((int)freq);
 
 } // END VOID SHOW-FREQUENCY
+*/
+void show_frequency(double freq, uint8_t text_size) {
+  // text_size 0 --> small display
+  // text_size 1 --> large main display
+  int color = ILI9341_WHITE;
+  int8_t font_width = 8;
+  int8_t sch_help = 0;
+
+  if (bands[current_band].mode == DEMOD_WFM)
+  {
+    //freq = 10.0 * round((freq + 0.75 * (double)SR[SAMPLE_RATE].rate) / 10 ); // undersampling of f/3 and correction, because no IF is used in WFM mode
+    erase_flag = 1;
+  }
+  if (text_size == 0) // small SAM carrier display
+  {
+    if (freq_flag[0] == 0)
+    { // print text first time we´re here
+      //      tft.setCursor(pos_x_frequency + 10, pos_y_frequency + 26);
+      tft.setCursor(0, pos_y_frequency + 26);
+      tft.setFont(Arial_8);
+      tft.print("  ");
+      tft.setCursor(pos_x_frequency + 10, pos_y_frequency + 26);
+      tft.setTextColor(ILI9341_ORANGE);
+      tft.print("SAM carrier ");
+    }
+    sch_help = 9;
+    freq += SAM_carrier_freq_offset;
+    tft.setFont(Arial_10);
+    pos_x_frequency = pos_x_frequency + 68;
+    pos_y_frequency = pos_y_frequency + 24;
+    color = ILI9341_GREEN;
+  }
+  else // large main frequency display
+  {
+    sch_help = 9;
+    tft.setFont(Arial_18);
+    font_width = 16;
+  }
+  tft.setTextColor(color);
+  uint8_t zaehler;
+  uint8_t digits[10];
+  zaehler = 9; //8;
+
+  while (zaehler--) {
+    digits[zaehler] = ExtractDigit (freq, zaehler);
+    //              Serial.print(digits[zaehler]);
+    //              Serial.print(".");
+    // 7: 10Mhz, 6: 1Mhz, 5: 100khz, 4: 10khz, 3: 1khz, 2: 100Hz, 1: 10Hz, 0: 1Hz
+  }
+  //  Serial.print("xxxxxxxxxxxxx");
+
+  zaehler = 9; //8;
+  while (zaehler--) { // counts from 8 to 0
+    if (zaehler < 6) sch = sch_help; // (khz)
+    if (zaehler < 3) sch = sch_help * 2; //18; // (Hz)
+    if (digits[zaehler] != digits_old[text_size][zaehler] || !freq_flag[text_size]) { // digit has changed (or frequency is displayed for the first time after power on)
+      if (zaehler == 8) {
+        sch = 0;
+        tft.setCursor(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency); // set print position
+        //        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, 18, ILI9341_BLACK); // delete old digit
+        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, font_width + 2, ILI9341_BLACK); // delete old digit
+        if (digits[8] != 0) tft.print(digits[zaehler]); // write new digit in white
+      }
+      if (zaehler == 7) {
+        sch = 0;
+        tft.setCursor(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency); // set print position
+        //        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, 18, ILI9341_BLACK); // delete old digit
+        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, font_width + 2, ILI9341_BLACK); // delete old digit
+        if (digits[7] != 0 || digits[8] != 0) tft.print(digits[zaehler]); // write new digit in white
+      }
+      if (zaehler == 6) {
+        sch = 0;
+        tft.setCursor(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency); // set print position
+        //        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, 18, ILI9341_BLACK); // delete old digit
+        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, font_width + 2, ILI9341_BLACK); // delete old digit
+        if (digits[6] != 0 || digits[7] != 0 || digits[8] != 0) tft.print(digits[zaehler]); // write new digit in white
+      }
+      if (zaehler == 5) {
+        sch = 9;
+        tft.setCursor(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency); // set print position
+        //        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, 18, ILI9341_BLACK); // delete old digit
+        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, font_width + 2, ILI9341_BLACK); // delete old digit
+        if (digits[5] != 0 || digits[6] != 0 || digits[7] != 0 || digits[8] != 0) tft.print(digits[zaehler]); // write new digit in white
+      }
+
+      if (zaehler < 5) {
+        // print the digit
+        tft.setCursor(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency); // set print position
+        //        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, 18, ILI9341_BLACK); // delete old digit
+        tft.fillRect(pos_x_frequency + font_width * (8 - zaehler) + sch, pos_y_frequency, font_width, font_width + 2, ILI9341_BLACK); // delete old digit
+        tft.print(digits[zaehler]); // write new digit in white
+      }
+      digits_old[text_size][zaehler] = digits[zaehler];
+    }
+  }
+
+  // reset to previous values!
+
+  // print small yellow points between blocks of three digits
+  if (text_size == 0)
+  {
+    if (digits[7] == 0 && digits[6] == 0 && digits[8] == 0)
+      tft.fillRect(pos_x_frequency + font_width * 3 + 2, pos_y_frequency + 8, 2, 2, ILI9341_BLACK);
+    else    tft.fillRect(pos_x_frequency + font_width * 3 + 2, pos_y_frequency + 8, 2, 2, ILI9341_YELLOW);
+    tft.fillRect(pos_x_frequency + font_width * 8 - 4, pos_y_frequency + 8, 2, 2, ILI9341_YELLOW);
+    pos_y_frequency -= 24;
+    pos_x_frequency -= 68;
+  }
+  else
+  {
+    tft.setFont(Arial_10);
+    if (digits[7] == 0 && digits[6] == 0 && digits[8] == 0)
+      tft.fillRect(pos_x_frequency + font_width * 3 + 2 , pos_y_frequency + 15, 3, 3, ILI9341_BLACK);
+    else    tft.fillRect(pos_x_frequency + font_width * 3 + 2, pos_y_frequency + 15, 3, 3, ILI9341_YELLOW);
+    tft.fillRect(pos_x_frequency + font_width * 7 - 6, pos_y_frequency + 15, 3, 3, ILI9341_YELLOW);
+    if (!freq_flag[text_size]) {
+      tft.setCursor(pos_x_frequency + font_width * 9 + 21, pos_y_frequency + 7); // set print position
+      tft.setTextColor(ILI9341_GREEN);
+      tft.print("Hz");
+    }
+
+  }
+  freq_flag[text_size] = 1;
+  //      Serial.print("SAM carrier frequency = "); Serial.println((int)freq);
+
+} // END VOID SHOW-FREQUENCY
+
 
 void switch_RF_filters()
 {
@@ -9746,19 +10019,98 @@ void setfreq () {
   // Changes for Bobs Octave Filters:  18 March 2018  W7PUA <<<<<<
   // http://www.janbob.com/electron/FilterBP1/FiltBP1.html
 
-
-  // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
-  //   hilfsf = (bands[current_band].freq +  IF_FREQ) * 10000000 * MASTER_CLK_MULT * SI5351_FREQ_MULT;
-  hilfsf = (bands[current_band].freq +  IF_FREQ * SI5351_FREQ_MULT) * 1000000000 * MASTER_CLK_MULT; // SI5351_FREQ_MULT is 100ULL;
-  hilfsf = hilfsf / calibration_factor;
-  si5351.set_freq(hilfsf, Si_5351_clock);
+    // NEVER USE AUDIONOINTERRUPTS HERE: that introduces annoying clicking noise with every frequency change
+  if (bands[current_band].mode == DEMOD_WFM)
+    {
+    hilfsf = (bands[current_band].freq);
+    }
+  else
+    {
+    hilfsf = (bands[current_band].freq +  IF_FREQ );
+    }
+  //Serial.print("hilfsf: ");
+  //Serial.println(hilfsf);
+  
+  SwitchBPF_AddonBoard();           //switch the BPF on the addon board
+  mirisdr_set_center_freq(hilfsf);
   if (bands[current_band].mode == DEMOD_AUTOTUNE)
   {
     autotune_flag = 1;
   }
   FrequencyBarText();
+  SwitchRFRangeMainBoard();         //switch the RF inputs of the Msi001 based on the actual frequency
   switch_RF_filters();
 } // end setfreq
+
+
+//Tisho Set the active RF Range (Main Board filters)
+void SwitchRFRangeMainBoard ()
+{ 
+  uint8_t NeedRange=0;
+  if (bands[current_band].freq + IF_FREQ < 12000000)
+    NeedRange=0;
+  else if ((bands[current_band].freq + IF_FREQ >= 12000000)&&(bands[current_band].freq + IF_FREQ < 30000000))
+    NeedRange=1;
+  else if ((bands[current_band].freq + IF_FREQ >= 30000000)&&(bands[current_band].freq + IF_FREQ < 50000000))
+    NeedRange=2;
+  else if ((bands[current_band].freq + IF_FREQ >= 50000000)&&(bands[current_band].freq + IF_FREQ < 120000000))
+    NeedRange=3;
+  else if ((bands[current_band].freq + IF_FREQ >= 120000000)&&(bands[current_band].freq + IF_FREQ < 250000000))
+    NeedRange=4;
+  else if ((bands[current_band].freq + IF_FREQ >= 250000000)&&(bands[current_band].freq + IF_FREQ < 1000000000))
+    NeedRange=5;
+  else if (bands[current_band].freq + IF_FREQ >= 1000000000)
+    NeedRange=6;
+
+  if(ActiveRange != NeedRange)      //update the shift register (the output only if it is needed - actual needed band is different then the already set one)
+    {
+      ActiveRange = NeedRange;
+                                                  //Bug-Fix  
+      if((RF_Amp_EN == 1)&&(ActiveRange == 0))    //if the RF amp on the main board is ON and the new actve range is 12MHz
+         {                                        //Temporarry switch off the RF gain  (strange effect by changing the range at swtched on RF_AMP)
+         RF_Amp_EN = 0;                           //due to the big DC separation capacitors in the filter a pulse is meesing with the Msi001 chip
+         upd_OnBoardSR595();                      //to aboid this switch off the RF_Preamp change the ranage and the switch on again  
+         RF_Amp_EN = 1;
+         upd_OnBoardSR595();
+        }
+      else
+        upd_OnBoardSR595();
+    }
+
+  
+} //end SwitchRFRangeMB ()
+
+//Tisho
+//Sfitch the active BPF on the addon board 
+void SwitchBPF_AddonBoard()
+{
+  uint8_t NeedBPF=0;
+
+  if (bands[current_band].freq + IF_FREQ < 500000)
+    NeedBPF=0;
+  else if ((bands[current_band].freq + IF_FREQ >= 500000)&&(bands[current_band].freq + IF_FREQ < 1500000))
+    NeedBPF=1;
+  else if ((bands[current_band].freq + IF_FREQ >= 1500000)&&(bands[current_band].freq + IF_FREQ < 4500000))
+    NeedBPF=2;
+  else if ((bands[current_band].freq + IF_FREQ >= 4500000)&&(bands[current_band].freq + IF_FREQ < 12000000))
+    NeedBPF=3;
+  else if ((bands[current_band].freq + IF_FREQ >= 12000000)&&(bands[current_band].freq + IF_FREQ < 30000000))
+    NeedBPF=4;
+  else if ((bands[current_band].freq + IF_FREQ >= 30000000)&&(bands[current_band].freq + IF_FREQ < 60000000))
+    NeedBPF=5;
+  else if ((bands[current_band].freq + IF_FREQ >= 60000000)&&(bands[current_band].freq + IF_FREQ < 120000000))
+    NeedBPF=6;
+  else if (bands[current_band].freq + IF_FREQ >= 120000000)
+    NeedBPF=7;  
+
+  if(ActiveBPF != NeedBPF)      //update the shift registers on the addon board (the output only if it is needed - actual needed band is different then the already set one)
+    {
+      ActiveBPF = NeedBPF;
+      upd_ExtBoardSR595s();
+    }
+  
+  
+} //end SwitchBPF_AddonBoard ()
 
 #if defined(HARDWARE_FRANKB)
 //emulate buttons
@@ -9786,6 +10138,137 @@ void buttons() {
   eeprom_saved = 0;
   eeprom_loaded = 0;
 
+
+  //Tisho
+  #define TmDelay 50
+  uint8_t ModeButtonState = digitalRead(BUTTON_3_PIN);
+  static uint8_t PWR_Change;
+  static uint8_t MdButSt_Cnt;
+  
+  if (ModeButtonState == 0)
+    MdButSt_Cnt++;
+  else
+    {
+      MdButSt_Cnt=0;
+      PWR_Change = 0;  
+    }
+  if((MdButSt_Cnt > TmDelay)&& (PWR_Change == 0))   
+    {
+      PWR_Change = 1;
+      if (PWR_State == 1)                           //Actual state is "on" and the mode button was pressed long => we turn off then
+        {
+          digitalWrite(PWR_EN_OUT_pin, LOW);
+          PWR_State = 0; 
+        }
+      else                                          //Actual state is "off" and the mode button was pressed long => we turn on then  
+        {
+         digitalWrite(PWR_EN_OUT_pin, HIGH);
+         PWR_State = 1;     
+        }    
+    }
+    
+    if((MdButSt_Cnt > 5)&&(MdButSt_Cnt < TmDelay))
+      {
+      tft.setTextColor(ILI9341_WHITE);  
+      tft.fillRect(188, 3, 83, 16, ILI9341_BLACK);
+      tft.setFont(Arial_11);
+      tft.setCursor(189, 5);
+      tft.print("PWR=");
+      tft.drawNumber(MdButSt_Cnt, 235, 5); 
+      }
+     else if (MdButSt_Cnt > TmDelay)
+      {
+      tft.setTextColor(ILI9341_WHITE);  
+      tft.fillRect(189, 3, 83, 16, ILI9341_BLACK);
+      tft.setFont(Arial_11);
+      tft.setCursor(188, 5);
+     
+
+      if (PWR_State == 1)
+         tft.print("Turn ON!");
+      else   
+        tft.print("Turn OFF!");
+      }  
+
+     //End Tisho (on - off procedures)    
+
+      
+      //Tisho
+  #define TmDelay_Short 5
+  uint8_t Enc3ButtonState = digitalRead(BUTTON_8_PIN);
+  uint8_t Enc2ButtonState = digitalRead(BUTTON_6_PIN);
+  static uint8_t Menu_Assistant2_Change;
+  static uint8_t Menu_Assistant1_Change;
+  static uint8_t Enc3ButSt_Cnt;
+  static uint8_t Enc2ButSt_Cnt;
+
+  //Assistant for menu 2
+  if (Enc3ButtonState == 0)
+    Enc3ButSt_Cnt++;
+  else
+    {
+      Enc3ButSt_Cnt=0;
+      Menu_Assistant2_Change = 0;  
+    }
+    
+  if((Enc3ButSt_Cnt > TmDelay_Short)&& (Menu_Assistant2_Change == 0))   
+    {
+      Menu_Assistant2_Change = 1;
+      if (Menu_2_Assistant == 1)                           //Actual state is "on" and the mode button was pressed long => we turn off then
+        {
+          Menu_1_Assistant = 0;
+          Menu_2_Assistant = 0;
+          Menu_1_Enc_Sub = 0;
+          Menu_2_Enc_Sub = 0;                             //to be sure disable also the submenu (to avoid isues by next enable)
+          show_spectrum_flag = 1;                         //Show again the spectrum
+          tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);  //Clear the leftovers of the menu
+          FrequencyBarText();                             //Restore the frequency bar
+        }
+      else                                                //Actual state is "off" and the mode button was pressed long => we turn on then  
+        {
+          Menu_2_Assistant = 1;
+          show_spectrum_flag = 0;                         //stop the spectrum showing 
+          Menu_2_Assistant_Func (); 
+        
+        }    
+    }
+
+
+
+    //Assistant for menu 1
+
+  if (Enc2ButtonState == 0)
+    Enc2ButSt_Cnt++;
+  else
+    {
+      Enc2ButSt_Cnt=0;
+      Menu_Assistant1_Change = 0;  
+    }
+    
+  if((Enc2ButSt_Cnt > TmDelay_Short)&& (Menu_Assistant1_Change == 0))   
+    {
+      Menu_Assistant1_Change = 1;
+      if (Menu_1_Assistant == 1)                           //Actual state is "on" and the mode button was pressed long => we turn off then
+        {
+          Menu_1_Assistant = 0;
+          Menu_2_Assistant = 0;
+          Menu_1_Enc_Sub = 0;                             //to be sure disable also the submenu (to avoid isues by next enable)
+          Menu_2_Enc_Sub = 0; 
+          show_spectrum_flag = 1;                         //Show again the spectrum
+          tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);  //Clear the leftovers of the menu
+          FrequencyBarText();                             //Restore the frequency bar
+        }
+      else                                                //Actual state is "off" and the mode button was pressed long => we turn on then  
+        {
+          Menu_1_Assistant = 1;
+          show_spectrum_flag = 0;                         //stop the spectrum showing 
+          Menu_1_Assistant_Func (); 
+        
+        }    
+    }
+
+    //End Tisho (Menu Aststant on - off)
+
   if ( button1.fallingEdge()) {
 
     if (Menu_pointer == MENU_PLAYER)
@@ -9801,7 +10284,7 @@ void buttons() {
       if (current_band < FIRST_BAND) current_band = LAST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
       AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(0.0);
 #endif
       //setup_mode(bands[current_band].mode);
@@ -9816,7 +10299,7 @@ void buttons() {
       AGC_prep();
       if (bands[current_band].mode == DEMOD_WFM)
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
-        show_spectrum_flag = 0;
+        show_spectrum_flag = 1;     //Tisho
         LAST_SAMPLE_RATE = SAMPLE_RATE;
 #if defined(HARDWARE_DD4WH_T4)
         SAMPLE_RATE = SAMPLE_RATE_256K;
@@ -9831,12 +10314,13 @@ void buttons() {
         if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
+          spectrum_zoom = SPECTRUM_ZOOM_2;     //Tisho
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           set_samplerate();
         }
       }
       delay(1);
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(1.0);
 #endif
       AudioInterrupts();
@@ -9856,7 +10340,7 @@ void buttons() {
       current_band++;
       if (current_band > LAST_BAND) current_band = FIRST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(0.0);
 #endif
       //setup_mode(bands[current_band].mode);
@@ -9871,7 +10355,7 @@ void buttons() {
       AGC_prep();
       if (bands[current_band].mode == DEMOD_WFM)
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
-        show_spectrum_flag = 0;
+        show_spectrum_flag = 1;       //Tisho
         LAST_SAMPLE_RATE = SAMPLE_RATE;
 #if defined(HARDWARE_DD4WH_T4)
         SAMPLE_RATE = SAMPLE_RATE_256K;
@@ -9886,18 +10370,20 @@ void buttons() {
         if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
+          spectrum_zoom = SPECTRUM_ZOOM_2;     //Tisho
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
         }
       }
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(1.0);
 #endif
       delay(1);
       AudioInterrupts();
     }
   }
+  
   if ( button3.fallingEdge()) {  // cycle through DEMOD modes
     if (Menu_pointer == MENU_PLAYER)
     {
@@ -9910,7 +10396,7 @@ void buttons() {
       bands[current_band].mode++;
       if (bands[current_band].mode > DEMOD_MAX) bands[current_band].mode = DEMOD_MIN; // cycle thru demod modes
       AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(0.0);
 #endif
       setup_mode(bands[current_band].mode);
@@ -9924,7 +10410,7 @@ void buttons() {
 
       if (bands[current_band].mode == DEMOD_WFM)
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
-        show_spectrum_flag = 0;
+        show_spectrum_flag = 1;   //Tisho
         LAST_SAMPLE_RATE = SAMPLE_RATE;
 #if defined(HARDWARE_DD4WH_T4)
         SAMPLE_RATE = SAMPLE_RATE_256K;
@@ -9939,6 +10425,7 @@ void buttons() {
         if (old_mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
+          spectrum_zoom = SPECTRUM_ZOOM_2;     //Tisho
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
@@ -9956,7 +10443,7 @@ void buttons() {
       //idx_t = 0;
       delay(10);
       AudioInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.dacVolume(1.0);
 #endif      
     }
@@ -10019,13 +10506,33 @@ void buttons() {
     }
 #endif
     show_menu();
+    
+    if (Menu_1_Assistant == 1)              //Tisho
+      Menu_1_Assistant_Func();
+    else if (Menu_2_Assistant == 1)
+      Menu_2_Assistant_Func();
 
   }
   if ( button5.fallingEdge()) { // cycle thru tune steps
     if (++tune_stepper > TUNE_STEP_MAX) tune_stepper = TUNE_STEP_MIN;
     set_tunestep();
   }
-  if (button6.fallingEdge()) {
+  if (button6.fallingEdge()) 
+  {
+
+    //Tisho
+    if ((Menu_1_Assistant == 1)&&(Menus[Menu_pointer].SubSelec == 1))
+      {
+      if (Menu_1_Enc_Sub == 1)
+        Menu_1_Enc_Sub = 0;
+      else
+        Menu_1_Enc_Sub = 1;  
+      Menu_1_Assistant_Func();      //update the color of the selected position
+      }
+      
+    else
+      {
+    
     if (Menu_pointer == MENU_SAVE_EEPROM)
     {
       EEPROM_SAVE();
@@ -10062,9 +10569,30 @@ void buttons() {
       show_menu();
     }
 
-    else autotune_flag = 1;
+     //Tisho
+     //Select spectrum view for WFM mode
+     else if (Menu_pointer == MENU_WFM_SPECTRUM_VIEW)
+    {
+      if (spectrum_view_WFM == 0)
+      {
+        spectrum_view_WFM = 1;
+      }
+      else
+      {
+        spectrum_view_WFM = 0;
+      }
+      show_menu();
+      FrequencyBarText();     //update the scale under the graph
+      
+      if(Menu_1_Assistant == 1)
+        Menu_1_Assistant_Func();
+      else if(Menu_2_Assistant == 1)
+        Menu_2_Assistant_Func();  
+    }
+    
+    //else autotune_flag = 1;             //Tisho
     //                Serial.println("Flag gesetzt!");
-
+   }
   }
   if (button7.fallingEdge()) {
     // toggle thru menu
@@ -10124,8 +10652,25 @@ void buttons() {
     }
 #endif
     show_menu();
+    if (Menu_1_Assistant == 1)          //Tisho
+      Menu_1_Assistant_Func();
+    else if (Menu_2_Assistant == 1)
+      Menu_2_Assistant_Func();
   }
   if (button8.fallingEdge()) {
+    
+    if ((Menu_2_Assistant == 1)&&(Menus[Menu2].SubSelec == 1))
+    {
+      if (Menu_2_Enc_Sub == 1)
+        Menu_2_Enc_Sub = 0;
+      else
+        Menu_2_Enc_Sub = 1;  
+      Menu_2_Assistant_Func();      //update the color of the selected position
+    }
+
+    else
+    {
+      
     // toggle thru menu2
     if (Menu2 == MENU_NOTCH_1)
     {
@@ -10203,6 +10748,45 @@ void buttons() {
       else NR_use_X = 0;
       show_menu();
     }
+    
+
+    else if (Menu2 == MENU_SPK_EN)      //Tisho
+    {
+      Ext_Speacker_Enable++;
+      if(Ext_Speacker_Enable > 1)
+        Ext_Speacker_Enable = 0;
+      upd_OnBoardSR595();                      //update the shift register data via SPI 
+      show_menu();
+    }
+
+    else if (Menu2 == MENU_RF_Preamp)           //Tisho
+    {
+      RF_Amp_EN++;
+      if(RF_Amp_EN > 1)
+        RF_Amp_EN = 0;
+
+      //Temporarry change the RF input range to 12-30Mhz  (strange effect by activating the RF Preamp)
+      //when activated at 0-12Mhz due to the big DC separation capacitors in the filter a pulse is meesing with the Msi001 chip
+      //to aboid this before activate the preamp change the range then return the previous active range  
+      int8_t TmpStoreRange = ActiveRange;    
+      ActiveRange=1;                                  //Artificialy put the range to 12-30Mhz 
+      upd_OnBoardSR595();
+      ActiveRange = TmpStoreRange;                   //Restore the true range
+      //
+        
+      upd_OnBoardSR595();                      //update the shift register data via SPI 
+      show_menu();
+    }
+
+     else if (Menu2 == MENU_ANT_BIAST)           //Tisho
+    {
+      ANT_BIAST++;
+      if(ANT_BIAST > 1)
+        ANT_BIAST = 0;
+      upd_ExtBoardSR595s();                      //update the shift register data via SPI 
+      show_menu();
+    }
+    
     else if (Menu2 == MENU_DIGIMODE)
     {
       digimode++;
@@ -10270,7 +10854,11 @@ void buttons() {
     //else if (++Menu2 > last_menu2) Menu2 = first_menu2;
     which_menu = 2;
     //               Serial.println("MENU2 BUTTON pressed");
+    }
     show_menu();
+
+    if (Menu_2_Assistant == 1)  
+      Menu_2_Assistant_Func();      //update the selected position
   }
 }
 
@@ -10435,14 +11023,28 @@ void show_menu()
         break;
       case MENU_SHOW_SPECTRUM:
         if (show_spectrum_flag)
-        {
+          {
           tft.print("YES");
-        }
+          }
         else
-        {
+          {
           tft.print("NO");
-        }
+          }
         break;
+
+      case MENU_WFM_SPECTRUM_VIEW:
+        if (spectrum_view_WFM)
+          {
+         tft.setFont(Arial_9);
+         tft.print("Band");
+          }
+        else
+          {
+          tft.setFont(Arial_9);
+          tft.print("Clasic");
+          }
+      break;
+        
       case MENU_TIME_SET:
         break;
       case MENU_DATE_SET:
@@ -10455,6 +11057,89 @@ void show_menu()
     if (ANR_on) ANR_colour = ILI9341_RED;
     switch (Menu2)
     {
+      //Tisho
+      case MENU_RF_Range:
+      tft.setFont(Arial_9);
+      tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 1);
+      
+      switch (ActiveRange)
+        {
+        case 0:
+          tft.print(" 0-12  ");
+        break;
+
+        case 1:
+          tft.print(" 12-30 ");
+        break;
+
+        case 2:
+          tft.print(" 30-60 ");
+        break;
+        
+        case 3:
+          tft.print(" 50-120");
+        break;
+
+        case 4:
+          tft.print("120-250");
+        break;
+
+        case 5:
+          tft.print("250-1G ");
+        break;
+
+        case 6:
+          tft.print(">1000");
+        break;
+        }
+        tft.setCursor(spectrum_x + 256 + 6 + 5, spectrum_y + 31 + 31 + 1 + 12);
+        tft.print("MHz");
+      break;
+
+      
+      //Tisho
+      case MENU_RF_BPF:
+      tft.setFont(Arial_9);
+      tft.setCursor(spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 1);
+      
+      switch (ActiveBPF)
+        {
+        case 0:
+          tft.print("LPF-0.5");
+        break;
+
+        case 1:
+          tft.print("0.5-1.5");
+        break;
+
+        case 2:
+          tft.print("1.5-4.5");
+        break;
+        
+        case 3:
+          tft.print("4.5-12");
+        break;
+
+        case 4:
+          tft.print("12-30");
+        break;
+
+        case 5:
+          tft.print("30-60");
+        break;
+
+        case 6:
+          tft.print("60-120");
+        break;
+
+        case 7:
+          tft.print("HPF");
+        break;
+        }
+        tft.setCursor(spectrum_x + 256 + 6 + 5, spectrum_y + 31 + 31 + 1 + 12);
+        tft.print("MHz");
+      break;
+      
       case MENU_RF_GAIN:
         tft.setFont(Arial_11);
 #if defined (HARDWARE_DD4WH_T4)
@@ -10465,15 +11150,17 @@ void show_menu()
         tft.printf("%02.1fdB", (float)(bands[current_band].RFgain * 1.5));
 #endif
         break;
+
+        //Tisho
       case MENU_RF_ATTENUATION:
         tft.setFont(Arial_11);
-#if defined (HARDWARE_DD4WH_T4)
+      if(RF_attenuation <= 83)
         tft.drawNumber(RF_attenuation, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7); 
-        tft.print("dB");
-#else
-        tft.printf("%2ddB", RF_attenuation);
-#endif
-        break;
+      else
+        tft.drawNumber(107, spectrum_x + 256 + 6, spectrum_y + 31 + 31 + 7);
+      tft.print("dB");
+      break;
+
       case MENU_VOLUME:
         tft.print(audio_volume);
         break;
@@ -10893,6 +11580,49 @@ void show_menu()
             break;
         }
         break;
+        
+        case MENU_SPK_EN:             //Tisho
+        tft.setFont(Arial_10);
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+        switch (Ext_Speacker_Enable)
+        {
+          case 0:
+            tft.print("  OFF");
+            break;
+          case 1:
+            tft.print(" ON ");
+            break;
+        }
+        break;
+        
+        case MENU_RF_Preamp:             //Tisho
+        tft.setFont(Arial_10);
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+        switch (RF_Amp_EN)
+        {
+          case 0:
+            tft.print("  OFF");
+            break;
+          case 1:
+            tft.print(" ON ");
+            break;
+        }
+        break;
+
+        case MENU_ANT_BIAST:             //Tisho
+        tft.setFont(Arial_10);
+        tft.setCursor(spectrum_x + 256 + 8, spectrum_y + 31 + 31 + 7);
+        switch (ANT_BIAST)
+        {
+          case 0:
+            tft.print("  OFF");
+            break;
+          case 1:
+            tft.print(" ON ");
+            break;
+        }
+        break;
+
 #if defined (T4)
       case MENU_CPU_SPEED:
         if((T4_CPU_FREQUENCY / 1000000) > 600)
@@ -11014,13 +11744,28 @@ void show_menu()
 }
 
 
-void set_tunestep()
+void set_tunestep()       //Tisho
 {
-  if (1) //bands[current_band].mode != DEMOD_WFM)
-  {
+
     switch (tune_stepper)
     {
       case 0:
+        tunestep = 1;
+      break;
+
+      case 1:
+        tunestep = 10;
+      break;
+
+      case 2:
+        tunestep = 100;
+      break;
+
+      case 3:
+        tunestep = 1000;
+      break;
+      
+      case 4:           //5kHz (9kHz) step
         if (current_band == BAND_MW || current_band == BAND_LW)
         {
           if (AM_SPACING_EU)
@@ -11032,53 +11777,30 @@ void set_tunestep()
         {
           tunestep = 5000;
         }
+      break;
+      
+      case 5:
+        tunestep = 10000;
         break;
-      case 1:
-        tunestep = 100;
+      
+      case 6:
+        tunestep = 100000;
         break;
-      case 2:
-        tunestep = 500;
+      
+      case 7:
+        tunestep = 1000000;
         break;
-      case 3:
-        tunestep = 1;
-        break;
+      
+      case 8:                 
+        tunestep = 10000000;
+      break;
+      
+      case 9:                 
+        tunestep = 100000000;
+      break;  
     }
-  }
-  else
-  {
-    switch (tune_stepper)
-    {
-      case 0:
-        if (current_band == BAND_MW || current_band == BAND_LW)
-        {
-          tunestep = 3000;
-        }
-        else
-        {
-          tunestep = 5000 / 3;
-        }
-        break;
-      case 1:
-        tunestep = 100 / 3;
-        break;
-      case 2:
-        tunestep = 500 / 3;
-        break;
-      case 3:
-        tunestep = 1 / 3;
-        break;
-    }
-  }
-  /*
+  
 
-                  if(tune_stepper == 0)
-                  if(band == BAND_MW || band == BAND_LW) tunestep = 9000; else tunestep = 5000;
-                  else if (tune_stepper == 1) tunestep = 100;
-                  else if (tune_stepper == 2) tunestep = 1000;
-                  else if (tune_stepper == 3) tunestep = 1;
-                  else tunestep = 5000;
-                  if(band[bands].mode == DEMOD_WFM) tunestep =
-  */
   show_tunestep();
 
 }
@@ -11223,8 +11945,9 @@ void autotune() {
 } // end function autotune
 
 
-void show_tunestep() {
-  tft.fillRect(227, 25, 35, 21, ILI9341_BLACK);
+void show_tunestep() {     //Tisho                       
+  tft.fillRect(10, 68, 165, 2, ILI9341_BLACK);      //clear the line field
+  tft.fillRect(227, 25, 35, 21, ILI9341_BLACK);   //clear the numeric field
   tft.setCursor(227, 25);
   tft.setFont(Arial_9);
   tft.setTextColor(ILI9341_GREEN);
@@ -11235,25 +11958,80 @@ void show_tunestep() {
     return;
   }
 
-  if (tunestep == 9000)
-  {
-    tft.print("9k");
-  }
+  if (tunestep == 1)
+    {
+      tft.print("1");
+      tft.fillRect(159, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 10)
+    {
+      tft.print("10");
+      tft.fillRect(143, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 100)
+    {
+      tft.print("100");
+      tft.fillRect(127, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }  
+    
+  else if (tunestep == 1000)
+    {
+      tft.print("1k");
+      tft.fillRect(102, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+    
   else if (tunestep == 5000)
-  {
-    tft.print("5k");
-  }
-  else
-  {
-    tft.print(tunestep);
-  }
+    {
+      tft.print("5k");
+    }
+    
+  else if (tunestep == 9000)
+    {
+      tft.print("9k");
+    }
+  
+  else if (tunestep == 10000)       
+    {
+      tft.print("10k");
+      
+      tft.fillRect(86, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+      //tft.fillRect(86, 44, 12, 2, ILI9341_ORANGE);    //over the digit
+    }
+  
+  else if (tunestep == 100000)       
+    {
+      tft.print("100k");
+      tft.fillRect(70, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 1000000)       
+    {
+      tft.print("1M");
+      tft.fillRect(45, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 10000000)       
+    {
+      tft.print("10M");
+      tft.fillRect(29, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 100000000)       
+    {
+      tft.print("100M");
+      tft.fillRect(13, 68, 12, 2, ILI9341_ORANGE);      //under the digit  
+    }
+ 
+  
 }
 
 void set_band () {
   //         show_band(bands[current_band].name); // show new band
   old_demod_mode = -99; // used in setup_mode and when changing bands, so that LoCut and HiCut are not changed!
   setup_mode(bands[current_band].mode);
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
   sgtl5000_1.lineInLevel(bands[current_band].RFgain, bands[current_band].RFgain);
 #endif
   //         setup_RX(bands[current_band].mode, bands[current_band].bandwidthU, bands[current_band].bandwidthL);  // set up the audio chain for new mode
@@ -11464,8 +12242,6 @@ void prepare_WFM(void)
   }
 }
 
-#define ENCODER_FACTOR 0.25f  // use 0.25f with those cheap encoders that have 4 detents per step, for other encoders or libs maybe better use 1.0f
-
 void encoders () {
   static long encoder_pos = 0, last_encoder_pos = 0;
   long encoder_change;
@@ -11479,7 +12255,8 @@ void encoders () {
   encoder_pos = tune.read();
 
   if (encoder_pos != last_encoder_pos) {
-    encoder_change = (encoder_pos - last_encoder_pos);
+    //encoder_change = (encoder_pos - last_encoder_pos);
+    encoder_change = (encoder_pos - last_encoder_pos)/3;
     last_encoder_pos = encoder_pos;
 
     if (((current_band == BAND_LW) || (current_band == BAND_MW)) && (tunestep == 5000))
@@ -11507,15 +12284,18 @@ void encoders () {
       //
 //      tune_help1 = (double)(833333.3333 * ((double)encoder_change / 4.0));
       // tunestep in FM = 100kHz
-      tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change * ENCODER_FACTOR));
+      //tune_help1 = (double)(10000000.0 / 3.0 * ((double)encoder_change));
+      tune_help1 = (double)(25000.0 * (double)encoder_change);
     }
     else
     {
-      tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change * ENCODER_FACTOR);
+      //tune_help1 = (double)tunestep  * SI5351_FREQ_MULT * ((double)encoder_change);
+      tune_help1 = (double)tunestep  *  ((double)encoder_change);
     }
     //    long long tune_help1 = tunestep  * SI5351_FREQ_MULT * encoder_change;
     old_freq = bands[current_band].freq;
     bands[current_band].freq += tune_help1;  // tune the master vfo
+   
     if (bands[current_band].freq > F_MAX) bands[current_band].freq = F_MAX;
     if (bands[current_band].freq < F_MIN) bands[current_band].freq = F_MIN;
     if (bands[current_band].freq != old_freq)
@@ -11532,18 +12312,33 @@ void encoders () {
   encoder2_pos = filter.read();
   if (encoder2_pos != last_encoder2_pos)
   {
-    encoder2_change = (encoder2_pos - last_encoder2_pos);
+    //encoder2_change = (encoder2_pos - last_encoder2_pos);
+    encoder2_change = (encoder2_pos - last_encoder2_pos)/3;
     last_encoder2_pos = encoder2_pos;
     which_menu = 1;
+
+
+    if ((Menu_1_Assistant == 1)&&(Menu_1_Enc_Sub == 0))        //Tisho
+      {
+       Menu_pointer = Menu_pointer + encoder2_change;
+       if(Menu_pointer>last_menu)
+          Menu_pointer=last_menu;
+       else if(Menu_pointer < 1)
+           Menu_pointer = 0;
+       Menu_1_Assistant_Func();                   //update display
+      }
+    else
+      {
+    
     if (Menu_pointer == MENU_F_HI_CUT)
     {
       if (abs(bands[current_band].FHiCut) < 500)
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 50 * ENCODER_FACTOR;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 50;
       }
       else
       {
-        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 100 * ENCODER_FACTOR;
+        bands[current_band].FHiCut = bands[current_band].FHiCut + encoder2_change * 100;
       }
       control_filter_f();
       // set Menu2 to MENU_F_LO_CUT
@@ -11556,7 +12351,7 @@ void encoders () {
     {
       //       if(encoder2_change < 0) spectrum_zoom--;
       //            else spectrum_zoom++;
-      spectrum_zoom += encoder2_change * ENCODER_FACTOR;
+      spectrum_zoom += encoder2_change;
       //        Serial.println(encoder2_change);
       //        Serial.println((int)((float)encoder2_change / 4.0));
       if (spectrum_zoom > SPECTRUM_ZOOM_MAX) spectrum_zoom = SPECTRUM_ZOOM_MAX;
@@ -11576,13 +12371,13 @@ void encoders () {
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(K_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
 
-      IQ_amplitude_correction_factor += encoder2_change / 1000.0f * ENCODER_FACTOR;
+      IQ_amplitude_correction_factor += encoder2_change / 1000.0f;
       //          Serial.print("IQ Ampl corr factor:  "); Serial.println(IQ_amplitude_correction_factor * 1000000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
     } // END IQadjust
     else if (Menu_pointer == MENU_SPECTRUM_BRIGHTNESS)
     {
-      spectrum_brightness += encoder2_change * 10 * ENCODER_FACTOR;
+      spectrum_brightness += encoder2_change * 10;
       if (spectrum_brightness > 255) spectrum_brightness = 255;
       if (spectrum_brightness < 10) spectrum_brightness = 10;
 #if defined(BACKLIGHT_PIN)
@@ -11597,11 +12392,11 @@ void encoders () {
       Serial.println(encoder2_change);
       Serial.println((float)encoder2_change);
 #endif
-      if (encoder2_change  * ENCODER_FACTOR < -1)
+      if (encoder2_change < -1)
       {
         SAMPLE_RATE -= 1;
       }
-      else if (encoder2_change  * ENCODER_FACTOR > 1)
+      else if (encoder2_change > 1)
       {
         SAMPLE_RATE += 1;
       }
@@ -11611,13 +12406,13 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_LPF_SPECTRUM)
     {
-      LPF_spectrum += encoder2_change / 100.0f * ENCODER_FACTOR;
+      LPF_spectrum += encoder2_change / 100.0f;
       if (LPF_spectrum < 0.00001f) LPF_spectrum = 0.00001f;
       if (LPF_spectrum > 1.0f) LPF_spectrum = 1.0f;
     } // END LPFSPECTRUM
     else if (Menu_pointer == MENU_SPECTRUM_OFFSET)   // added pixel offsets  <PUA>
     {
-        bands[current_band].pixel_offset += (float)encoder2_change * ENCODER_FACTOR;
+        bands[current_band].pixel_offset += (float)encoder2_change;
 /*      offsetDisplayDB += 0.25 * displayScale[currentScale].offsetIncrement * (float)encoder2_change; // 4 changes per detent
       if (offsetDisplayDB > 100.0)       // This offset is in dB
         offsetDisplayDB = 100.0;
@@ -11630,7 +12425,7 @@ void encoders () {
     }
     else if (Menu_pointer == MENU_SPECTRUM_DISPLAY_SCALE)   // Redone to 1/2/5/10/20 steps  <PUA>
     {
-      currentScale -= encoder2_change * ENCODER_FACTOR;
+      currentScale -= encoder2_change;
       // wait_flag = 1;
       if (currentScale > 4)
         currentScale = 4;
@@ -11648,23 +12443,23 @@ void encoders () {
       //          P_dirty += (float32_t)encoder2_change / 1000.0;
       //          Serial.print("IQ Phase corr factor:  "); Serial.println(P_dirty * 1000);
       //          Serial.print("encoder_change:  "); Serial.println(encoder2_change);
-      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 1000.0f * ENCODER_FACTOR;
+      IQ_phase_correction_factor = IQ_phase_correction_factor + (float32_t)encoder2_change / 1000.0f;
       //          Serial.print("IQ Phase corr factor"); Serial.println(IQ_phase_correction_factor * 1000000);
 
     } // END IQadjust
     else if (Menu_pointer == MENU_CALIBRATION_FACTOR)
     {
-      calibration_factor += encoder2_change * 100 * ENCODER_FACTOR;
+      calibration_factor += encoder2_change * 100;
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_CALIBRATION_CONSTANT)
     {
-      calibration_constant += encoder2_change * 100 * ENCODER_FACTOR;
-      si5351.set_correction(calibration_constant, SI5351_PLL_INPUT_XO);
+      calibration_constant += encoder2_change * 100;
+      //si5351.set_correction(calibration_constant, SI5351_PLL_INPUT_XO);
       //  si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
     } // END CALIBRATION_FACTOR
     else if (Menu_pointer == MENU_TIME_SET) {
       helpmin = minute(); helphour = hour();
-      helpmin = helpmin + encoder2_change * ENCODER_FACTOR;
+      helpmin = helpmin + encoder2_change;
       if (helpmin > 59) {
         helpmin = 0; helphour = helphour + 1;
       }
@@ -11684,7 +12479,7 @@ void encoders () {
       helpyear = year();
       helpmonth = month();
       helpday = day();
-      helpday = helpday + encoder2_change * ENCODER_FACTOR;
+      helpday = helpday + encoder2_change;
       if (helpday < 1) {
         helpday = 31;
         helpmonth = helpmonth - 1;
@@ -11706,7 +12501,8 @@ void encoders () {
       Teensy3Clock.set(now()); // set the RTC
       displayDate();
     } // end DATEADJUST
-
+      
+   }
 
     show_menu();
     //        tune.write(0);
@@ -11715,9 +12511,23 @@ void encoders () {
   encoder3_pos = encoder3.read();
   if (encoder3_pos != last_encoder3_pos)
   {
-    encoder3_change = (encoder3_pos - last_encoder3_pos);
+    //encoder3_change = (encoder3_pos - last_encoder3_pos);
+    encoder3_change = (encoder3_pos - last_encoder3_pos)/3;
     last_encoder3_pos = encoder3_pos;
     which_menu = 2;
+
+    if ((Menu_2_Assistant == 1)&&(Menu_2_Enc_Sub == 0))        //Tisho
+      {
+       Menu2 = Menu2 + encoder3_change;
+       if(Menu2>last_menu2)
+          Menu2=last_menu2;
+       else if(Menu2<last_menu+1)
+           Menu2=last_menu+1;
+       Menu_2_Assistant_Func();                   //update display
+      }
+    else
+      {
+    
     if (Menu2 == MENU_RF_GAIN)
     {
       if (auto_codec_gain == 1)
@@ -11726,7 +12536,7 @@ void encoders () {
         Menus[MENU_RF_GAIN].text2 = "  gain  ";
         //          Serial.println ("auto = 0");
       }
-      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change * ENCODER_FACTOR;
+      bands[current_band].RFgain = bands[current_band].RFgain + encoder3_change;
       if (bands[current_band].RFgain < 0)
       {
         auto_codec_gain = 1; //Serial.println ("auto = 1");
@@ -11737,54 +12547,97 @@ void encoders () {
       {
         bands[current_band].RFgain = 15;
       }
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
 #endif  
 #if defined(HARDWARE_AD8331)
     analogWrite(1, bands[current_band].RFgain * 3.3);    
 #endif    
     }
+  
+    //Tisho
+    else if (Menu2 == MENU_RF_Range)
+    {
+      ActiveRange = ActiveRange + encoder3_change;
+      if (ActiveRange > MaxRange)
+        ActiveRange = MaxRange;
+      else if (ActiveRange < 0)
+        ActiveRange = 0;
+                                                  //Bug-Fix
+      if((RF_Amp_EN == 1)&&(ActiveRange == 0))    //if the RF amp on the main board is ON and the new actve range is 12MHz
+         {                                        //Temporarry switch off the RF gain  (strange effect by changing the range at swtched on RF_AMP)
+         RF_Amp_EN = 0;                           //due to the big DC separation capacitors in the filter a pulse is meesing with the Msi001 chip
+         upd_OnBoardSR595();                      //to aboid this switch off the RF_Preamp change the ranage and the switch on again  
+         RF_Amp_EN = 1;
+         upd_OnBoardSR595();
+         }
+      else   
+        upd_OnBoardSR595();
+    }
+
+    //Tisho
+    else if (Menu2 == MENU_RF_BPF)
+    {
+      ActiveBPF = ActiveBPF + encoder3_change;
+      //Serial.println(ActiveBPF);
+      if (ActiveBPF > MaxBPF)
+        ActiveBPF = MaxBPF;
+      else if (ActiveBPF < 0)
+        ActiveBPF = 0;
+        
+      upd_ExtBoardSR595s();
+    }
+    
+    
     else if (Menu2 == MENU_VOLUME)
     {
-      audio_volume = audio_volume + encoder3_change * 5 * ENCODER_FACTOR;
+      audio_volume = audio_volume + encoder3_change * 5;
       if (audio_volume < 0) audio_volume = 0;
       else if (audio_volume > 100) audio_volume = 100;
       //      AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.volume((float32_t)VolumeToAmplification(audio_volume));
 #endif
     }
+    
+    //Tisho
     else if (Menu2 == MENU_RF_ATTENUATION)
     {
-      RF_attenuation = RF_attenuation + encoder3_change * ENCODER_FACTOR;
-      if (RF_attenuation < 0) RF_attenuation = 0;
-      else if (RF_attenuation > 31) RF_attenuation = 31;
-      setAttenuator(RF_attenuation);
+       RF_attenuation = RF_attenuation + encoder3_change;
+
+      if (RF_attenuation > 84)
+        RF_attenuation = 84;
+      else if (RF_attenuation < 0)
+        RF_attenuation = 0;
+        
+      mirisdr_set_tuner_gain(RF_attenuation);
     }
     else if (Menu2 == MENU_SAM_ZETA)
     {
-      zeta_help = zeta_help + encoder3_change * ENCODER_FACTOR;
+      zeta_help = zeta_help + encoder3_change;
       if (zeta_help < 15) zeta_help = 15;
       else if (zeta_help > 99) zeta_help = 99;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_OMEGA)
     {
-      omegaN = omegaN + encoder3_change * 10 * ENCODER_FACTOR;
+      omegaN = omegaN + encoder3_change * 10;
       if (omegaN < 20) omegaN = 20;
       else if (omegaN > 1000) omegaN = 1000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_SAM_CATCH_BW)
     {
-      pll_fmax = pll_fmax + encoder3_change * 100 * ENCODER_FACTOR;
+      pll_fmax = pll_fmax + encoder3_change * 100;
       if (pll_fmax < 200) pll_fmax = 200;
       else if (pll_fmax > 6000) pll_fmax = 6000;
       set_SAM_PLL();
     }
     else if (Menu2 == MENU_NOTCH_1)
     {
-      notches[0] = notches[0] + encoder3_change * 10 * ENCODER_FACTOR;
+      notches[0] = notches[0] + encoder3_change * 10;
       if (notches[0] < -9900) //
       {
         notches[0] = -9900;
@@ -11799,7 +12652,7 @@ void encoders () {
     }
     else if (Menu2 == MENU_NOTCH_1_BW)
     {
-      notches_BW[0] = notches_BW[0] + encoder3_change * ENCODER_FACTOR;
+      notches_BW[0] = notches_BW[0] + encoder3_change;
       if (notches_BW[0] < 1)
       {
         notches_BW[0] = 1;
@@ -11837,7 +12690,7 @@ void encoders () {
     */
     else if (Menu2 == MENU_AGC_MODE)
     {
-      AGC_mode = AGC_mode + encoder3_change * ENCODER_FACTOR;
+      AGC_mode = AGC_mode + encoder3_change;
       if (AGC_mode > 5) AGC_mode = 5;
       else if (AGC_mode < 0) AGC_mode = 0;
       agc_switch_mode = 1;
@@ -11845,115 +12698,120 @@ void encoders () {
     }
     else if (Menu2 == MENU_AGC_THRESH)
     {
-      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change * ENCODER_FACTOR;
+      bands[current_band].AGC_thresh = bands[current_band].AGC_thresh + encoder3_change;
       if (bands[current_band].AGC_thresh < -20) bands[current_band].AGC_thresh = -20;
       else if (bands[current_band].AGC_thresh > 120) bands[current_band].AGC_thresh = 120;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_DECAY)
     {
-      agc_decay = agc_decay + encoder3_change * 100 * ENCODER_FACTOR;
+      agc_decay = agc_decay + encoder3_change * 100;
       if (agc_decay < 100) agc_decay = 100;
       else if (agc_decay > 5000) agc_decay = 5000;
       AGC_prep();
     }
     else if (Menu2 == MENU_AGC_SLOPE)
     {
-      agc_slope = agc_slope + encoder3_change * 10 * ENCODER_FACTOR;
+      agc_slope = agc_slope + encoder3_change * 10;
       if (agc_slope < 0) agc_slope = 0;
       else if (agc_slope > 200) agc_slope = 200;
       AGC_prep();
     }
     else if (Menu2 == MENU_STEREO_FACTOR)
     {
-      stereo_factor = stereo_factor + encoder3_change * 10 * ENCODER_FACTOR;
+      stereo_factor = stereo_factor + encoder3_change * 10;
       if (stereo_factor < 0) stereo_factor = 0;
       else if (stereo_factor > 400) stereo_factor = 400;
     }
     else if (Menu2 == MENU_BASS)
     {
-      bass = bass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      bass = bass + (float32_t)encoder3_change / 20.0f;
       if (bass > 1.0) bass = 1.0;
       else if (bass < -1.0) bass = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
       //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
 #endif
     }
     else if (Menu2 == MENU_MIDBASS)
     {
-      midbass = midbass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      midbass = midbass + (float32_t)encoder3_change / 20.0f;
       if (midbass > 1.0) midbass = 1.0;
       else if (midbass < -1.0) midbass = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
 #endif
     }
     else if (Menu2 == MENU_MID)
     {
-      mid = mid + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      mid = mid + (float32_t)encoder3_change / 20.0f;
       if (mid > 1.0) mid = 1.0;
       else if (mid < -1.0) mid = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
 #endif
     }
     else if (Menu2 == MENU_MIDTREBLE)
     {
-      midtreble = midtreble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      midtreble = midtreble + (float32_t)encoder3_change / 20.0f;
       if (midtreble > 1.0) midtreble = 1.0;
       else if (midtreble < -1.0) midtreble = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
 #endif      
     }
     else if (Menu2 == MENU_TREBLE)
     {
-      treble = treble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      treble = treble + (float32_t)encoder3_change / 20.0f;
       if (treble > 1.0) treble = 1.0;
       else if (treble < -1.0) treble =  -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
+//#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
       sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
       //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
 #endif
     }
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
-      if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change * ENCODER_FACTOR;
+      if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change;
       else spectrum_display_scale = spectrum_display_scale + encoder3_change * 5;
       if (spectrum_display_scale > 2000) spectrum_display_scale = 2000;
       else if (spectrum_display_scale < 1) spectrum_display_scale =  1;
     }
     else if (Menu2 == MENU_BIT_NUMBER)
     {
-      bitnumber = bitnumber + encoder3_change * ENCODER_FACTOR;
+      bitnumber = bitnumber + encoder3_change;
       if (bitnumber > 16) bitnumber = 16;
       else if (bitnumber < 3) bitnumber = 3;
     }
     else if (Menu2 == MENU_ANR_TAPS)
     {
-      ANR_taps = ANR_taps + encoder3_change * ENCODER_FACTOR;
+      ANR_taps = ANR_taps + encoder3_change;
       if (ANR_taps < ANR_delay) ANR_taps = ANR_delay;
       if (ANR_taps < 16) ANR_taps = 16;
       else if (ANR_taps > 128) ANR_taps = 128;
     }
     else if (Menu2 == MENU_ANR_DELAY)
     {
-      ANR_delay = ANR_delay + encoder3_change * ENCODER_FACTOR;
+      ANR_delay = ANR_delay + encoder3_change;
       if (ANR_delay > ANR_taps) ANR_delay = ANR_taps;
       if (ANR_delay < 2) ANR_delay = 2;
       else if (ANR_delay > 128) ANR_delay = 128;
     }
     else if (Menu2 == MENU_ANR_MU)
     {
-      if (encoder3_change  * ENCODER_FACTOR > 0) ANR_two_mu *= 2.0;
+      if (encoder3_change > 0) ANR_two_mu *= 2.0;
       else ANR_two_mu /= 2.0;
       if (ANR_two_mu < 1.0e-07) ANR_two_mu = 1.0e-7;
       else if (ANR_two_mu > 8.192e-02) ANR_two_mu = 8.192e-02;
     }
     else if (Menu2 == MENU_ANR_GAMMA)
     {
-      if (encoder3_change * ENCODER_FACTOR > 0) ANR_gamma *= 2.0;
+      if (encoder3_change > 0) ANR_gamma *= 2.0;
       else ANR_gamma /= 2.0;
       //      ANR_two_mu = ANR_two_mu + encoder3_change / 4000000.0;
       if (ANR_gamma < 1.0e-03) ANR_gamma = 1.0e-3;
@@ -11961,19 +12819,19 @@ void encoders () {
     }
     else if (Menu2 == MENU_NB_THRESH)
     {
-      NB_thresh = NB_thresh + (float32_t)encoder3_change / 10.0f * ENCODER_FACTOR;
+      NB_thresh = NB_thresh + (float32_t)encoder3_change / 10.0f;
       if (NB_thresh > 20.0) NB_thresh = 20.0;
       else if (NB_thresh < 0.1) NB_thresh =  0.1;
     }
     else if (Menu2 == MENU_NB_TAPS)
     {
-      NB_taps = NB_taps + encoder3_change * ENCODER_FACTOR;
+      NB_taps = NB_taps + encoder3_change;
       if (NB_taps > 40) NB_taps = 40;
       else if (NB_taps < 6) NB_taps =  6;
     }
     else if (Menu2 == MENU_NB_IMPULSE_SAMPLES)
     {
-      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 5.0f * ENCODER_FACTOR;
+      NB_impulse_samples = NB_impulse_samples + (float32_t)encoder3_change / 5.0f;
       if (NB_impulse_samples > 41) NB_impulse_samples = 41;
       else if (NB_impulse_samples < 3) NB_impulse_samples =  3;
     }
@@ -11981,11 +12839,11 @@ void encoders () {
     {
       if (abs(bands[current_band].FLoCut) < 500)
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 50 * ENCODER_FACTOR;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 50;
       }
       else
       {
-        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 100 * ENCODER_FACTOR;
+        bands[current_band].FLoCut = bands[current_band].FLoCut + encoder3_change * 100;
       }
       control_filter_f();
       filter_bandwidth();
@@ -12006,20 +12864,20 @@ void encoders () {
         } */
     else if (Menu2 == MENU_NR_PSI)
     {
-      NR_PSI = NR_PSI + (float32_t)encoder3_change / 4.0f * ENCODER_FACTOR;
+      NR_PSI = NR_PSI + (float32_t)encoder3_change / 4.0f;
       if (NR_PSI < 0.2) NR_PSI = 0.2;
       else if (NR_PSI > 20.0) NR_PSI = 20.0;
     }
     else if (Menu2 == MENU_NR_ALPHA)
     {
-      NR_alpha = NR_alpha + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
+      NR_alpha = NR_alpha + (float32_t)encoder3_change / 200.0f;
       if (NR_alpha < 0.7) NR_alpha = 0.7;
       else if (NR_alpha > 0.999) NR_alpha = 0.999;
       NR_onemalpha = (1.0 - NR_alpha);
     }
     else if (Menu2 == MENU_NR_BETA)
     {
-      NR_beta = NR_beta + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
+      NR_beta = NR_beta + (float32_t)encoder3_change / 200.0f;
       if (NR_beta < 0.1) NR_beta = 0.1;
       else if (NR_beta > 0.999) NR_beta = 0.999;
       NR_onemtwobeta = (1.0 - (2.0 * NR_beta));
@@ -12027,27 +12885,27 @@ void encoders () {
     }
     else if (Menu2 == MENU_NR_KIM_K)
     {
-      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 200.0f * ENCODER_FACTOR;
+      NR_KIM_K = NR_KIM_K + (float32_t)encoder3_change / 200.0f;
       if (NR_KIM_K < 0.8) NR_KIM_K = 0.8;
       else if (NR_KIM_K > 1.0) NR_KIM_K = 1.0;
     }
     else if (Menu2 == MENU_LMS_NR_STRENGTH)
     {
-      LMS_nr_strength = LMS_nr_strength + encoder3_change * ENCODER_FACTOR;
+      LMS_nr_strength = LMS_nr_strength + encoder3_change;
       if (LMS_nr_strength < 0) LMS_nr_strength = 0;
       else if (LMS_nr_strength > 40) LMS_nr_strength = 40;
       Init_LMS_NR ();
     }
     else if (Menu2 == MENU_CW_DECODER_THRESH)
     {
-      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 10.0f * ENCODER_FACTOR;
+      cw_decoder_config.thresh = cw_decoder_config.thresh + encoder3_change / 10.0f;
       if (cw_decoder_config.thresh < 0.1) cw_decoder_config.thresh = 0.1;
       else if (cw_decoder_config.thresh > 10.0) cw_decoder_config.thresh = 10.0;
     }
 #if defined (T4)
     else if (Menu2 == MENU_CPU_SPEED)
     {
-      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 12000000 * ENCODER_FACTOR;
+      T4_CPU_FREQUENCY = T4_CPU_FREQUENCY + encoder3_change * 12000000;
       if (T4_CPU_FREQUENCY < 24000000) T4_CPU_FREQUENCY = 24000000;
 //      else if (T4_CPU_FREQUENCY > 1008000000) T4_CPU_FREQUENCY = 1008000000;
 //      else if (T4_CPU_FREQUENCY > 948000000) T4_CPU_FREQUENCY = 948000000;
@@ -12063,7 +12921,7 @@ void encoders () {
       if (NR_VAD_thresh < 0.1) NR_VAD_thresh = 0.1;
       else if (NR_VAD_thresh > 1000.0) NR_VAD_thresh = 1000.0;
       } */
-
+      }//Tisho
     show_menu();
 
   }
@@ -12538,6 +13396,55 @@ void Calculatedbm()
     sum_db = sum_db + FFT_spec_old[c];
   }
 
+  //Preparation for SNR - Tisho              
+  float noise_db_raw_TMP=0;       //variable to store the raw temporary (half band noise)       
+  float noise_db_raw;             //variable to store the raw of the noise level
+  float signal_db=0;
+  float noise_db=0;
+  float static snr_old;
+
+  int SNR_SignalRange = (int)Ubin-(int)Lbin;        // what is the actual signal range (pasband) in bin
+
+   uint8_t Sectors_Total = 256/(SNR_SignalRange/2);   //Devide the FFT on Sectors, each sector is 1/2 SNR_SignalRange 
+   uint8_t BegCurSector;
+   uint8_t EndCurSector;
+
+   if(SNR_SignalRange < 4)    // in a case of very small range (basicaly only in VLF)
+    Sectors_Total=128;        
+   
+   for (uint8_t a = 0; a < Sectors_Total-1 ; a++)
+    { 
+    BegCurSector = (SNR_SignalRange/2)*a;
+    EndCurSector = ((SNR_SignalRange/2)*a) + SNR_SignalRange/2; 
+    
+    noise_db_raw_TMP = 0;
+    for (uint8_t c = BegCurSector; c <= EndCurSector; c++)
+      noise_db_raw_TMP = noise_db_raw_TMP + FFT_spec_old[c];
+    
+    if ((Sectors_Total > 25) && ( a == 5))                            //in a case of small band size because there are some artefacts scip the first 5 sectors 
+      noise_db_raw = noise_db_raw_TMP;
+    else if ((Sectors_Total <= 25) && ( a == 1))                      //in a case of normal band size (AM) skip the first sector only (a=0) because there are some artefacts
+      noise_db_raw = noise_db_raw_TMP;  
+    else if (noise_db_raw_TMP < noise_db_raw)                         //if the level in the current sector is lower take it for the noise level       
+      noise_db_raw = noise_db_raw_TMP;
+    }
+   noise_db_raw = noise_db_raw*4;                                   //here normalize it to the pass band size (need do think more about it)  
+                                                                    //I tought has to be *2 because of SNR_SignalRange/2 but somehow with 4 is correct
+    
+/*  Serial.print("Sectors_Total ");
+  Serial.println(Sectors_Total);
+
+  Serial.print("SNR_SignalRange ");
+  Serial.println(SNR_SignalRange);
+    
+  Serial.print("noise_db_raw ");
+  Serial.println(noise_db_raw);
+
+  Serial.print("sum_db ");
+  Serial.println(sum_db);
+*/  
+  //End Preparation for SNR - Tisho SNR 
+
 #ifdef USE_W7PUA
   if (sum_db > 0.0)
   {
@@ -12545,8 +13452,23 @@ void Calculatedbm()
     switch (display_dbm)
     {
       case DISPLAY_S_METER_DBM:
+        //dbm = dbm_calibration + bands[current_band].gainCorrection + (float32_t)RF_attenuation +
+        //      slope * log10f_fast(sum_db) + cons - (float32_t)bands[current_band].RFgain * 1.5;
+
+        //Tisho (small tric to get the actual ADC gain)
+        float32_t AdcGain = bands[current_band].RFgain * 1.5;             //Expected ADC gain
+        float32_t AdcGainCorection;                                       //Variable to calculate the actual ADC gain (unclear but the ADC gain is not changing linearly)
+                
+        if (AdcGain == 0)
+          AdcGainCorection = 0;                                           //if ADC gain is 0 simply make the correction 0 (the polinom it is only on 3 power, so not ideal)
+        else
+          AdcGainCorection = 0.0021*AdcGain*AdcGain*AdcGain - 0.114*AdcGain*AdcGain + 3.3984*AdcGain + 3.0155;    // not clear why the ADC gain it is not linearly changing
+        
+        //Serial.println("AdcGainCorection ");
+        //Serial.println(AdcGainCorection);
+        
         dbm = dbm_calibration + bands[current_band].gainCorrection + (float32_t)RF_attenuation +
-              slope * log10f_fast(sum_db) + cons - (float32_t)bands[current_band].RFgain * 1.5;
+              slope * log10f_fast(sum_db) + cons - AdcGainCorection - RF_Amp_EN * bands[current_band].RFAmpGain;       //Tisho
         dbmhz = 0;
         break;
       case DISPLAY_S_METER_DBMHZ:
@@ -12605,6 +13527,28 @@ void Calculatedbm()
     dbmhz = -165.0;
   }
 
+  //Calculate SNR Tisho
+  signal_db = dbm_calibration + bands[current_band].gainCorrection + (float32_t)RF_attenuation + slope * log10f_fast(sum_db) +            //calculate the signal level in db for the pass band (not actual dbm, what it matters is to calculate the noise the same way) same way
+              cons - (float32_t)bands[current_band].RFgain * 1.5; 
+  
+  noise_db = dbm_calibration + bands[current_band].gainCorrection + (float32_t)RF_attenuation + slope * log10f_fast(noise_db_raw) +       //for the noise level calculate the same way as signal_db
+              cons - (float32_t)bands[current_band].RFgain * 1.5;                                                                         //just out of the pasband (the same amount of bins)
+
+  snr = snr_old + ((signal_db - noise_db) - snr_old)/6;     //LPF filter SNR 
+  if(snr < 0)
+    snr = 0;
+  snr_old = snr;
+  
+  //Serial.println("noise_db");
+  //Serial.println(noise_db);
+  
+  //Serial.println("signal_db");
+  //Serial.println(signal_db);
+  
+  // End SNR calculation
+  
+
+  
   // lowpass IIR filter
   // Wheatley 2011: two averagers with two time constants
   // IIR filter with one element analog to 1st order RC filter
@@ -12646,6 +13590,7 @@ void Calculatedbm()
 
 void Display_dbm()
 {
+  static float snr_old;
   //    static int dbm_old = (int)dbm;
   uint8_t display_something = 0;
   float32_t val_dbm = 0.0;
@@ -12745,6 +13690,21 @@ void Display_dbm()
   {
     tft.fillRect(pos_x_dbm + 98, pos_y_dbm + 4, 100, 16, ILI9341_BLACK);
   }
+
+  //Indicate SNR only if it is updated (new value) Tisho
+  if ( abs(snr - snr_old) >= 1)
+    {
+    snr_old = snr;  
+    tft.setCursor(pos_x_dbm + 20, pos_y_dbm - 40);
+    tft.setFont(Arial_10);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.print("SN:");
+  
+    tft.fillRect(pos_x_dbm+45, pos_y_dbm-40, 15, 12, ILI9341_BLACK);
+    tft.drawNumber(snr, pos_x_dbm+45, pos_y_dbm-40);
+    tft.setCursor(pos_x_dbm + 61, pos_y_dbm - 40);
+    tft.print("dB");
+    }
 }
 
 #define CONFIG_VERSION "mr1"  //mdrhere ID of the E settings block, change if structure changes
@@ -13056,7 +14016,7 @@ void printConfig_t(struct config_t *c) { //print some of the values for testing
 void reset_codec ()
 {
   AudioNoInterrupts();
-#if (!defined(HARDWARE_DD4WH_T4))
+#if (defined(HARDWARE_SGTL5000_T4))
   sgtl5000_1.disable();
   delay(10);
   sgtl5000_1.enable();
@@ -17091,7 +18051,7 @@ void set_CPU_freq_T4()
   //Disable some parts:
   //CCM_ANALOG_PFD_528_SET = (1 << 31) | (1 << 15) ; //Disable PLL2: PFD3, PFD1 (not needed)
   //CCM_ANALOG_PFD_480_SET = (1 << 31) | (1 << 23) | (1 << 15); //Disable PLL3: PFD3, PFD2, PFD1 (not needed)
-  CCM_CCGR1 &= ~CCM_CCGR1_ADC1(CCM_CCGR_ON); //Disable ADC1
+  //CCM_CCGR1 &= ~CCM_CCGR1_ADC1(CCM_CCGR_ON); //Disable ADC1       --comented by Tisho (use the ADC 0 to measure the battery)
   CCM_CCGR1 &= ~CCM_CCGR1_ADC2(CCM_CCGR_ON); //Disable ADC2
 
 #ifdef USE_T4_PLL2
