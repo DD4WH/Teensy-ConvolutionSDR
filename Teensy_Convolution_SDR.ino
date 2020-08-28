@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_05_8
+   (c) Frank DD4WH 2020_08_28
 
    "TEENSY CONVOLUTION SDR"
 
@@ -9,11 +9,12 @@
    - simple quadrature sampling detector board producing baseband IQ signals (Softrock, Elektor SDR etc.)
    (IQ boards with up to 256kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
    - Teensy audio board or ADC PCM1808 and DAC PCM5102a
-   - Teensy 3.6 or Teensy 4.0 (No, Teensy 3.1/3.2/3.5 not supported)
+   - Teensy 3.6 or Teensy 4.0 or Teensy 4.1 (Teensy 3.1/3.2/3.5 not supported)
+   - has also been used with Msi001 tuner chip, but not yet incorporated in this sketch
    HARDWARE OPTIONAL:
    - Preselection: switchable RF lowpass or bandpass filter
    - digital step attenuator: PE4306 used in my setup
-
+   - I2C adapter chip
 
    SOFTWARE:
    - FFT Fast Convolution = Digital Convolutionbuffer_spec_FFT
@@ -21,14 +22,15 @@
    - spectral NR uses FFT-iFFT overlap-add with 50% overlap
 
    - in floating point 32bit
-   - tested on Teensy 3.6 (using its single precision FPU) and on Teensy 4.0 (with its double precision FPU)
    - with Teensy 3.6: compile with 180MHz F_CPU, other speeds not supported. Maybe with the newest fix in Teensyduino, higher speeds could work, but this is untested
    - with Teensy 4.0: compile with "Optimize: Faster", never use "Optimize: smallest code", the latter will not work!
-   - tested with Arduino 1.8.12 & Teensyduino 1.52 beta-4
+   - with Teensy 4.1: tested in combination with SGTL5000 on D07JBH PCB board with ugly style adaptor board
+   - tested with Arduino 1.8.12 & Teensyduino 1.52
+   - the T4 versions of the code also work with toolchain ARM ver. 9
 
    Part of the evolution of this project has been documented here:
    https://forum.pjrc.com/threads/40188-Fast-Convolution-filtering-in-floating-point-with-Teensy-3-6/page2
-
+   https://forum.pjrc.com/threads/40590-Teensy-Convolution-SDR-(Software-Defined-Radio)/page10
 
    HISTORY OF IMPLEMENTED FEATURES
    - 12kHz to 30MHz Receive PLUS 76 - 108MHz: undersampling-by-3 with slightly reduced sensitivity (-9dB)
@@ -103,7 +105,7 @@
    - now runs on Teensy 4.0
    - bugfix runover audio buffers
    - EEPROM runs fine on T4
-   - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [TFT + ADC + DAC + Teensy 4.0 + QSD hardware < 1 Watt !]
+   - flexible T4 CPU frequency setting in menu, < 1 Watt power consumption is thus possible in every mode ! :-) [3.2" TFT + ADC + DAC + Teensy 4.1 + QSD hardware < 1 Watt !]
    - T4: CPU temperature display 
    - T4: Hifi Stereo with PLL
    - fixed RTC for T4
@@ -117,8 +119,11 @@
    - audio volume encoder logarithmic feel (thanks to FrankB) 
    - bugfix Auto-IQ correction Moseley & Slump (2006) (thanks to FrankB)
    - introduce ENCODER_FACTOR in order to be flexible with encoder library (DD4WH T4 setup does only work with the standard encoder lib and hardware debouncing with 4n7 caps at the encoder contacts)
-   - change ILI9341 screen update --> credit to FrankB [frees up CPU load considerably !]  
-   
+   - change ILI9341 screen update --> credit to FrankB [frees up CPU load considerably !]
+   - added hardware support for DO7JBH hardware with T3.6-to-T4.1. adapter 
+   - added more convinient tuning steps, thanks tisho!
+   - menu assistant by tisho makes menu buttons obsolete and makes menu navigation MUCH easier ! Thanks tisho!
+    
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
    - account for using the Si5351 with two clock outputs in 90 degrees difference  
@@ -195,7 +200,7 @@
 //#define HARDWARE_DD4WH
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
-#define HARDWARE_DD4WH_T4
+//#define HARDWARE_DD4WH_T4
 
 /*  If you use the hardware made by Frank DD4WH & the T4 uncomment the next line */
 //#define HARDWARE_AD8331
@@ -207,6 +212,9 @@
 /*  If you use the hardware made by Dante DO7JBH [https://github.com/do7jbh/SSR-2], uncomment the next line */
 //#define HARDWARE_DO7JBH
 
+/*  If you use the hardware made by Dante DO7JBH with a Teensy 4.1 adapter [https://github.com/do7jbh/SSR-2], uncomment the next line */
+#define HARDWARE_DO7JBH_T41
+
 /* only for debugging */
 //#define DEBUG
 
@@ -217,7 +225,7 @@
 /*  only for support of the hardware RF frontend filters designed by Bob Larkin, W7PUA
     http://www.janbob.com/electron/FilterBP1/FiltBP1.html
     adjust cutoff frequencies according to your needs in function setfreq */
-//#define USE_BOBS_FILTER
+#define USE_BOBS_FILTER
 
 /*  flag to indicate to use the changes introduced by Bob Larkin, W7PUA
     recommendation: leave this uncommented */
@@ -229,7 +237,7 @@
 
 /*  use faster atan2f calculation
     recommendation: leave this uncommented */
-//#define USE_ATAN2FAST
+#define USE_ATAN2FAST
 
 #define MP3 
 
@@ -264,14 +272,14 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 #include <arm_math.h>
 #include <arm_const_structs.h>
 #include <si5351.h>
-#include <Encoder.h>
-//#include <EncoderBounce.h> // https://github.com/FrankBoesing/EncoderBounce, does not work with my cheap encoders ... DD4WH
+//#include <Encoder.h> // try empirically which lib works best for your encoders !
+#include <EncoderBounce.h> // https://github.com/FrankBoesing/EncoderBounce, does not work with my cheap chinese encoders ... but works perfectly with Alps encoders (which cost 10 times more) DD4WH
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#if defined(HARDWARE_DD4WH_T4)
+#if defined(T4)
 #include <ILI9341_t3n.h>
 #include <ili9341_t3n_font_Arial.h>
 #else
@@ -296,6 +304,7 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 #include <utility/imxrt_hw.h> // for setting I2S freq, Thanks, FrankB!
 #include <EEPROM.h>
 #define WFM_SAMPLE_RATE   256000.0f
+//#define WFM_SAMPLE_RATE   234375.0f
 #else
 #include <EEPROM.h>
 #define F_I2S ((((I2S0_MCR >> 24) & 0x03) == 3) ? F_PLL : F_CPU)
@@ -401,6 +410,10 @@ int16_t termCharColorStore[termNcols][termNrows] ;
 #define CRcode 13
 #define UU     'y'
 
+uint8_t Menu_1_Assistant = 1;
+uint8_t Menu_2_Assistant = 0;         //Flag for the menu assistant function (by long pressing the encode it is cold the menu with small description)
+uint8_t Menu_1_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
+uint8_t Menu_2_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
 
 typedef struct
 {
@@ -847,13 +860,15 @@ time_t getTeensy3Time()
 // Joris PCB uses a 27MHz crystal and CLOCK 2 output
 // Elektor SDR PCB uses a 25MHz crystal and the CLOCK 1 output
 //#define Si_5351_clock  SI5351_CLK1
-#if defined(HARDWARE_DO7JBH) || defined(HARDWARE_FRANKB)
+#if defined(HARDWARE_DO7JBH) || defined(HARDWARE_FRANKB) || defined(HARDWARE_DO7JBH_T41) 
 #define Si_5351_crystal 25000000
 #else
 #define Si_5351_crystal 27000000
 #endif
 
 #define Si_5351_clock  SI5351_CLK2
+// {SI5351_DRIVE_2MA, SI5351_DRIVE_4MA, SI5351_DRIVE_6MA, SI5351_DRIVE_8MA};
+#define Si_5351_drive SI5351_DRIVE_4MA // default drive strength of the library is 2mA, which could be too low depending on your hardware!?
 
 // Europe uses 9 kHz AM spacing, N.A. uses 10 (AM_SPACING_EU==0).  Others???  <PUA>
 #define AM_SPACING_EU  1
@@ -867,7 +882,7 @@ unsigned long long hilfsf = 1000000000;
 uint8_t save_energy = 0;
 uint8_t atan2_approx = 1;
 
-#ifdef HARDWARE_DO7JBH
+#if defined (HARDWARE_DO7JBH) || defined (HARDWARE_DO7JBH_T41)
 // Optical Encoder connections
 Encoder tune      (16, 17);
 Encoder filter    (4, 5);
@@ -876,6 +891,28 @@ Encoder encoder3  (1, 2); //(26, 28);
 Si5351 si5351;
 #define MASTER_CLK_MULT  4  // QSD frontend requires 4x clock
 
+
+// pins for digital attenuator board PE4306
+//#define ATT_LE          24
+//#define ATT_DATA        25
+//#define ATT_CLOCK       28
+// dummy definitions for Dantes hardware
+#define ATT_LE          40
+#define ATT_DATA        50//41
+#define ATT_CLOCK       42
+// prop shield LC used for audio speaker amp
+//#define AUDIO_AMP_ENABLE 39
+
+#if (defined(T4))
+#define BACKLIGHT_PIN   6  // cut PCB trace to 3V3 and new wire soldered from TFT backlight to pin6 on DO7JBHs PCB 
+#define TFT_DC          34 // 20
+#define TFT_CS          10 //21
+#define TFT_RST         35  // 255 = unused. connect to 3.3V
+#define TFT_MOSI        11 //7
+#define TFT_SCLK        13 //14
+#define TFT_MISO        12
+ILI9341_t3n tft = ILI9341_t3n(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+#else
 #define BACKLIGHT_PIN   0  // unfortunately connected to 3V3 in DO7JBHs PCB 
 #define TFT_DC          20
 #define TFT_CS          21
@@ -883,26 +920,21 @@ Si5351 si5351;
 #define TFT_MOSI        7
 #define TFT_SCLK        14
 #define TFT_MISO        12
-// pins for digital attenuator board PE4306
-//#define ATT_LE          24
-//#define ATT_DATA        25
-//#define ATT_CLOCK       28
-// dummy definitions for Dantes hardware
-#define ATT_LE          40
-#define ATT_DATA        41
-#define ATT_CLOCK       42
-// prop shield LC used for audio speaker amp
-//#define AUDIO_AMP_ENABLE 39
-
 ILI9341_t3 tft = ILI9341_t3(TFT_CS, TFT_DC, TFT_RST, TFT_MOSI, TFT_SCLK, TFT_MISO);
+#endif
 
 // push-buttons
+#if defined (HARDWARE_DO7JBH)
 #define   BUTTON_1_PIN      A22 // encoder2 button = button3SW
+#define   BUTTON_6_PIN      8 // this is the pushbutton pin of the filter encoder
+#elif defined(HARDWARE_DO7JBH_T41)
+#define   BUTTON_1_PIN      41 // encoder2 button = button3SW
+#define   BUTTON_6_PIN      15 //8 // this is the pushbutton pin of the filter encoder
+#endif
 #define   BUTTON_2_PIN      37 // BAND+ = button2SW
 #define   BUTTON_3_PIN      30 // ???
 #define   BUTTON_4_PIN      36 //
 #define   BUTTON_5_PIN      38 // this is the pushbutton pin of the tune encoder
-#define   BUTTON_6_PIN      8 // this is the pushbutton pin of the filter encoder
 #define   BUTTON_7_PIN      39 // this is the menu button pin
 #define   BUTTON_8_PIN      33  //27 // this is the pushbutton pin of encoder 3
 
@@ -1070,7 +1102,7 @@ Metro encoder_check = Metro(100); // Set up a Metro
 //Metro dbm_check = Metro(25);
 uint8_t wait_flag = 0;
 
-#ifdef HARDWARE_DO7JBH
+#if defined (HARDWARE_DO7JBH) || defined (HARDWARE_DO7JBH_T41)
 const uint8_t Band1 = 26; // band selection pins for LPF relays, used with 2N7000: HIGH means LPF is activated
 const uint8_t Band2 = 27; // always use only one LPF with HIGH, all others have to be LOW
 // not used
@@ -1188,9 +1220,14 @@ uint16_t SPECTRUM_DRAW_COLOUR = ILI9341_WHITE;
 #define SPECTRUM_ZOOM_1024        10
 #define SPECTRUM_ZOOM_2048        11
 #define SPECTRUM_ZOOM_4096        12
+#define SPECTRUM_ZOOM_8192        13
+#define SPECTRUM_ZOOM_16384       14
 #define SPECTRUM_ZOOM_MAX         11
 
+uint32_t Zoom_FFT_M1 = 1;
+uint32_t Zoom_FFT_M2 = 1;
 int32_t spectrum_zoom = SPECTRUM_ZOOM_2;
+uint8_t spectrum_view_WFM = 1;      //0 - Clacis view; 1 - Band spectrum  //Tisho
 
 // Text and position for the FFT spectrum display scale
 
@@ -1540,11 +1577,11 @@ uint32_t UKW_spectrum_offset = 0;
 #define PILOTPLL_ZETA     0.707f
 #define PILOTPLL_LOCK_TIME_CONSTANT 1.0f // lock filter time in seconds
 #define PILOTTONEDISPLAYALPHA 0.002f
-#define WFM_LOCK_MAG_THRESHOLD     0.04f //0.013f // 0.001f bei taps==20 //0.108f // lock error magnitude
+#define WFM_LOCK_MAG_THRESHOLD     0.06f //0.013f // 0.001f bei taps==20 //0.108f // lock error magnitude
 float32_t Pilot_tone_freq = 19000.0f;
 
 #define FMDC_ALPHA 0.001  //time constant for DC removal filter
-float32_t m_PilotPhaseAdjust = 0.4; //0.17607;
+float32_t m_PilotPhaseAdjust = 1.42; //0.17607;
 float32_t WFM_gain = 0.24;
 float32_t m_PilotNcoPhase = 0.0;
 float32_t WFM_fil_out = 0.0;
@@ -1689,11 +1726,10 @@ float32_t DMAMEM WFM_RDS_FIR_biphase_state [WFM_RDS_FIR_biphase_num_taps + 1 + W
 // tau = 75µsec in the US -->
 //
 //FIXME
-float32_t dt = 1.0 / (WFM_SAMPLE_RATE / 4);
-float32_t deemp_alpha = dt / (50e-6 + dt);
-//float32_t m_alpha = 0.91;
-//float32_t deemp_alpha = 0.099;
-float32_t onem_deemp_alpha = 1.0 - deemp_alpha;
+
+const float WFM_DEEMPHASIS    = 50e-6f; //EU: 50 us -> tau = 50e-6, USA: 75 us -> tau = 75e-6
+float deemp_alpha       = 1.0 - (float)expf(- 1.0 / (WFM_SAMPLE_RATE * WFM_DEEMPHASIS));
+float onem_deemp_alpha = 1.0 - deemp_alpha;
 uint16_t autotune_counter = 0;
 
 /* no.of audio samples
@@ -1742,6 +1778,10 @@ const uint32_t N_DEC_B = N_B / (uint32_t)DF;
 float32_t DMAMEM float_buffer_L [BUFFER_SIZE * N_B];
 float32_t DMAMEM float_buffer_R [BUFFER_SIZE * N_B];
 
+#if defined (HARDWARE_DO7JBH_T41)
+float32_t DMAMEM float_buffer_L_T [BUFFER_SIZE * N_B];        //Tisho
+float32_t DMAMEM float_buffer_R_T [BUFFER_SIZE * N_B];        //Tisho
+#endif
 float32_t DMAMEM FFT_buffer [FFT_L * 2] __attribute__ ((aligned (4)));
 float32_t DMAMEM last_sample_buffer_L [BUFFER_SIZE * N_DEC_B];
 float32_t DMAMEM last_sample_buffer_R [BUFFER_SIZE * N_DEC_B];
@@ -2000,7 +2040,7 @@ float32_t m_AttackAvedbmhz = -103.0;
 float32_t m_DecayAvedbmhz = -103.0;
 float32_t m_AverageMagdbmhz = -103.0;
 
-#ifdef HARDWARE_DO7JBH
+#if defined (HARDWARE_DO7JBH) || defined (HARDWARE_DO7JBH_T41)
 float32_t dbm_calibration = 3.0; //
 #else
 float32_t dbm_calibration = 22.0; //
@@ -2013,8 +2053,8 @@ float32_t dbm_calibration = 22.0; //
 //  50ms   0.3297
 // 100ms   0.1812
 // 500ms   0.0391
-float32_t m_AttackAlpha = 0.03; //0.1; //0.08; //0.2;
-float32_t m_DecayAlpha  = 0.01; //0.02; //0.05;
+float32_t m_AttackAlpha = 0.12; //0.1; //0.08; //0.2;
+float32_t m_DecayAlpha  = 0.05; //0.02; //0.05;
 int16_t pos_x_dbm = pos_x_smeter + 170;
 int16_t pos_y_dbm = pos_y_smeter - 7;
 #define DISPLAY_S_METER_DBM       0
@@ -2022,16 +2062,11 @@ int16_t pos_y_dbm = pos_y_smeter - 7;
 uint8_t display_dbm = DISPLAY_S_METER_DBM;
 uint8_t dbm_state = 0;
 
-
 #define TUNE_STEP_MIN   0
-#define TUNE_STEP1   0    // shortwave
-#define TUNE_STEP2   1   // fine tuning
-#define TUNE_STEP3   2    //
-#define TUNE_STEP4   3    //
-#define TUNE_STEP_MAX 3
+#define TUNE_STEP_MAX 8
 #define first_tunehelp 1
 #define last_tunehelp 3
-uint8_t tune_stepper = 0;
+uint8_t tune_stepper = 4;
 int tunestep = 5000; //TUNE_STEP1;
 const char* tune_text = "Fast Tune";
 uint8_t autotune_flag = 0;
@@ -2574,12 +2609,20 @@ uint8_t NB_test = 0;
 
 
 // decimation with FIR lowpass for Zoom FFT
-arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I;
-arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q;
-float32_t DMAMEM Fir_Zoom_FFT_Decimate_I_state [4 + BUFFER_SIZE * N_B - 1];
-float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q_state [4 + BUFFER_SIZE * N_B - 1];
+arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I1;
+arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q1;
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_I1_state [12 + BUFFER_SIZE * N_B - 1];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q1_state [12 + BUFFER_SIZE * N_B - 1];
 
-float32_t DMAMEM Fir_Zoom_FFT_Decimate_coeffs[4];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate1_coeffs[12];
+
+// decimation with FIR lowpass for Zoom FFT
+arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I2;
+arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q2;
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_I2_state [12 + BUFFER_SIZE * N_B - 1];
+float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q2_state [12 + BUFFER_SIZE * N_B - 1];
+
+float32_t DMAMEM Fir_Zoom_FFT_Decimate2_coeffs[12];
 
 /****************************************************************************************
     init IIR filters
@@ -2671,315 +2714,6 @@ const float32_t nuttallWindow256[] = {
   0.0072832, 0.0063956, 0.0055940, 0.0048719, 0.0042235, 0.0036429, 0.0031248, 0.0026639,
   0.0022554, 0.0018947, 0.0015775, 0.0012998, 0.0010580, 0.0008485, 0.0006684, 0.0005147,
   0.0003851, 0.0002771, 0.0001891, 0.0001192, 0.0000663, 0.0000292, 0.0000073, 0.0000001
-};
-
-
-float32_t* mag_coeffs[11] =
-{
-  // for Index 0 [1xZoom == no zoom] the mag_coeffs will consist of  a NULL  ptr, since the filter is not going to be used in this  mode!
-  (float32_t*)NULL,
-
-  (float32_t*)(const float32_t[]) {
-    // 2x magnify - index 1
-    // 12kHz, sample rate 48k, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH Aug 16th 2016
-    0.228454526413293696,
-    0.077639329099949764,
-    0.228454526413293696,
-    0.635534925142242080,
-    -0.170083307068779194,
-
-    0.436788292542003964,
-    0.232307972937606161,
-    0.436788292542003964,
-    0.365885230717786780,
-    -0.471769788739400842,
-
-    0.535974654742658707,
-    0.557035600464780845,
-    0.535974654742658707,
-    0.125740787233286133,
-    -0.754725697183384336,
-
-    0.501116342273565607,
-    0.914877831284765408,
-    0.501116342273565607,
-    0.013862536615004284,
-    -0.930973052446900984
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 4x magnify - index 2
-    // 6kHz, sample rate 48k, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH Aug 16th 2016
-    0.182208761527446556,
-    -0.222492493114674145,
-    0.182208761527446556,
-    1.326111070880959810,
-    -0.468036100821178802,
-
-    0.337123762652097259,
-    -0.366352718812586853,
-    0.337123762652097259,
-    1.337053579516321200,
-    -0.644948386007929031,
-
-    0.336163175380826074,
-    -0.199246162162897811,
-    0.336163175380826074,
-    1.354952684569386670,
-    -0.828032873168141115,
-
-    0.178588201750411041,
-    0.207271695028067304,
-    0.178588201750411041,
-    1.386486967455699220,
-    -0.950935065984588657
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 8x magnify - index 3
-    // 3kHz, sample rate 48k, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH Aug 16th 2016
-    0.185643392652478922,
-    -0.332064345389014803,
-    0.185643392652478922,
-    1.654637402827731090,
-    -0.693859842743674182,
-
-    0.327519300813245984,
-    -0.571358085216950418,
-    0.327519300813245984,
-    1.715375037176782860,
-    -0.799055553586324407,
-
-    0.283656142708241688,
-    -0.441088976843048652,
-    0.283656142708241688,
-    1.778230635987093860,
-    -0.904453944560528522,
-
-    0.079685368654848945,
-    -0.011231810140649204,
-    0.079685368654848945,
-    1.825046003243238070,
-    -0.973184930412286708
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 16x magnify - index 4
-    // 1k5, sample rate 48k, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH Aug 16th 2016
-    0.194769868656866380,
-    -0.379098413160710079,
-    0.194769868656866380,
-    1.824436402073870810,
-    -0.834877726226893380,
-
-    0.333973874901496770,
-    -0.646106479315673776,
-    0.333973874901496770,
-    1.871892825636887640,
-    -0.893734096124207178,
-
-    0.272903880596429671,
-    -0.513507745397738469,
-    0.272903880596429671,
-    1.918161772571113750,
-    -0.950461788366234739,
-
-    0.053535383722369843,
-    -0.069683422367188122,
-    0.053535383722369843,
-    1.948900719896301760,
-    -0.986288064973853129
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 32x magnify - index 5
-    // 750Hz, sample rate 48k, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH Aug 16th 2016
-    0.201507402588557594,
-    -0.400273615727755550,
-    0.201507402588557594,
-    1.910767558906650840,
-    -0.913508748356010480,
-
-    0.340295203367131205,
-    -0.674930558961690075,
-    0.340295203367131205,
-    1.939398230905991390,
-    -0.945058078678563840,
-
-    0.271859921641011359,
-    -0.535453706265515361,
-    0.271859921641011359,
-    1.966439529620203740,
-    -0.974705666636711099,
-
-    0.047026497485465592,
-    -0.084562104085501480,
-    0.047026497485465592,
-    1.983564238653704900,
-    -0.993055129539134551
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 64x magnify - index 6
-    // 374Hz, sr 48k, 0.02dB ripple, 60dB stopband elliptic
-    // DD4WH, 2018_03_24
-
-    0.241056639221550989,
-    -0.481274384783607956,
-    0.241056639221550989,
-    1.949355134029925550,
-    -0.950194027689419740,
-
-    0.348059943588306275,
-    -0.694622621265274853,
-    0.348059943588306275,
-    1.966699951543778860,
-    -0.968197217455116443,
-
-    0.259592008997311219,
-    -0.517100588623714774,
-    0.259592008997311219,
-    1.983085371558495740,
-    -0.985168800929403399,
-
-    0.042223607998797694,
-    -0.082088490093798844,
-    0.042223607998797694,
-    1.993523066505831660,
-    -0.995881792409628042
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 128x magnify - index 7
-    // 187Hz, sample rate 48k, ripple 0.02dB, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH 2018_03_24
-    0.243976032331821663,
-    -0.487739726489511083,
-    0.243976032331821663,
-    1.974570407912224380,
-    -0.974782746086356844,
-
-    0.350666090990641666,
-    -0.700954871622642472,
-    0.350666090990641666,
-    1.983591708136026810,
-    -0.983969018494667669,
-
-    0.260268176176534360,
-    -0.520013508234821287,
-    0.260268176176534360,
-    1.992032152306574270,
-    -0.992554996424821700,
-
-    0.041842895868125313,
-    -0.083095418270055094,
-    0.041842895868125313,
-    1.997347796837673830,
-    -0.997938170303869221
-  },
-
-  // TODO: calculate new coeffs!
-  (float32_t*)(const float32_t[]) {
-    // 256x magnify - index 8
-    // 187Hz, sample rate 48k, ripple 0.02dB, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH 2018_03_24
-    0.243976032331821663,
-    -0.487739726489511083,
-    0.243976032331821663,
-    1.974570407912224380,
-    -0.974782746086356844,
-
-    0.350666090990641666,
-    -0.700954871622642472,
-    0.350666090990641666,
-    1.983591708136026810,
-    -0.983969018494667669,
-
-    0.260268176176534360,
-    -0.520013508234821287,
-    0.260268176176534360,
-    1.992032152306574270,
-    -0.992554996424821700,
-
-    0.041842895868125313,
-    -0.083095418270055094,
-    0.041842895868125313,
-    1.997347796837673830,
-    -0.997938170303869221
-  },
-
-  // TODO: calculate new coeffs!
-  (float32_t*)(const float32_t[]) {
-    // 512x magnify - index 9
-    // 187Hz, sample rate 48k, ripple 0.02dB, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH 2018_03_24
-    0.243976032331821663,
-    -0.487739726489511083,
-    0.243976032331821663,
-    1.974570407912224380,
-    -0.974782746086356844,
-
-    0.350666090990641666,
-    -0.700954871622642472,
-    0.350666090990641666,
-    1.983591708136026810,
-    -0.983969018494667669,
-
-    0.260268176176534360,
-    -0.520013508234821287,
-    0.260268176176534360,
-    1.992032152306574270,
-    -0.992554996424821700,
-
-    0.041842895868125313,
-    -0.083095418270055094,
-    0.041842895868125313,
-    1.997347796837673830,
-    -0.997938170303869221
-  },
-
-  (float32_t*)(const float32_t[]) {
-    // 1024x magnify - index 10
-    // 187Hz, sample rate 48k, ripple 0.02dB, 60dB stopband, elliptic
-    // a1 and a2 negated! order: b0, b1, b2, a1, a2
-    // Iowa Hills IIR Filter Designer, DD4WH 2018_03_24
-    0.243976032331821663,
-    -0.487739726489511083,
-    0.243976032331821663,
-    1.974570407912224380,
-    -0.974782746086356844,
-
-    0.350666090990641666,
-    -0.700954871622642472,
-    0.350666090990641666,
-    1.983591708136026810,
-    -0.983969018494667669,
-
-    0.260268176176534360,
-    -0.520013508234821287,
-    0.260268176176534360,
-    1.992032152306574270,
-    -0.992554996424821700,
-
-    0.041842895868125313,
-    -0.083095418270055094,
-    0.041842895868125313,
-    1.997347796837673830,
-    -0.997938170303869221
-  }
 };
 
 const uint16_t gradient[] = {
@@ -3178,7 +2912,7 @@ void flexRamInfo(void)
 
 PROGMEM
 void setup() {
-#ifdef HARDWARE_DO7JBH
+#if defined (HARDWARE_DO7JBH) || defined (HARDWARE_DO7JBH_T41)
   pinMode(On_set, OUTPUT);
   digitalWrite (On_set, HIGH);      // Hold switch on
 #endif
@@ -3189,7 +2923,7 @@ void setup() {
 #endif
 
   Serial.begin(115200);
-  delay(1000);
+  delay(100);
   // all the comments on memory settings and MP3 playing are for FFT size of 1024 !
   // for the large queue sizes at 192ksps sample rate we need a lot of buffers
   //  AudioMemory(130);  // good for 176ksps sample rate, but MP3 playing is not possible
@@ -3302,7 +3036,7 @@ void setup() {
   //  sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
   //  sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
-  sgtl5000_1.volume((float32_t)audio_volume / 100.0); //
+  sgtl5000_1.volume((float32_t)audio_volume / 100.0f); //
 #endif  
   mixleft.gain(0, 1.0);
   mixright.gain(0, 1.0);
@@ -3335,7 +3069,7 @@ void setup() {
 #if defined(HARDWARE_AD8331)
   pinMode(1, OUTPUT );
   analogWriteResolution(8); // set resolution to 8 bit
-  analogWrite(1, 0); // 25/255 * 3.3V = 0.33 Volt
+  analogWrite(1, 25); // 25/255 * 3.3V = 0.33 Volt
 #endif
 
 #if defined(BUTTON_1_PIN)
@@ -3812,10 +3546,12 @@ void setup() {
     WFM_RDS_FIR_biphase_coeffs[WFM_RDS_FIR_biphase_num_taps / 2 - i] =  (float32_t) (-.75 * cos(2.0 * TWO_PI * x) * ( (1.0/(1.0/x-x64)) - (1.0/(9.0/x-x64)) ));
   }
 
+#if defined(DEBUG)
   for(unsigned i = 0; i < WFM_RDS_FIR_biphase_num_taps; i++)
   {
     Serial.println(WFM_RDS_FIR_biphase_coeffs[i],10);
   }
+#endif  
   //arm_fir_init_f32 (arm_fir_instance_f32 *S, uint16_t numTaps, const float32_t *pCoeffs, float32_t *pState, uint32_t blockSize)
   arm_fir_init_f32 (&WFM_RDS_FIR_biphase, WFM_RDS_FIR_biphase_num_taps, WFM_RDS_FIR_biphase_coeffs, WFM_RDS_FIR_biphase_state, BUFFER_SIZE * WFM_BLOCKS / (uint32_t)(WFM_RDS_M1 * WFM_RDS_M2) );
 #endif
@@ -3845,36 +3581,6 @@ void setup() {
   /****************************************************************************************
      Zoom FFT: Initiate decimation and interpolation FIR filters AND IIR filters
   ****************************************************************************************/
-  float32_t Fstop_Zoom = 0.5 * (float32_t) SR[SAMPLE_RATE].rate / (1 << spectrum_zoom);
-  calc_FIR_coeffs (Fir_Zoom_FFT_Decimate_coeffs, 4, Fstop_Zoom, 60, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
-  // Attention: max decimation rate is 128 !
-  //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
-  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_I_state, BUFFER_SIZE * N_BLOCKS)) {
-    Serial.println("Init of decimation failed");
-    while(1);
-  }
-  // same coefficients, but specific state variables
-  //  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 1 << spectrum_zoom, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
-  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q, 4, 128, Fir_Zoom_FFT_Decimate_coeffs, Fir_Zoom_FFT_Decimate_Q_state, BUFFER_SIZE * N_BLOCKS)) {
-    Serial.println("Init of decimation failed");
-    while(1);
-  }
-
-  IIR_biquad_Zoom_FFT_I.numStages = IIR_biquad_Zoom_FFT_N_stages; // set number of stages
-  IIR_biquad_Zoom_FFT_Q.numStages = IIR_biquad_Zoom_FFT_N_stages; // set number of stages
-  for (unsigned i = 0; i < 4 * IIR_biquad_Zoom_FFT_N_stages; i++)
-  {
-    IIR_biquad_Zoom_FFT_I_state[i] = 0.0; // set state variables to zero
-    IIR_biquad_Zoom_FFT_Q_state[i] = 0.0; // set state variables to zero
-  }
-  IIR_biquad_Zoom_FFT_I.pState = IIR_biquad_Zoom_FFT_I_state; // set pointer to the state variables
-  IIR_biquad_Zoom_FFT_Q.pState = IIR_biquad_Zoom_FFT_Q_state; // set pointer to the state variables
-
-  // this sets the coefficients for the ZoomFFT decimation filter
-  // according to the desired magnification mode
-  // for 0 the mag_coeffs will a NULL  ptr, since the filter is not going to be used in this  mode!
-  IIR_biquad_Zoom_FFT_I.pCoeffs = mag_coeffs[spectrum_zoom];
-  IIR_biquad_Zoom_FFT_Q.pCoeffs = mag_coeffs[spectrum_zoom];
 
   Zoom_FFT_prep();
 
@@ -3898,22 +3604,11 @@ void setup() {
   /****************************************************************************************
      Initialize AGC variables
   ****************************************************************************************/
-
   AGC_prep();
 
   /****************************************************************************************
      IQ imbalance correction
   ****************************************************************************************/
-  //        Serial.print("1 / K_est: "); Serial.println(1.0 / K_est);
-  //        Serial.print("1 / sqrt(1 - P_est^2): "); Serial.println(P_est_mult);
-  //        Serial.print("Phasenfehler in Grad: "); Serial.println(- asinf(P_est));
-
-
-  Serial.print("decimation stage 1: no of taps: "); Serial.println(n_dec1_taps);
-
-  Serial.print("decimation stage 2: no of taps: "); Serial.println(n_dec2_taps);
-  Serial.print("fstop2: "); Serial.println(n_fstop2);
-  Serial.print("fpass2: "); Serial.println(n_fpass2);
 
 
   /****************************************************************************************
@@ -3922,6 +3617,7 @@ void setup() {
   setAttenuator(RF_attenuation);
   //Serial.println("before Si5351 init");
   si5351.init(SI5351_CRYSTAL_LOAD_10PF, Si_5351_crystal, calibration_constant);
+  //si5351.drive_strength(Si_5351_clock, Si_5351_drive);
   setfreq();
   delay(100);
   //show_frequency(bands[current_band].freq, 1);
@@ -3935,7 +3631,6 @@ void setup() {
   /****************************************************************************************
       Initialize spectral noise reduction variables
    ****************************************************************************************/
-
   spectral_noise_reduction_init();
   Init_LMS_NR ();
 
@@ -3947,8 +3642,8 @@ void setup() {
   /****************************************************************************************
      eePROM check by Mike bicycleguy
   ****************************************************************************************/
-  //Serial.println(gEEPROM_current);
-  if (gEEPROM_current == false) { //mdrhere
+  if (gEEPROM_current == false) 
+  { //mdrhere
     EEPROM_SAVE();
     gEEPROM_current = true; //future proof, but not used after this
   }
@@ -3970,10 +3665,8 @@ void setup() {
   /****************************************************************************************
      RAM monitor for Teensy 4.0
   ****************************************************************************************/
-    //Serial.println(get_RAM_Info());
-    //DumpMemoryInfo();
-    //EstimateStackUsage();
     flexRamInfo();
+
   /****************************************************************************************
      begin to queue the audio from the audio library
   ****************************************************************************************/
@@ -4145,6 +3838,12 @@ void loop() {
       const float32_t WFM_scaling_factor = 0.24f; //
 #endif
 
+//Tisho
+  for (int i = 0; i < (BUFFER_SIZE * N_BLOCKS) / 2; i++)
+  {
+      float_buffer_L_T[i] = float_buffer_L[i*2];
+      float_buffer_R_T[i] = float_buffer_R[i*2];
+  }
 
 //#############################################################################################################
 //#############################################################################################################
@@ -4615,27 +4314,30 @@ void loop() {
 
       if (show_spectrum_flag)
       {
+#if defined (T4)
       WFM_spectrum_flag++;
       if (WFM_spectrum_flag == 2)
         {
-          //            spectrum_zoom == SPECTRUM_ZOOM_1;
+          spectrum_zoom = SPECTRUM_ZOOM_1;            //Tisho uncoment the line
           zoom_display = 1;
           if(spectrum_zoom == SPECTRUM_ZOOM_1)
           {
-            WFM_calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 512;
-            WFM_calc_256_magn();
-            show_spectrum();
-#if 0
-            UKW_spectrum_offset = 512;
-            WFM_calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 767;
-            calc_256_magn();
-            show_spectrum();
-            UKW_spectrum_offset = 0;
-#endif
+            /* Tisho addon for 2 options of the spectrum display in WFM mode */
+            if(spectrum_view_WFM)                     
+              {                           //Band Spectrum (original was only this view option)                      
+              WFM_calc_256_magn();
+              show_spectrum();
+              UKW_spectrum_offset = 512;
+              WFM_calc_256_magn();
+              show_spectrum();
+              }
+
+            else     //Clasic view
+              {
+              calc_256_magn_T();                        
+              show_spectrum();
+              }
+            /* END Tisho addon */                             
           }
           else
           {
@@ -4652,7 +4354,7 @@ void loop() {
           WFM_spectrum_flag = 0;
         }
       }
-
+#endif
       elapsed_micros_sum = elapsed_micros_sum + usec;
       elapsed_micros_idx_t++;
 //      Serial.print("elapsed_micros_idx_t = ");
@@ -7789,31 +7491,280 @@ void init_filter_mask()
 
 
 void Zoom_FFT_prep()
-{ // take value of spectrum_zoom and initialize IIR lowpass and FIR decimation filters for the right values
+{ // take value of spectrum_zoom and initialize FIR decimation filters for the right values
 
-  float32_t Fstop_Zoom = 0.5 * (float32_t) SR[SAMPLE_RATE].rate / (1 << spectrum_zoom);
-  //    Serial.print("Fstop =  "); Serial.println(Fstop_Zoom);
-  calc_FIR_coeffs (Fir_Zoom_FFT_Decimate_coeffs, 4, Fstop_Zoom, 60, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
-
-  if (spectrum_zoom < 7)
+  /****************************************************************************************
+     Zoom FFT: Initiate decimation FIR filters
+  ****************************************************************************************/
+  // two-stage decimation
+  switch (spectrum_zoom) 
   {
-    Fir_Zoom_FFT_Decimate_I.M = (1 << spectrum_zoom);
-    Fir_Zoom_FFT_Decimate_Q.M = (1 << spectrum_zoom);
-    IIR_biquad_Zoom_FFT_I.pCoeffs = mag_coeffs[spectrum_zoom];
-    IIR_biquad_Zoom_FFT_Q.pCoeffs = mag_coeffs[spectrum_zoom];
+    case SPECTRUM_ZOOM_1:
+      Zoom_FFT_M1 = 1; Zoom_FFT_M2 = 1; 
+      break;
+    case SPECTRUM_ZOOM_2:       
+      Zoom_FFT_M1 = 2; Zoom_FFT_M2 = 1; 
+      break;
+    case SPECTRUM_ZOOM_4:       
+      Zoom_FFT_M1 = 2; Zoom_FFT_M2 = 2; 
+      break;
+    case SPECTRUM_ZOOM_8:       
+      Zoom_FFT_M1 = 4; Zoom_FFT_M2 = 2; 
+      break;
+    case SPECTRUM_ZOOM_16:       
+      Zoom_FFT_M1 = 8; Zoom_FFT_M2 = 2; 
+      break;
+    case SPECTRUM_ZOOM_32:       
+      Zoom_FFT_M1 = 8; Zoom_FFT_M2 = 4; 
+      break;
+    case SPECTRUM_ZOOM_64:       
+      Zoom_FFT_M1 = 16; Zoom_FFT_M2 = 4; 
+      break;
+    case SPECTRUM_ZOOM_128:       
+      Zoom_FFT_M1 = 32; Zoom_FFT_M2 = 4; 
+      break;
+    case SPECTRUM_ZOOM_256:       
+      Zoom_FFT_M1 = 32; Zoom_FFT_M2 = 8; 
+      break;
+    case SPECTRUM_ZOOM_512:       
+      Zoom_FFT_M1 = 64; Zoom_FFT_M2 = 8; 
+      break;
+    case SPECTRUM_ZOOM_1024:       
+      Zoom_FFT_M1 = 128; Zoom_FFT_M2 = 8; 
+      break;
+    case SPECTRUM_ZOOM_2048:       
+      Zoom_FFT_M1 = 128; Zoom_FFT_M2 = 16; 
+      break;
+    case SPECTRUM_ZOOM_4096:       
+      Zoom_FFT_M1 = 128; Zoom_FFT_M2 = 32; 
+      break;
+    case SPECTRUM_ZOOM_8192:       
+      Zoom_FFT_M1 = 128; Zoom_FFT_M2 = 64; 
+      break;
+    case SPECTRUM_ZOOM_16384:       
+      Zoom_FFT_M1 = 128; Zoom_FFT_M2 = 128; 
+      break;
+    default:
+      Zoom_FFT_M1 = 1; Zoom_FFT_M2 = 1; 
+      break;
   }
-  else
-  { // we have to decimate by 128 for all higher magnifications, arm routine does not allow for higher decimations
-    Fir_Zoom_FFT_Decimate_I.M = 128;
-    Fir_Zoom_FFT_Decimate_Q.M = 128;
-    IIR_biquad_Zoom_FFT_I.pCoeffs = mag_coeffs[7];
-    IIR_biquad_Zoom_FFT_Q.pCoeffs = mag_coeffs[7];
+// init 1st stage 
+  float32_t Fstop_Zoom = 0.5 * (float32_t) SR[SAMPLE_RATE].rate / (1 << spectrum_zoom); // Fstop should be the stop band at the final sample rate
+
+#define Zoom_FFT_no_coeff1 12
+#define Zoom_FFT_no_coeff2 8
+// did not do proper calculation of the number of taps, just took a number for the start
+// attenuation 70dB should be sufficient for the spectrum display
+// 1st decimation stage
+  calc_FIR_coeffs (Fir_Zoom_FFT_Decimate1_coeffs, Zoom_FFT_no_coeff1, Fstop_Zoom, 60, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate);
+
+//[in,out]  S points to an instance of the floating-point FIR decimator structure
+//[in]  numTaps number of coefficients in the filter
+//[in]  M decimation factor
+//[in]  pCoeffs points to the filter coefficients
+//[in]  pState  points to the state buffer
+//[in]  blockSize number of input samples to process per call 
+
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I1, Zoom_FFT_no_coeff1, Zoom_FFT_M1, Fir_Zoom_FFT_Decimate1_coeffs, Fir_Zoom_FFT_Decimate_I1_state, BUFFER_SIZE * N_BLOCKS)) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+  // same coefficients, but specific state variables
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q1, Zoom_FFT_no_coeff1, Zoom_FFT_M1, Fir_Zoom_FFT_Decimate1_coeffs, Fir_Zoom_FFT_Decimate_Q1_state, BUFFER_SIZE * N_BLOCKS)) {
+    Serial.println("Init of decimation failed");
+    while(1);
   }
 
+// 2nd decimation stage
+  calc_FIR_coeffs (Fir_Zoom_FFT_Decimate2_coeffs, Zoom_FFT_no_coeff2, Fstop_Zoom, 60, 0, 0.0, (float32_t)SR[SAMPLE_RATE].rate / Zoom_FFT_M1);
+
+if(Zoom_FFT_M1 * Zoom_FFT_M2 > BUFFER_SIZE * N_BLOCKS)
+{
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I2, Zoom_FFT_no_coeff2, Zoom_FFT_M2, Fir_Zoom_FFT_Decimate2_coeffs, Fir_Zoom_FFT_Decimate_I2_state, BUFFER_SIZE * N_BLOCKS / Zoom_FFT_M1 * (1 << (spectrum_zoom - 11)))) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+  // same coefficients, but specific state variables
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q2, Zoom_FFT_no_coeff2, Zoom_FFT_M2, Fir_Zoom_FFT_Decimate2_coeffs, Fir_Zoom_FFT_Decimate_Q2_state, BUFFER_SIZE * N_BLOCKS / Zoom_FFT_M1 * (1 << (spectrum_zoom - 11)))) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+Serial.print("(1 << (spectrum_zoom - 11)) = "); Serial.println((1 << (spectrum_zoom - 11)));
+
+Serial.print("no. of samples in 2nd decimation stage: "); Serial.println(BUFFER_SIZE * N_BLOCKS / Zoom_FFT_M1 * (1 << (spectrum_zoom - 11)));
+  
+}
+else
+{// FIXME: which block size???
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_I2, Zoom_FFT_no_coeff2, Zoom_FFT_M2, Fir_Zoom_FFT_Decimate2_coeffs, Fir_Zoom_FFT_Decimate_I2_state, BUFFER_SIZE * N_BLOCKS / Zoom_FFT_M1)) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+  // same coefficients, but specific state variables
+  if (arm_fir_decimate_init_f32(&Fir_Zoom_FFT_Decimate_Q2, Zoom_FFT_no_coeff2, Zoom_FFT_M2, Fir_Zoom_FFT_Decimate2_coeffs, Fir_Zoom_FFT_Decimate_Q2_state, BUFFER_SIZE * N_BLOCKS / Zoom_FFT_M1)) {
+    Serial.println("Init of decimation failed");
+    while(1);
+  }
+}
   zoom_sample_ptr = 0;
 }
 
+void Zoom_FFT_exe (uint32_t blockSize)
+{
+  // totally rebuilt 27.8.2020 DD4WH
+  // however, I did not manage to implement a correct routine for magnifications > 2048x
+  // maybe the next days
+  float32_t x_buffer[blockSize]; // can be 2048 (FFT length == 512), or 4096 [FFT length == 1024] or even 8192 [FFT length == 2048]
+  float32_t y_buffer[blockSize];
+  static float32_t FFT_ring_buffer_x[256];
+  static float32_t FFT_ring_buffer_y[256];
+  static float32_t high_Zoom_buffer_x[256];
+  static float32_t high_Zoom_buffer_y[256];
+  static int32_t flag_2nd_decimation = 0;
+  static uint32_t high_Zoom_buffer_ptr = 0;
+  uint8_t high_Zoom = 0;
+  uint32_t high_Zoom_2nd_dec_rounds = (1 << (spectrum_zoom - 11));
+  Serial.print("2nd dec rounds"); Serial.println(high_Zoom_2nd_dec_rounds);
+  int sample_no = 256;
+  // sample_no is 256, in high magnify modes it is smaller!
+  // but it must never be > 256
 
+  sample_no = BUFFER_SIZE * N_BLOCKS / (1 << spectrum_zoom);
+
+  if (sample_no > 256)
+  {
+    sample_no = 256;
+  }
+
+// account for situation where we decimate so much, that it is less than one sample that remains :-)
+  if(Zoom_FFT_M1 * Zoom_FFT_M2 > blockSize)
+  {
+    high_Zoom = 1;
+    sample_no = 1;
+
+// do everything here for zoom >= 4096
+// decimation stage 1
+      arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I1, float_buffer_L, x_buffer, blockSize);
+      arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q1, float_buffer_R, y_buffer, blockSize);
+
+// put 16 decimated samples in high_Zoom_buffer, set high_Zoom_buffer_ptr and return
+      for(int i = 0; i < 16; i++)
+      {
+        high_Zoom_buffer_x[i + high_Zoom_buffer_ptr];
+      }
+      high_Zoom_buffer_ptr += 16;
+      if(high_Zoom_buffer_ptr >= 128) high_Zoom_buffer_ptr = 0;
+
+// if enough samples are in high_Zoom_buffer --> decimation stage 2
+      if(flag_2nd_decimation >= high_Zoom_2nd_dec_rounds)
+      {
+        arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I2, high_Zoom_buffer_x, x_buffer, blockSize / Zoom_FFT_M1 * high_Zoom_2nd_dec_rounds);
+        arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q2, high_Zoom_buffer_y, y_buffer, blockSize / Zoom_FFT_M1 * high_Zoom_2nd_dec_rounds);
+        flag_2nd_decimation = 0;
+        high_Zoom_buffer_ptr = 0;
+      }
+      else
+      {
+           flag_2nd_decimation++;
+      }
+
+// prepare samples for display
+   
+  }
+  else
+  {
+      // decimation stage 1
+          arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I1, float_buffer_L, x_buffer, blockSize);
+          arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q1, float_buffer_R, y_buffer, blockSize);
+          if(high_Zoom ==1) flag_2nd_decimation++;
+      // decimation stage 2
+            arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_I2, x_buffer, x_buffer, blockSize / Zoom_FFT_M1);
+            arm_fir_decimate_f32(&Fir_Zoom_FFT_Decimate_Q2, y_buffer, y_buffer, blockSize / Zoom_FFT_M1);
+  } 
+    //this puts the sample_no samples into the ringbuffer -->
+    // the right order has to be thought about!
+    // we take all the samples from zoom_sample_ptr to 256 and
+    // then all samples from 0 to zoom_sampl_ptr - 1
+
+    // fill into ringbuffer
+    for (int i = 0; i < sample_no; i++)
+    { // interleave real and imaginary input values [real, imag, real, imag . . .]
+      FFT_ring_buffer_x[zoom_sample_ptr] = x_buffer[i];
+      FFT_ring_buffer_y[zoom_sample_ptr] = y_buffer[i];
+      zoom_sample_ptr++;
+      if (zoom_sample_ptr >= 256) zoom_sample_ptr = 0;
+    }
+ 
+  // when do we want to display a new spectrum?
+  // if we wait for zoom_sample_ptr to be 255,
+  // it can last more than a few seconds in 4096x Zoom
+  // so we calculate an FFT and display the spectrum every time this function is called?
+
+    zoom_display = 1;
+
+    // copy from ringbuffer to FFT_buffer
+    // in the right order and
+    // apply FFT window here
+    // Nuttall window
+    // zoom_sample_ptr points to the oldest sample now
+
+    float32_t multiplier = (float32_t)spectrum_zoom * (float32_t)spectrum_zoom;
+    if (spectrum_zoom > SPECTRUM_ZOOM_128) 
+    {
+      multiplier *= 10.0f;
+    }
+    
+    for (int idx = 0; idx < 256; idx++)
+    {
+      buffer_spec_FFT[idx * 2 + 0] =  multiplier * FFT_ring_buffer_x[zoom_sample_ptr] * nuttallWindow256[idx];
+      buffer_spec_FFT[idx * 2 + 1] =  multiplier * FFT_ring_buffer_y[zoom_sample_ptr] * nuttallWindow256[idx];
+      zoom_sample_ptr++;
+      if (zoom_sample_ptr >= 256) zoom_sample_ptr = 0;
+    }
+
+    //***************
+    // adjust lowpass filter coefficient, so that
+    // "spectrum display smoothness" is the same across the different sample rates
+    // and the same across different magnify modes . . .
+    float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
+    if (LPFcoeff > 1.0) LPFcoeff = 1.0;
+    if (LPFcoeff < 0.001) LPFcoeff = 0.001;
+    float32_t onem_LPFcoeff = 1.0 - LPFcoeff;
+
+    // save old pixels for lowpass filter
+    for (int i = 0; i < 256; i++)
+    {
+      pixelold[i] = pixelnew[i];
+    }
+    // perform complex FFT
+    // calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
+    arm_cfft_f32(spec_FFT, buffer_spec_FFT, 0, 1);
+    // calculate mag = I*I + Q*Q,
+    // and simultaneously put them into the right order
+          for (int i = 0; i < 128; i++)
+          {
+            FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+            FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+          }
+    // apply low pass filter and scale the magnitude values and convert to int for spectrum display
+    // apply spectrum AGC
+    //
+    for (int16_t x = 0; x < 256; x++)
+    {
+      FFT_spec[x] = LPFcoeff * FFT_spec[x] + onem_LPFcoeff * FFT_spec_old[x];
+      FFT_spec_old[x] = FFT_spec[x];
+    }
+    float32_t min_spec = 10000.0;
+
+    for (int16_t x = 0; x < 256; x++)
+    {
+      pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t)(displayScale[currentScale].dBScale * log10f_fast(FFT_spec[x]));
+      if (pixelnew[x] > 220)   pixelnew[x] = 220;
+    }
+}
+
+
+#if 0
 void Zoom_FFT_exe (uint32_t blockSize)
 {
   /*********************************************************************************************
@@ -8035,6 +7986,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
 #endif
   }
 }
+#endif
 
 void codec_gain()
 {
@@ -8282,6 +8234,86 @@ void calc_256_magn()
   }
 } // end calc_256_magn
 #endif
+
+
+//Tisho
+void calc_256_magn_T()
+{
+  arm_rfft_fast_instance_f32 WFM_spectrum_FFT;
+  arm_rfft_fast_init_f32(&WFM_spectrum_FFT, 512);
+  
+  float32_t spec_help = 0.0;
+  // adjust lowpass filter coefficient, so that
+  // "spectrum display smoothness" is the same across the different sample rates
+  float32_t LPFcoeff = LPF_spectrum * (AUDIO_SAMPLE_RATE_EXACT / SR[SAMPLE_RATE].rate);
+  if (LPFcoeff > 1.0) LPFcoeff = 1.0;
+
+  for (int i = 0; i < 256; i++)
+  {
+    pixelold[i] = pixelnew[i];
+  }
+
+      for (int i = 0; i < 256; i++)
+      { // interleave real and imaginary input values [real, imag, real, imag . . .]
+        // apply Hann window
+        // cosf is much much faster than arm_cos_f32 !
+        // Thanks, Bob for pointing me to the bug! fixed now:
+        buffer_spec_FFT[i * 2] =      float_buffer_L_T[i] * nuttallWindow256[i];
+        buffer_spec_FFT[i * 2 + 1] =  float_buffer_R_T[i] * nuttallWindow256[i];
+      }
+  
+  // perform complex FFT
+  // calculation is performed in-place the FFT_buffer [re, im, re, im, re, im . . .]
+  //arm_cfft_f32(spec_FFT, buffer_spec_FFT, 0, 1);
+  arm_rfft_fast_f32(&WFM_spectrum_FFT, buffer_spec_FFT, FFT_spec, 0);
+  
+  //int test = sizeof(buffer_spec_FFT);
+  //Serial.println(test);
+  
+  // calculate magnitudes and put into FFT_spec
+  // we do not need to calculate magnitudes with square roots, it would seem to be sufficient to
+  // calculate mag = I*I + Q*Q, because we are doing a log10-transformation later anyway
+  // and simultaneously put them into the right order
+  // 38.50%, saves 0.05% of processor power and 1kbyte RAM ;-)
+
+   
+  
+  if (NR_Kim == 1 || NR_Kim == 2)
+  {
+    for (int i = 0; i < 128; i++)
+    {
+      FFT_spec[i * 2] = NR_G[i];
+      FFT_spec[i * 2 + 1] = NR_G[i];
+    }
+  }
+  else
+  {
+      for (int i = 0; i < 128; i++)
+      {
+        FFT_spec[i + 128] = (buffer_spec_FFT[i * 2] * buffer_spec_FFT[i * 2] + buffer_spec_FFT[i * 2 + 1] * buffer_spec_FFT[i * 2 + 1]);
+        FFT_spec[i] = (buffer_spec_FFT[(i + 128) * 2] * buffer_spec_FFT[(i + 128)  * 2] + buffer_spec_FFT[(i + 128)  * 2 + 1] * buffer_spec_FFT[(i + 128)  * 2 + 1]);
+      }
+    
+  }
+
+  // apply low pass filter and scale the magnitude values and convert to int for spectrum display
+  for (int16_t x = 0; x < 256; x++)
+  {
+    spec_help = LPFcoeff * FFT_spec[x] + (1.0 - LPFcoeff) * FFT_spec_old[x];
+    FFT_spec_old[x] = spec_help;
+    // insert display offset, AGC etc. here
+    //    spec_help = 10.0 * log10f(spec_help + 1.0);
+    //    pixelnew[x] = (int16_t) (spec_help * spectrum_display_scale);
+#ifdef USE_LOG10FAST
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f_fast(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f_fast(spec_help));
+#else
+    //    pixelnew[x] = offsetPixels + (int16_t) (displayScale[currentScale].dBScale*log10f(spec_help));
+    pixelnew[x] = displayScale[currentScale].baseOffset + bands[current_band].pixel_offset + (int16_t) (displayScale[currentScale].dBScale * log10f(spec_help));
+#endif
+
+  }
+} // END calc_256_magn_T
 
 void WFM_calc_256_magn()
 {
@@ -9623,7 +9655,7 @@ void switch_RF_filters()
   }
 #endif // HARDWARE_DD4WH
   
-#ifdef HARDWARE_DO7JBH
+#if defined (HARDWARE_DO7JBH) || defined (HARDWARE_DO7JBH_T41)
   //***************************************************************************
   // Bandpass Filter switch
   // Bnd2 Bnd1  Frequency Range
@@ -9785,6 +9817,96 @@ void buttons() {
   button8.update(); // menu2 button
   eeprom_saved = 0;
   eeprom_loaded = 0;
+  
+  //Tisho
+  #define TmDelay 50
+  uint8_t ModeButtonState = digitalRead(BUTTON_3_PIN);
+  static uint8_t PWR_Change;
+  static uint8_t MdButSt_Cnt;
+  
+    if (ModeButtonState == 0)
+    {
+      MdButSt_Cnt++;
+    }
+    else
+    {
+      MdButSt_Cnt=0;
+      PWR_Change = 0;  
+    }
+      
+      //Tisho
+  #define TmDelay_Short 5
+  uint8_t Enc3ButtonState = digitalRead(BUTTON_8_PIN);
+  uint8_t Enc2ButtonState = digitalRead(BUTTON_6_PIN);
+  static uint8_t Menu_Assistant2_Change;
+  static uint8_t Menu_Assistant1_Change;
+  static uint8_t Enc3ButSt_Cnt;
+  static uint8_t Enc2ButSt_Cnt;
+
+  //Assistant for menu 2
+  if (Enc3ButtonState == 0)
+    Enc3ButSt_Cnt++;
+  else
+    {
+      Enc3ButSt_Cnt=0;
+      Menu_Assistant2_Change = 0;  
+    }
+    
+  if((Enc3ButSt_Cnt > TmDelay_Short)&& (Menu_Assistant2_Change == 0))   
+    {
+      Menu_Assistant2_Change = 1;
+      if (Menu_2_Assistant == 1)                           //Actual state is "on" and the mode button was pressed long => we turn off then
+        {
+          Menu_1_Assistant = 0;
+          Menu_2_Assistant = 0;
+          Menu_1_Enc_Sub = 0;
+          Menu_2_Enc_Sub = 0;                             //to be sure disable also the submenu (to avoid isues by next enable)
+          show_spectrum_flag = 1;                         //Show again the spectrum
+          tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);  //Clear the leftovers of the menu
+          FrequencyBarText();                             //Restore the frequency bar
+        }
+      else                                                //Actual state is "off" and the mode button was pressed long => we turn on then  
+        {
+          Menu_2_Assistant = 1;
+          show_spectrum_flag = 0;                         //stop the spectrum showing 
+          Menu_2_Assistant_Func (); 
+        
+        }    
+    }
+
+    //Assistant for menu 1
+
+  if (Enc2ButtonState == 0)
+    Enc2ButSt_Cnt++;
+  else
+    {
+      Enc2ButSt_Cnt=0;
+      Menu_Assistant1_Change = 0;  
+    }
+    
+  if((Enc2ButSt_Cnt > TmDelay_Short)&& (Menu_Assistant1_Change == 0))   
+    {
+      Menu_Assistant1_Change = 1;
+      if (Menu_1_Assistant == 1)                           //Actual state is "on" and the mode button was pressed long => we turn off then
+        {
+          Menu_1_Assistant = 0;
+          Menu_2_Assistant = 0;
+          Menu_1_Enc_Sub = 0;                             //to be sure disable also the submenu (to avoid isues by next enable)
+          Menu_2_Enc_Sub = 0; 
+          show_spectrum_flag = 1;                         //Show again the spectrum
+          tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);  //Clear the leftovers of the menu
+          FrequencyBarText();                             //Restore the frequency bar
+        }
+      else                                                //Actual state is "off" and the mode button was pressed long => we turn on then  
+        {
+          Menu_1_Assistant = 1;
+          show_spectrum_flag = 0;                         //stop the spectrum showing 
+          Menu_1_Assistant_Func (); 
+        
+        }    
+    }
+
+    //End Tisho (Menu Aststant on - off)
 
   if ( button1.fallingEdge()) {
 
@@ -9818,7 +9940,7 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
-#if defined(HARDWARE_DD4WH_T4)
+#if defined(HARDWARE_DD4WH_T4) || defined (HARDWARE_DO7JBH_T41)
         SAMPLE_RATE = SAMPLE_RATE_256K;
 #else
         SAMPLE_RATE = SAMPLE_RATE_234K;
@@ -9873,7 +9995,7 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
-#if defined(HARDWARE_DD4WH_T4)
+#if defined(HARDWARE_DD4WH_T4) || defined (HARDWARE_DO7JBH_T41)
         SAMPLE_RATE = SAMPLE_RATE_256K;
 #else
         SAMPLE_RATE = SAMPLE_RATE_234K;
@@ -9926,7 +10048,7 @@ void buttons() {
       { // if switched to WFM: set sample rate to 234ksps, switch off spectrum
         show_spectrum_flag = 0;
         LAST_SAMPLE_RATE = SAMPLE_RATE;
-#if defined(HARDWARE_DD4WH_T4)
+#if defined(HARDWARE_DD4WH_T4) || defined (HARDWARE_DO7JBH_T41)
         SAMPLE_RATE = SAMPLE_RATE_256K;
 #else
         SAMPLE_RATE = SAMPLE_RATE_234K;
@@ -11013,7 +11135,7 @@ void show_menu()
   spectrum_y -= 2;
 }
 
-
+/*
 void set_tunestep()
 {
   if (1) //bands[current_band].mode != DEMOD_WFM)
@@ -11069,16 +11191,68 @@ void set_tunestep()
         break;
     }
   }
-  /*
+  show_tunestep();
 
-                  if(tune_stepper == 0)
-                  if(band == BAND_MW || band == BAND_LW) tunestep = 9000; else tunestep = 5000;
-                  else if (tune_stepper == 1) tunestep = 100;
-                  else if (tune_stepper == 2) tunestep = 1000;
-                  else if (tune_stepper == 3) tunestep = 1;
-                  else tunestep = 5000;
-                  if(band[bands].mode == DEMOD_WFM) tunestep =
-  */
+}
+*/
+
+void set_tunestep()       //Tisho
+{
+
+    switch (tune_stepper)
+    {
+      case 0:
+        tunestep = 1;
+      break;
+
+      case 1:
+        tunestep = 10;
+      break;
+
+      case 2:
+        tunestep = 100;
+      break;
+
+      case 3:
+        tunestep = 1000;
+      break;
+      
+      case 4:           //5kHz (9kHz) step
+        if (current_band == BAND_MW || current_band == BAND_LW)
+        {
+          if (AM_SPACING_EU)
+            tunestep = 9000;
+          else
+            tunestep = 10000;
+        }
+        else
+        {
+          tunestep = 5000;
+        }
+      break;
+      
+      case 5:
+        tunestep = 10000;
+        break;
+      
+      case 6:
+        tunestep = 100000;
+        break;
+      
+      case 7:
+        tunestep = 1000000;
+        break;
+      
+      case 8:                 
+        tunestep = 10000000;
+      break;
+      
+      case 9:                 
+        tunestep = 100000000;
+      break;  
+    }
+  
+
   show_tunestep();
 
 }
@@ -11222,7 +11396,7 @@ void autotune() {
 
 } // end function autotune
 
-
+/*
 void show_tunestep() {
   tft.fillRect(227, 25, 35, 21, ILI9341_BLACK);
   tft.setCursor(227, 25);
@@ -11248,6 +11422,88 @@ void show_tunestep() {
     tft.print(tunestep);
   }
 }
+*/
+
+void show_tunestep() {     //Tisho                       
+  tft.fillRect(10, 68, 165, 2, ILI9341_BLACK);      //clear the line field
+  tft.fillRect(227, 25, 35, 21, ILI9341_BLACK);   //clear the numeric field
+  tft.setCursor(227, 25);
+  tft.setFont(Arial_9);
+  tft.setTextColor(ILI9341_GREEN);
+  //tft.print("Step: ");
+  if (bands[current_band].mode == DEMOD_WFM)
+  {
+    tft.print("100k");
+    return;
+  }
+
+  if (tunestep == 1)
+    {
+      tft.print("1");
+      tft.fillRect(159, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 10)
+    {
+      tft.print("10");
+      tft.fillRect(143, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 100)
+    {
+      tft.print("100");
+      tft.fillRect(127, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }  
+    
+  else if (tunestep == 1000)
+    {
+      tft.print("1k");
+      tft.fillRect(102, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+    
+  else if (tunestep == 5000)
+    {
+      tft.print("5k");
+    }
+    
+  else if (tunestep == 9000)
+    {
+      tft.print("9k");
+    }
+  
+  else if (tunestep == 10000)       
+    {
+      tft.print("10k");
+      
+      tft.fillRect(86, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+      //tft.fillRect(86, 44, 12, 2, ILI9341_ORANGE);    //over the digit
+    }
+  
+  else if (tunestep == 100000)       
+    {
+      tft.print("100k");
+      tft.fillRect(70, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 1000000)       
+    {
+      tft.print("1M");
+      tft.fillRect(45, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 10000000)       
+    {
+      tft.print("10M");
+      tft.fillRect(29, 68, 12, 2, ILI9341_ORANGE);      //under the digit
+    }
+  
+  else if (tunestep == 100000000)       
+    {
+      tft.print("100M");
+      tft.fillRect(13, 68, 12, 2, ILI9341_ORANGE);      //under the digit  
+    }
+}
+
 
 void set_band () {
   //         show_band(bands[current_band].name); // show new band
@@ -11349,8 +11605,8 @@ void prepare_WFM(void)
   {
           //          uint64_t prec_help = (95400000 - 0.75 * (uint64_t)SR[SAMPLE_RATE].rate) / 0.03;
         //          bands[current_band].freq = (unsigned long long)(prec_help);
-        dt = 1.0 / ((float32_t)SR[SAMPLE_RATE].rate / 4);
-        deemp_alpha = dt / (50e-6 + dt);
+
+        deemp_alpha       = 1.0 - (float)expf(- 1.0 / (WFM_SAMPLE_RATE / 4.0f * WFM_DEEMPHASIS));
         onem_deemp_alpha = 1.0 - deemp_alpha;
     
       // IIR lowpass filter for wideband FM at 15k
@@ -11407,9 +11663,8 @@ void prepare_WFM(void)
   }
   else
   {
-        dt = 1.0 / ((float32_t)SR[SAMPLE_RATE].rate);
-        deemp_alpha = dt / (50e-6 + dt);
-        onem_deemp_alpha = 1.0 - deemp_alpha;
+        deemp_alpha      = 1.0 - (float)expf(- 1.0 / ((float32_t)SR[SAMPLE_RATE].rate) * WFM_DEEMPHASIS);
+        onem_deemp_alpha = 1.0 - deemp_alpha;        
     
       // IIR lowpass filter for wideband FM at 15k
       set_IIR_coeffs ((float32_t)15000, 0.54, (float32_t)WFM_SAMPLE_RATE, 0); // 1st stage
@@ -11464,7 +11719,8 @@ void prepare_WFM(void)
   }
 }
 
-#define ENCODER_FACTOR 0.25f  // use 0.25f with those cheap encoders that have 4 detents per step, for other encoders or libs maybe better use 1.0f
+//#define ENCODER_FACTOR 0.25f  // use 0.25f with those cheap encoders that have 4 detents per step, for other encoders or libs maybe better use 1.0f
+#define ENCODER_FACTOR 1.0f  // use 0.25f with those cheap encoders that have 4 detents per step, for other encoders or libs maybe better use 1.0f
 
 void encoders () {
   static long encoder_pos = 0, last_encoder_pos = 0;
@@ -11535,6 +11791,19 @@ void encoders () {
     encoder2_change = (encoder2_pos - last_encoder2_pos);
     last_encoder2_pos = encoder2_pos;
     which_menu = 1;
+
+    if ((Menu_1_Assistant == 1)&&(Menu_1_Enc_Sub == 0))        //Tisho
+      {
+       Menu_pointer = Menu_pointer + encoder2_change * ENCODER_FACTOR;
+       if(Menu_pointer>last_menu)
+          Menu_pointer=last_menu;
+       else if(Menu_pointer < 1)
+           Menu_pointer = 0;
+       Menu_1_Assistant_Func();                   //update display
+      }
+    else
+      {
+    
     if (Menu_pointer == MENU_F_HI_CUT)
     {
       if (abs(bands[current_band].FHiCut) < 500)
@@ -11707,7 +11976,7 @@ void encoders () {
       displayDate();
     } // end DATEADJUST
 
-
+  }
     show_menu();
     //        tune.write(0);
   } // end encoder2 was turned
@@ -11718,6 +11987,19 @@ void encoders () {
     encoder3_change = (encoder3_pos - last_encoder3_pos);
     last_encoder3_pos = encoder3_pos;
     which_menu = 2;
+
+    if ((Menu_2_Assistant == 1)&&(Menu_2_Enc_Sub == 0))        //Tisho
+      {
+       Menu2 = Menu2 + encoder3_change * ENCODER_FACTOR;
+       if(Menu2>last_menu2)
+          Menu2=last_menu2;
+       else if(Menu2<last_menu+1)
+           Menu2=last_menu+1;
+       Menu_2_Assistant_Func();                   //update display
+      }
+    else
+      {
+    
     if (Menu2 == MENU_RF_GAIN)
     {
       if (auto_codec_gain == 1)
@@ -11746,12 +12028,13 @@ void encoders () {
     }
     else if (Menu2 == MENU_VOLUME)
     {
-      audio_volume = audio_volume + encoder3_change * 5 * ENCODER_FACTOR;
+      audio_volume = audio_volume + encoder3_change * ENCODER_FACTOR;
       if (audio_volume < 0) audio_volume = 0;
       else if (audio_volume > 100) audio_volume = 100;
       //      AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.volume((float32_t)VolumeToAmplification(audio_volume));
+//      sgtl5000_1.volume((float32_t)VolumeToAmplification(audio_volume));
+      sgtl5000_1.volume((float32_t)audio_volume / 100.0f);
 #endif
     }
     else if (Menu2 == MENU_RF_ATTENUATION)
@@ -12065,7 +12348,7 @@ void encoders () {
       } */
 
     show_menu();
-
+  } // tisho
   }
 }
 
@@ -13070,7 +13353,7 @@ void reset_codec ()
   sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // in % -100 to +100
   sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
-  sgtl5000_1.volume(VolumeToAmplification(audio_volume)); //
+  sgtl5000_1.volume((float32_t)audio_volume / 100.0f); //
   twinpeaks_tested = 3;
 #endif
   AudioInterrupts();
@@ -17112,7 +17395,8 @@ void set_CPU_freq_T4()
 #else
   set_arm_clock(T4_CPU_FREQUENCY);
 #endif
-  CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
+// this lead to severe problems of freezing the CPU for several seconds, so I commented it DD4WH, 26.8.2020
+  //CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
 
 }
 
@@ -17145,3 +17429,527 @@ float x = volume / 100.0f; //"volume" Range 0..100
 
   return ampl;
 }
+
+void Menu_2_Assistant_Func (void)
+  {
+    #define xMenuAssis 10
+    #define yMenuAssis 115
+
+    int color1 = ILI9341_RED;
+    int color2 = ILI9341_GREEN;
+
+    int color = color2;
+
+       color = color2;
+    
+    tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);
+
+    tft.setCursor(xMenuAssis, yMenuAssis);
+     
+
+    if((Menu2 > last_menu+3)&&(Menu2 <= last_menu2-3))
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setFont(Arial_12);
+      tft.print(Menus[Menu2-3].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2-3].text1);
+      tft.print(Menus[Menu2-3].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[Menu2-2].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2-2].text1);
+      tft.print(Menus[Menu2-2].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[Menu2-1].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2-1].text1);
+      tft.print(Menus[Menu2-1].text2);
+
+      tft.setTextColor(color);
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[Menu2].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2].text1);
+      tft.print(Menus[Menu2].text2);
+
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[Menu2+1].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2+1].text1);
+      tft.print(Menus[Menu2+1].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[Menu2+2].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2+2].text1);
+      tft.print(Menus[Menu2+2].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[Menu2+3].no);
+      tft.print(". ");
+      tft.print(Menus[Menu2+3].text1);
+      tft.print(Menus[Menu2+3].text2);
+      }
+    else if (Menu2 <= last_menu+3)
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      
+      if (Menu2 == last_menu+1)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu+1].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+1].text1);
+      tft.print(Menus[last_menu+1].text2);
+
+      if (Menu2 == last_menu+2)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu+2].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+2].text1);
+      tft.print(Menus[last_menu+2].text2);
+
+      if (Menu2 == last_menu+3)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[last_menu+3].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+3].text1);
+      tft.print(Menus[last_menu+3].text2);
+      
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[last_menu+4].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+4].text1);
+      tft.print(Menus[last_menu+4].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[last_menu+5].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+5].text1);
+      tft.print(Menus[last_menu+5].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[last_menu+6].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+6].text1);
+      tft.print(Menus[last_menu+6].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[last_menu+7].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu+7].text1);
+      tft.print(Menus[last_menu+7].text2); 
+      }
+    else if (Menu2 > last_menu2-3)
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu2-6].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-6].text1);
+      tft.print(Menus[last_menu2-6].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu2-5].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-5].text1);
+      tft.print(Menus[last_menu2-5].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[last_menu2-4].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-4].text1);
+      tft.print(Menus[last_menu2-4].text2);
+      
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[last_menu2-3].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-3].text1);
+      tft.print(Menus[last_menu2-3].text2);
+
+      if (Menu2 == last_menu2-2)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[last_menu2-2].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-2].text1);
+      tft.print(Menus[last_menu2-2].text2);
+
+       if (Menu2 == last_menu2-1)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[last_menu2-1].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2-1].text1);
+      tft.print(Menus[last_menu2-1].text2);
+
+       if (Menu2 == last_menu2)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[last_menu2].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu2].text1);
+      tft.print(Menus[last_menu2].text2);
+      }   
+
+      DrawBlockDiagram();
+    }
+
+
+
+void Menu_1_Assistant_Func (void)
+  {
+    #define xMenuAssis 10
+    #define yMenuAssis 115
+
+    int color1 = ILI9341_RED;
+    int color2 = ILI9341_GREEN;
+
+    int color = color2;
+       color = color2;
+
+    tft.fillRect(0, 110, 265, 150, ILI9341_BLACK);
+
+    tft.setCursor(xMenuAssis, yMenuAssis);
+
+    if((Menu_pointer > 2)&&(Menu_pointer <= last_menu-3))
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setFont(Arial_12);
+      tft.print(Menus[Menu_pointer-3].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer-3].text1);
+      tft.print(Menus[Menu_pointer-3].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[Menu_pointer-2].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer-2].text1);
+      tft.print(Menus[Menu_pointer-2].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[Menu_pointer-1].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer-1].text1);
+      tft.print(Menus[Menu_pointer-1].text2);
+
+      tft.setTextColor(color);
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[Menu_pointer].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer].text1);
+      tft.print(Menus[Menu_pointer].text2);
+
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[Menu_pointer+1].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer+1].text1);
+      tft.print(Menus[Menu_pointer+1].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[Menu_pointer+2].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer+2].text1);
+      tft.print(Menus[Menu_pointer+2].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[Menu_pointer+3].no);
+      tft.print(". ");
+      tft.print(Menus[Menu_pointer+3].text1);
+      tft.print(Menus[Menu_pointer+3].text2);
+      }
+    else if(Menu_pointer <= 2)
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      
+      if (Menu_pointer == 0)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      
+      tft.setFont(Arial_12);
+      tft.print(Menus[0].no);
+      tft.print(". ");
+      tft.print(Menus[0].text1);
+      tft.print(Menus[0].text2);
+
+      if (Menu_pointer == 1)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[1].no);
+      tft.print(". ");
+      tft.print(Menus[1].text1);
+      tft.print(Menus[1].text2);
+
+      if (Menu_pointer == 2)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[2].no);
+      tft.print(". ");
+      tft.print(Menus[2].text1);
+      tft.print(Menus[2].text2);
+      
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[3].no);
+      tft.print(". ");
+      tft.print(Menus[3].text1);
+      tft.print(Menus[3].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[4].no);
+      tft.print(". ");
+      tft.print(Menus[4].text1);
+      tft.print(Menus[4].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[5].no);
+      tft.print(". ");
+      tft.print(Menus[5].text1);
+      tft.print(Menus[5].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[6].no);
+      tft.print(". ");
+      tft.print(Menus[6].text1);
+      tft.print(Menus[6].text2);   
+      }
+
+   else if (Menu_pointer > last_menu-3)
+      {
+      tft.setTextColor(ILI9341_WHITE);
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu-6].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-6].text1);
+      tft.print(Menus[last_menu-6].text2);
+    
+      tft.setCursor(xMenuAssis, yMenuAssis+15);
+      tft.setFont(Arial_12);
+      tft.print(Menus[last_menu-5].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-5].text1);
+      tft.print(Menus[last_menu-5].text2);
+
+      tft.setCursor(xMenuAssis, yMenuAssis+30);
+      tft.print(Menus[last_menu-4].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-4].text1);
+      tft.print(Menus[last_menu-4].text2);
+      
+      tft.setCursor(xMenuAssis, yMenuAssis+45);
+      tft.print(Menus[last_menu-3].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-3].text1);
+      tft.print(Menus[last_menu-3].text2);
+
+      if (Menu_pointer == last_menu-2)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+60);
+      tft.print(Menus[last_menu-2].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-2].text1);
+      tft.print(Menus[last_menu-2].text2);
+
+       if (Menu_pointer == last_menu-1)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+75);
+      tft.print(Menus[last_menu-1].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu-1].text1);
+      tft.print(Menus[last_menu-1].text2);
+
+       if (Menu_pointer == last_menu)
+        tft.setTextColor(color);
+      else
+        tft.setTextColor(ILI9341_WHITE);
+      tft.setCursor(xMenuAssis, yMenuAssis+90);
+      tft.print(Menus[last_menu].no);
+      tft.print(". ");
+      tft.print(Menus[last_menu].text1);
+      tft.print(Menus[last_menu].text2);
+      }
+
+      DrawBlockDiagram();  
+  } 
+
+
+
+void DrawBlockDiagram (void)
+  {
+
+    #define xBlockDiagram 165         //Location of the block diagram
+    #define yBlockDiagram 125
+
+    #define xBlockSize 80
+    #define yBlockSize 35
+    
+
+    int color0 = ILI9341_WHITE;
+    int color1 = ILI9341_RED;
+    int color2 = ILI9341_GREEN;
+
+    int color_T0 = color0;
+    int color_T1 = color0;
+   
+  
+  //Draw the blocks
+  tft.drawRect(xBlockDiagram , yBlockDiagram, xBlockSize, yBlockSize, color0);
+  tft.drawRect(xBlockDiagram, yBlockDiagram + yBlockSize +5, xBlockSize, yBlockSize, color0);
+  tft.drawRect(xBlockDiagram , yBlockDiagram +2*yBlockSize +10 , xBlockSize, yBlockSize, color0);
+
+  tft.drawLine(xBlockDiagram + xBlockSize/2, yBlockDiagram + yBlockSize, xBlockDiagram + xBlockSize/2, yBlockDiagram + yBlockSize + 5 , color0);
+  tft.drawLine(xBlockDiagram + xBlockSize/2, yBlockDiagram + 2*yBlockSize + 5, xBlockDiagram + xBlockSize/2, yBlockDiagram + 2*yBlockSize + 10 , color0);
+  
+  if((Menu_2_Assistant == 1)&&((Menu2==21)||(Menu2==22)||(Menu2 >= 65)))         //Menu assitant is the section with the MSI001 chip
+    {
+    //Draw the antennas
+    tft.drawLine(xBlockDiagram + 20, yBlockDiagram, xBlockDiagram + 20, yBlockDiagram - 10 , color0);
+    tft.drawLine(xBlockDiagram + 15, yBlockDiagram-10, xBlockDiagram + 20, yBlockDiagram - 4 , color0);
+    tft.drawLine(xBlockDiagram + 25, yBlockDiagram-10, xBlockDiagram + 20, yBlockDiagram - 4 , color0);
+  
+    tft.drawLine(xBlockDiagram + 60, yBlockDiagram, xBlockDiagram + 60, yBlockDiagram - 10 , color0);
+    tft.drawLine(xBlockDiagram + 55, yBlockDiagram-10, xBlockDiagram + 60, yBlockDiagram - 4 , color0);
+    tft.drawLine(xBlockDiagram + 65, yBlockDiagram-10, xBlockDiagram + 60, yBlockDiagram - 4 , color0);
+
+  
+    //Draw the text in the blocks
+    tft.setFont(Arial_8);
+      {
+        color_T0 = color0;
+        color_T1 = color0;
+      } 
+    
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + 3);
+    tft.print("ANT1");
+
+    tft.setTextColor(color_T1);    
+    tft.setCursor(xBlockDiagram + 48, yBlockDiagram + 3);
+    tft.print("ANT2");    
+          
+    tft.setTextColor(color0);
+    tft.setCursor(xBlockDiagram + 15, yBlockDiagram + 14);
+    tft.print("BPF Board");
+
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + 25);
+    tft.print("RF. BPF");
+
+  
+    //Second block
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + yBlockSize + 5 + 3);
+    tft.print("RF. Preamp");
+
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + yBlockSize + 5 + 14);
+    tft.print("RF. Atten");
+
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + yBlockSize + 5 + 25);
+    tft.print("RF. Range");
+
+    tft.setTextColor(color0);
+    tft.setCursor(xBlockDiagram + 60, yBlockDiagram + yBlockSize + 5 + 14);
+    tft.print("MSi");
+    tft.setCursor(xBlockDiagram + 60, yBlockDiagram + yBlockSize + 5 + 25);
+    tft.print("001");
+
+    //Third block
+    tft.setCursor(xBlockDiagram + 30, yBlockDiagram + 2*yBlockSize + 10 + 14);
+    tft.print("ADC");
+
+    if(Menu2==MENU_RF_GAIN)
+      color_T0 = color2;
+    else
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + 2*yBlockSize + 10 + 25);
+    tft.print("RF. Gain");
+
+    tft.setTextColor(color0);
+    tft.setCursor(xBlockDiagram - 95, yBlockDiagram + 2*yBlockSize + 10 + 25);
+    tft.print("Block Diagram Pt.1");
+    }
+
+  else  
+    {
+    //Draw the line on the top (continue from the top page)
+    tft.drawLine(xBlockDiagram + xBlockSize/2, yBlockDiagram, xBlockDiagram + xBlockSize/2, yBlockDiagram - 5 , color0);
+
+    //Draw the text in the blocks
+    tft.setFont(Arial_8);  
+
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 10, yBlockDiagram + 14);
+    tft.print("Teensy 4.0");
+  
+    //Second block
+
+    if((Menu2==MENU_VOLUME)&&(Menu_2_Assistant == 1))
+      color_T0 = color2;
+    else
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 30, yBlockDiagram + yBlockSize + 5 + 14);
+    tft.print("DAC");
+
+    //Third block
+    tft.setTextColor(color0);
+    tft.setCursor(xBlockDiagram + 10, yBlockDiagram + 2*yBlockSize + 10 + 14);
+    tft.print("Audio Amp.");
+
+      color_T0 = color0;  
+    tft.setTextColor(color_T0);
+    tft.setCursor(xBlockDiagram + 5, yBlockDiagram + 2*yBlockSize + 10 + 25);
+    tft.print("EN. SPK."); 
+    
+    tft.setTextColor(color0);
+    tft.setCursor(xBlockDiagram - 95, yBlockDiagram + 2*yBlockSize + 10 + 25);
+    tft.print("Block Diagram Pt.2");
+    }
+  }
