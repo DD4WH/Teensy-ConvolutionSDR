@@ -123,6 +123,7 @@
    - added hardware support for DO7JBH hardware with T3.6-to-T4.1. adapter 
    - added more convinient tuning steps, thanks tisho!
    - menu assistant by tisho makes menu buttons obsolete and makes menu navigation MUCH easier ! Thanks tisho!
+   - Zoom FFT now correctly implemented for every zoom step up to 2048x --> now exclusively uses CMSIS decimation function and no more IIR filters, (formerly magnifications > 256x were spoiled, sample rate was fixed and not correctly taken into account for the lowpass filters)
     
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
