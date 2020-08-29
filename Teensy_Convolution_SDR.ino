@@ -411,7 +411,7 @@ int16_t termCharColorStore[termNcols][termNrows] ;
 #define CRcode 13
 #define UU     'y'
 
-uint8_t Menu_1_Assistant = 1;
+uint8_t Menu_1_Assistant = 0;
 uint8_t Menu_2_Assistant = 0;         //Flag for the menu assistant function (by long pressing the encode it is cold the menu with small description)
 uint8_t Menu_1_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
 uint8_t Menu_2_Enc_Sub = 0;           //Flag used by the Menu aasistant to show when the sub menu is selected
@@ -1121,6 +1121,7 @@ const uint8_t Band5 = 26; // LW
 #endif
 
 #ifdef USE_BOBS_FILTER
+const uint8_t Band_425k_850k =  32;
 const uint8_t Band_3M5_7M3 =    31;
 const uint8_t Band_7M3_15M =    28;
 const uint8_t Band_15M_30M =    29;
@@ -2054,8 +2055,8 @@ float32_t dbm_calibration = 22.0; //
 //  50ms   0.3297
 // 100ms   0.1812
 // 500ms   0.0391
-float32_t m_AttackAlpha = 0.12; //0.1; //0.08; //0.2;
-float32_t m_DecayAlpha  = 0.05; //0.02; //0.05;
+float32_t m_AttackAlpha = 0.08; //0.1; //0.08; //0.2;
+float32_t m_DecayAlpha  = 0.025; //0.02; //0.05;
 int16_t pos_x_dbm = pos_x_smeter + 170;
 int16_t pos_y_dbm = pos_y_smeter - 7;
 #define DISPLAY_S_METER_DBM       0
@@ -3107,6 +3108,7 @@ void setup() {
 #endif
 
 #ifdef USE_BOBS_FILTER
+  pinMode(Band_425k_850k, OUTPUT);
   pinMode(Band_3M5_7M3, OUTPUT);
   pinMode(Band_7M3_15M, OUTPUT);
   pinMode(Band_15M_30M, OUTPUT);
@@ -3114,10 +3116,13 @@ void setup() {
 
 #ifdef USE_BOBS_FILTER
   // *******  Init latching relays <PUA>   ********
+
+  digitalWrite (Band_425k_850k, HIGH);
   digitalWrite (Band_3M5_7M3, HIGH);
   digitalWrite (Band_7M3_15M, HIGH);
   digitalWrite (Band_15M_30M, HIGH);
   delay(2000);
+  digitalWrite (Band_425k_850k, LOW);
   digitalWrite (Band_3M5_7M3, LOW);
   digitalWrite (Band_7M3_15M, LOW);
   digitalWrite (Band_15M_30M, LOW);
@@ -6951,9 +6956,9 @@ void AGC()
 
 void filter_bandwidth()
 {
-  AudioNoInterrupts();
+  //AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
-  sgtl5000_1.dacVolume(0.0);
+  //sgtl5000_1.dacVolume(0.0);
 #endif
   calc_cplx_FIR_coeffs (FIR_Coef_I, FIR_Coef_Q, m_NumTaps, (float32_t)bands[current_band].FLoCut, (float32_t)bands[current_band].FHiCut, (float)SR[SAMPLE_RATE].rate / DF);
   init_filter_mask();
@@ -6972,10 +6977,10 @@ void filter_bandwidth()
 
   show_bandwidth ();
 #if (!defined(HARDWARE_DD4WH_T4))
-  sgtl5000_1.dacVolume(1.0);
+  //sgtl5000_1.dacVolume(1.0);
 #endif
-  delay(1);
-  AudioInterrupts();
+  //delay(1);
+  //AudioInterrupts();
 
 } // end filter_bandwidth
 
@@ -8007,11 +8012,11 @@ void codec_gain()
           bands[current_band].RFgain = 0;
         }
         timer = 0;  // reset the adjustment timer
-        AudioNoInterrupts();
+        //AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
         sgtl5000_1.lineInLevel(bands[current_band].RFgain);
 #endif
-        AudioInterrupts();
+        //AudioInterrupts();
         if (Menu2 == MENU_RF_GAIN) show_menu();
       }
     }
@@ -8026,11 +8031,11 @@ void codec_gain()
       {
         bands[current_band].RFgain = 15;
       }
-      AudioNoInterrupts();
+      //AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.lineInLevel(bands[current_band].RFgain);
 #endif
-      AudioInterrupts();
+      //AudioInterrupts();
       if (Menu2 == MENU_RF_GAIN) show_menu();
     }
   }
@@ -9694,7 +9699,10 @@ void switch_RF_filters()
 
 #ifdef USE_BOBS_FILTER
 
-  if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 160000000)  {
+  if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 85000000)  {
+    currentFilter = 7;
+  } // end if
+  else if ((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 160000000)  {
     currentFilter = 1;
   } // end if
   else if (((bands[current_band].freq + IF_FREQ * SI5351_FREQ_MULT) < 350000000)) {
@@ -9725,6 +9733,7 @@ void switch_RF_filters()
 
   if (currentFilter == 1) // < 1.6 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, LOW);
@@ -9732,6 +9741,7 @@ void switch_RF_filters()
   }
   else if (currentFilter == 2) // < 3.5 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, LOW);
@@ -9739,6 +9749,7 @@ void switch_RF_filters()
   }
   else if (currentFilter == 3) // < 7.3 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, HIGH);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, LOW);
@@ -9746,6 +9757,7 @@ void switch_RF_filters()
   }
   else if (currentFilter == 4) // < 15 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, HIGH);
     digitalWrite (Band_15M_30M, LOW);
@@ -9753,6 +9765,7 @@ void switch_RF_filters()
   }
   else if (currentFilter == 5) // < 30 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, HIGH);
@@ -9760,6 +9773,15 @@ void switch_RF_filters()
   }
   else if (currentFilter == 6) // > 30 MHz
   {
+    digitalWrite (Band_425k_850k, LOW);
+    digitalWrite (Band_3M5_7M3, LOW);
+    digitalWrite (Band_7M3_15M, LOW);
+    digitalWrite (Band_15M_30M, LOW);
+    Serial.println("3.5MHz filter OFF");
+  }
+  else if (currentFilter == 7) // 425-850kHz
+  {
+    digitalWrite (Band_425k_850k, HIGH);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, LOW);
@@ -9768,6 +9790,7 @@ void switch_RF_filters()
   // Bypass all relays (no RF filtering)
   else
   {
+    digitalWrite (Band_425k_850k, LOW);
     digitalWrite (Band_3M5_7M3, LOW);
     digitalWrite (Band_7M3_15M, LOW);
     digitalWrite (Band_15M_30M, LOW);
@@ -9923,9 +9946,9 @@ void buttons() {
       current_band--;
       if (current_band < FIRST_BAND) current_band = LAST_BAND; // cycle thru radio bands
       // set frequency_print flag to 0
-      AudioNoInterrupts();
+      //AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.dacVolume(0.0);
+      //sgtl5000_1.dacVolume(0.0);
 #endif
       //setup_mode(bands[current_band].mode);
       freq_flag[1] = 0;
@@ -9958,11 +9981,11 @@ void buttons() {
           set_samplerate();
         }
       }
-      delay(1);
+      //delay(1);
 #if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.dacVolume(1.0);
+      //sgtl5000_1.dacVolume(1.0);
 #endif
-      AudioInterrupts();
+      //AudioInterrupts();
     }
   }
   if ( button2.fallingEdge()) {
@@ -17396,8 +17419,8 @@ void set_CPU_freq_T4()
 #else
   set_arm_clock(T4_CPU_FREQUENCY);
 #endif
-// this lead to severe problems of freezing the CPU for several seconds, so I commented it DD4WH, 26.8.2020
-  //CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
+
+  CCM_CBCDR = (CCM_CBCDR & ~CCM_CBCDR_IPG_PODF_MASK) | CCM_CBCDR_IPG_PODF(1); //Overclock IGP = F_CPU_ACTUAL / 2 (297MHz Bus for 594MHz CPU)
 
 }
 
