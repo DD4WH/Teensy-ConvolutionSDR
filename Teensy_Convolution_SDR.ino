@@ -124,6 +124,7 @@
    - added more convinient tuning steps, thanks tisho!
    - menu assistant by tisho makes menu buttons obsolete and makes menu navigation MUCH easier ! Thanks tisho!
    - Zoom FFT now correctly implemented for every zoom step up to 2048x --> now exclusively uses CMSIS decimation function and no more IIR filters, (formerly magnifications > 256x were spoiled, sample rate was fixed and not correctly taken into account for the lowpass filters)
+   - bugfix !? NoAudioInterrupts() - AudioInterrupts() should not be used with T4.x --> causes problems because of the spread spectrum adjustments !???
     
    TODO:
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
@@ -3845,11 +3846,13 @@ void loop() {
 #endif
 
 //Tisho
+#if defined (HARDWARE_DO7JBH_T41)
   for (int i = 0; i < (BUFFER_SIZE * N_BLOCKS) / 2; i++)
   {
       float_buffer_L_T[i] = float_buffer_L[i*2];
       float_buffer_R_T[i] = float_buffer_R[i*2];
   }
+#endif
 
 //#############################################################################################################
 //#############################################################################################################
@@ -4337,13 +4340,14 @@ void loop() {
               WFM_calc_256_magn();
               show_spectrum();
               }
-
+#if defined (HARDWARE_DO7JBH_T41)
             else     //Clasic view
               {
               calc_256_magn_T();                        
               show_spectrum();
               }
-            /* END Tisho addon */                             
+            /* END Tisho addon */
+#endif                             
           }
           else
           {
@@ -8241,7 +8245,7 @@ void calc_256_magn()
 } // end calc_256_magn
 #endif
 
-
+#if defined (HARDWARE_DO7JBH_T41)
 //Tisho
 void calc_256_magn_T()
 {
@@ -8320,6 +8324,7 @@ void calc_256_magn_T()
 
   }
 } // END calc_256_magn_T
+#endif
 
 void WFM_calc_256_magn()
 {
