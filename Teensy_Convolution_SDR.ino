@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_08_28
+   (c) Frank DD4WH 2020_09_07
 
    "TEENSY CONVOLUTION SDR"
 
@@ -10,7 +10,8 @@
    (IQ boards with up to 256kHz bandwidth supported --> which basically means nearly 100% of the existing boards on the market)
    - Teensy audio board or ADC PCM1808 and DAC PCM5102a
    - Teensy 3.6 or Teensy 4.0 or Teensy 4.1 (Teensy 3.1/3.2/3.5 not supported)
-   - has also been used with Msi001 tuner chip, but not yet incorporated in this sketch
+   - has also been successfully used with Msi001 tuner chip (Esteban Bonito & tisho), but not yet incorporated in this sketch
+
    HARDWARE OPTIONAL:
    - Preselection: switchable RF lowpass or bandpass filter
    - digital step attenuator: PE4306 used in my setup
@@ -125,8 +126,10 @@
    - menu assistant by tisho makes menu buttons obsolete and makes menu navigation MUCH easier ! Thanks tisho!
    - Zoom FFT now correctly implemented for every zoom step up to 2048x --> now exclusively uses CMSIS decimation function and no more IIR filters, (formerly magnifications > 256x were spoiled, sample rate was fixed and not correctly taken into account for the lowpass filters)
    - bugfix !? NoAudioInterrupts() - AudioInterrupts() should not be used with T4.x --> causes problems because of the spread spectrum adjustments !???
+   - experimental implementation of 9-band audio equalizer [Bob Larkins design, not yet in menu]: variables line 1928, setup: line 3655
     
    TODO:
+   - implement Bob Larkins´ FIR equalizer (https://forum.pjrc.com/threads/60928-Audio-Equalizer-using-FIR?highlight=equalizer) for every hardware and eliminate the SGTL5000 hardware-based equalizer (the latter does not work as it should, at least for the 5-band version)
    - RDS decoding in wide FM reception mode ;-): very hard, but could be barely possible
    - account for using the Si5351 with two clock outputs in 90 degrees difference  
    - fix bug in Zoom_FFT --> lowpass IIR filters run with different sample rates, but are calculated for a fixed sample rate of 48ksps
@@ -260,7 +263,7 @@ uint32_t set_arm_clock(uint32_t frequency);
 // lowering this from 600MHz to 200MHz makes power consumption @5 Volts about 40mA less -> 200mWatts less
 // should we make this available in the menu to adjust during runtime? --> DONE
 //uint32_t T4_CPU_FREQUENCY  =  444000000;
-uint32_t T4_CPU_FREQUENCY  =  300000000;
+uint32_t T4_CPU_FREQUENCY  =  512000000;
 #endif
 
 #include <Audio.h>
@@ -315,6 +318,7 @@ uint32_t T4_CPU_FREQUENCY  =  300000000;
 
 // temperature stuff
 #if defined(T4)
+extern "C" uint8_t external_psram_size __attribute__((weak));
 #define TEMPMON_ROOMTEMP 25.0f
 static uint32_t s_hotTemp;    /*!< The value of TEMPMON_TEMPSENSE0[TEMP_VALUE] at room temperature .*/
 static uint32_t s_hotCount;   /*!< The value of TEMPMON_TEMPSENSE0[TEMP_VALUE] at the hot temperature.*/
@@ -333,7 +337,6 @@ static uint32_t s_roomC_hotC; /*!< The value of s_roomCount minus s_hotCount.*/
     uint32_t lowAlarmTemp;   /*!< The low alarm */
     float CPU_temperature = 0.0; 
 #endif
-
 
 // CW DECODER STUFF
 #define CW_DECODER_BLOCKSIZE_MIN    8
@@ -1195,6 +1198,7 @@ int n_R;
 long int n_clear;
 //float32_t notch_amp[1024];
 //float32_t FFT_magn[4096];
+//float32_t EXTMEM FFT_spec[1024];
 float32_t DMAMEM FFT_spec[1024];
 float32_t DMAMEM FFT_spec_old[256];
 int16_t DMAMEM pixelnew[256];
@@ -1256,8 +1260,8 @@ uint8_t spectrum_view_WFM = 1;      //0 - Clacis view; 1 - Band spectrum  //Tish
 #define SAMPLE_RATE_MAX               15
 
 //uint8_t sr =                     SAMPLE_RATE_96K;
-uint8_t SAMPLE_RATE =            SAMPLE_RATE_100K;
-uint8_t LAST_SAMPLE_RATE =       SAMPLE_RATE_100K;
+uint8_t SAMPLE_RATE =            SAMPLE_RATE_176K;
+uint8_t LAST_SAMPLE_RATE =       SAMPLE_RATE_176K;
 
 typedef struct SR_Descriptor
 {
@@ -1409,7 +1413,7 @@ struct band bands[NUM_BANDS] = {
   2492000000, 2489000000, 2499000000, "12M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       6.0,     30,    2,
   2835000000, 2800000000, 2970000000, "10M", DEMOD_USB, 3600,   100, 6, HAM_BAND,       0.0,     30,    2,
 #if defined(HARDWARE_DD4WH_T4)
-  3173600000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 95.4MHz
+  3173600000, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 95.4MHz @256ksps sample rate
 #else
   3500807300, 2910000000, 3590000000, "UKW", DEMOD_WFM, 3600, -3600, 15, WFM_BAND,      0.0,     30,    42 // translates to 105.2MHz
 #endif        
@@ -1538,18 +1542,19 @@ float32_t LP_Fstop = 3600;
 float32_t LP_Astop = 90;
 //float32_t LP_Fpass_old = 0.0;
 
-//int RF_gain = 0;
 int audio_volume = 50;
-//int8_t bass_gain_help = 0;
-//int8_t midbass_gain_help = 30;
-//int8_t mid_gain_help = 0;
-//int8_t midtreble_gain_help = -10;
-//int8_t treble_gain_help = -40;
-float32_t bass = 0.0;
-float32_t midbass = 0.0;
-float32_t mid = 0.0;
-float32_t midtreble = -0.1;
-float32_t treble = - 0.4;
+
+#define EQ_DB_MULT  20.0f 
+float32_t EQ1_gain = 0.0;
+float32_t EQ2_gain = 0.0;
+float32_t EQ3_gain = 0.0;
+float32_t EQ4_gain = 0.0;
+float32_t EQ5_gain = 0.0;
+float32_t EQ6_gain = 0.0;
+float32_t EQ7_gain = 0.0;
+float32_t EQ8_gain = 0.0;
+float32_t EQ9_gain = 0.0;
+
 float32_t stereo_factor = 100.0;
 uint8_t half_clip = 0;
 uint8_t quarter_clip = 0;
@@ -1594,6 +1599,10 @@ float32_t DMAMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
 float32_t DMAMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
+//float32_t EXTMEM UKW_buffer_1[BUFFER_SIZE * WFM_BLOCKS];
+//float32_t EXTMEM UKW_buffer_2[BUFFER_SIZE * WFM_BLOCKS];
+//float32_t EXTMEM UKW_buffer_3[BUFFER_SIZE * WFM_BLOCKS];
+//float32_t EXTMEM UKW_buffer_4[BUFFER_SIZE * WFM_BLOCKS];
 //float32_t UKW_buffer_5[BUFFER_SIZE * WFM_BLOCKS] DMAMEM;
 float32_t DMAMEM m_PilotPhase[BUFFER_SIZE * WFM_BLOCKS];
 
@@ -1918,6 +1927,43 @@ const float32_t FIR_WFM_Coef[] =
 #endif
 
 /****************************************************************************************
+    Bob Larkin Audio Equalizer
+    
+ ****************************************************************************************/
+#if defined (T4)
+uint16_t  AudioEqualizer_nFIR  = 197;              // Number of coefficients
+#define EQUALIZER_MAX_COEFFS 199
+#else
+uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
+#define EQUALIZER_MAX_COEFFS 69
+#endif
+#define MF_PI    3.14159265f
+#define ERR_EQ_BANDS 1
+#define ERR_EQ_SIDELOBES 2
+#define ERR_EQ_NFIR 3
+        arm_fir_instance_f32 AudioEqualizer_FIR_L;
+        arm_fir_instance_f32 AudioEqualizer_FIR_R;
+        float32_t DMAMEM AudioEqualizer_FIR_L_state [WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS];  // max, max
+        float32_t DMAMEM AudioEqualizer_FIR_R_state [WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS];  // max, max
+        float32_t DMAMEM AudioEqualizer_FIR_coeffs[EQUALIZER_MAX_COEFFS];
+        float32_t* cf32f = AudioEqualizer_FIR_coeffs;    // pointer to current coefficients
+
+        #define AUDIO_EQUALIZER_N_FREQ 2048 //16384 // no. of dB values that will be calculated evenly divided among the frequency span 
+        float32_t DMAMEM AudioEqualizer_response[AUDIO_EQUALIZER_N_FREQ];
+        #define AUDIO_EQUALIZER_MAX_DISPLAY_FREQ 12800.0f
+        const uint16_t AudioEqualizer_nBands = 9;
+        uint16_t AudioEqualizer_dBsidelobe = 30;
+        // for samplerate = 100ksps and decimate-by-8 --> max audio frequency is 50 / 8 = 6.25 --> in practice it is 6.2kHz 
+        //float32_t fBand2[] = {    40.0, 80.0, 160.0, 320.0, 640.0, 1280.0, 2560.0, 5120.0, 10240.0, 22058.5};
+        //float32_t dbBand2[] = {   10.0,  6.0, -2.0,  -5.0, -2.0,  -4.0,   -10.0,   6.0,    0.0,    -100};
+        float32_t AudioEqualizer_WFM_feq[AudioEqualizer_nBands] = {50.0,   100.0,   200.0,   400.0,  800.0,  1600.0,  3200.0,  6400.0,  12800.0 };
+        float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands] =  {0.0,    10.0,   10.0,      0.0,    0.0,     3.0,     0.0,     0.0,     0.0 };
+        float32_t AudioEqualizer_Standard_feq[AudioEqualizer_nBands] = {50.0,   100.0,   200.0,   400.0,  800.0,  1600.0,  2400.0,  3600.0,  6000.0 };
+        float32_t AudioEqualizer_Standard_dB[AudioEqualizer_nBands] =  {0.0,    10.0,   10.0,      0.0,    0.0,     3.0,     0.0,     0.0,     0.0  };
+        uint16_t AudioEqualizer_nFIR_private = AudioEqualizer_nFIR;
+        uint16_t AudioEqualizer_nBands_private = AudioEqualizer_nBands;
+
+/****************************************************************************************
     init decimation and interpolation
     two decimation stages and
     two interpolation stages
@@ -2147,65 +2193,69 @@ int8_t Menu_pointer =                    start_menu;
 #define MENU_VOLUME                       19
 #define MENU_RF_GAIN                      20
 #define MENU_RF_ATTENUATION               21
-#define MENU_BASS                         22
-#define MENU_MIDBASS                      23
-#define MENU_MID                          24
-#define MENU_MIDTREBLE                    25
-#define MENU_TREBLE                       26
-#define MENU_SAM_ZETA                     27
-#define MENU_SAM_OMEGA                    28
-#define MENU_SAM_CATCH_BW                 29
-#define MENU_NOTCH_1                      30
-#define MENU_NOTCH_1_BW                   31
+#define MENU_EQ1                          22
+#define MENU_EQ2                          23
+#define MENU_EQ3                          24
+#define MENU_EQ4                          25
+#define MENU_EQ5                          26
+#define MENU_EQ6                          27
+#define MENU_EQ7                          28
+#define MENU_EQ8                          29
+#define MENU_EQ9                          30
+#define MENU_SAM_ZETA                     31
+#define MENU_SAM_OMEGA                    32
+#define MENU_SAM_CATCH_BW                 33
+#define MENU_NOTCH_1                      34
+#define MENU_NOTCH_1_BW                   35
 //#define MENU_NOTCH_2                      31
 //#define MENU_NOTCH_2_BW                   32
-#define MENU_AGC_MODE                     32
-#define MENU_AGC_THRESH                   33
-#define MENU_AGC_DECAY                    34
-#define MENU_AGC_SLOPE                    35
-#define MENU_ANR_NOTCH                    36
-#define MENU_ANR_TAPS                     37
-#define MENU_ANR_DELAY                    38
-#define MENU_ANR_MU                       39
-#define MENU_ANR_GAMMA                    40
-#define MENU_NB_THRESH                    41
-#define MENU_NB_TAPS                      42
-#define MENU_NB_IMPULSE_SAMPLES           43
-#define MENU_STEREO_FACTOR                44
-#define MENU_BIT_NUMBER                   45
-#define MENU_F_LO_CUT                     46
+#define MENU_AGC_MODE                     36
+#define MENU_AGC_THRESH                   37
+#define MENU_AGC_DECAY                    38
+#define MENU_AGC_SLOPE                    39
+#define MENU_ANR_NOTCH                    40
+#define MENU_ANR_TAPS                     41
+#define MENU_ANR_DELAY                    42
+#define MENU_ANR_MU                       43
+#define MENU_ANR_GAMMA                    44
+#define MENU_NB_THRESH                    45
+#define MENU_NB_TAPS                      46
+#define MENU_NB_IMPULSE_SAMPLES           47
+#define MENU_STEREO_FACTOR                48
+#define MENU_BIT_NUMBER                   49
+#define MENU_F_LO_CUT                     50
 //#define MENU_NR_L                         46
 //#define MENU_NR_N                         47
-#define MENU_NR_PSI                       47
-#define MENU_NR_ALPHA                     48
-#define MENU_NR_BETA                      49
-#define MENU_NR_USE_X                     50
-#define MENU_NR_USE_KIM                   51
-#define MENU_NR_KIM_K                     52
-#define MENU_LMS_NR_STRENGTH              53
-#define MENU_CW_DECODER_ATC               54
-#define MENU_CW_DECODER_THRESH            55
-#define MENU_RTTY_DECODER_BAUD            56
-#define MENU_RTTY_DECODER_SHIFT           57
-#define MENU_RTTY_DECODER_STOPBIT         58
+#define MENU_NR_PSI                       51
+#define MENU_NR_ALPHA                     52
+#define MENU_NR_BETA                      53
+#define MENU_NR_USE_X                     54
+#define MENU_NR_USE_KIM                   55
+#define MENU_NR_KIM_K                     56
+#define MENU_LMS_NR_STRENGTH              57
+#define MENU_CW_DECODER_ATC               58
+#define MENU_CW_DECODER_THRESH            59
+#define MENU_RTTY_DECODER_BAUD            60
+#define MENU_RTTY_DECODER_SHIFT           61
+#define MENU_RTTY_DECODER_STOPBIT         62
 #if defined (T4)
-#define MENU_CPU_SPEED                    59
-#define MENU_POWER_SAVE                   60
-#define MENU_USE_ATAN2                    61
-#define MENU_DIGIMODE                     62
-#define last_menu2                        62
+#define MENU_CPU_SPEED                    63
+#define MENU_POWER_SAVE                   64
+#define MENU_USE_ATAN2                    65
+#define MENU_DIGIMODE                     66
+#define last_menu2                        66
 #else
-#define MENU_USE_ATAN2                    59
-#define MENU_POWER_SAVE                   60
-#define MENU_DIGIMODE                     61
-#define last_menu2                        61
+#define MENU_USE_ATAN2                    63
+#define MENU_POWER_SAVE                   64
+#define MENU_DIGIMODE                     65
+#define last_menu2                        65
 #endif
 //#define MENU_NR_VAD_ENABLE                53
 //#define MENU_NR_VAD_THRESH                54
 //#define MENU_NR_ENABLE                    55
-#define MENU_AGC_HANG_ENABLE              63
-#define MENU_AGC_HANG_TIME                64
-#define MENU_AGC_HANG_THRESH              65
+#define MENU_AGC_HANG_ENABLE              66
+#define MENU_AGC_HANG_TIME                67
+#define MENU_AGC_HANG_THRESH              68
 #define first_menu2                       19
 int8_t Menu2 =                           MENU_VOLUME;
 uint8_t which_menu = 1;
@@ -2242,11 +2292,15 @@ Menu_D Menus [last_menu2 + 1] {
   { MENU_VOLUME, "Volume", "      ", 1},
   { MENU_RF_GAIN, "   RF  ", "  gain ", 1},
   { MENU_RF_ATTENUATION, "   RF  ", " atten", 1},
-  { MENU_BASS, "  Bass ", "  gain ", 1},
-  { MENU_MIDBASS, "MidBas", "  gain ", 1},
-  { MENU_MID, "  Mids ", "  gain ", 1},
-  { MENU_MIDTREBLE, "Midtreb", "  gain ", 1},
-  { MENU_TREBLE, "Treble", "  gain ", 1},
+  { MENU_EQ1, "  EQ 1  ", "  gain ", 1},
+  { MENU_EQ2, "  EQ 2  ", "  gain ", 1},
+  { MENU_EQ3, "  EQ 3  ", "  gain ", 1},
+  { MENU_EQ4, "  EQ 4  ", "  gain ", 1},
+  { MENU_EQ5, "  EQ 5  ", "  gain ", 1},
+  { MENU_EQ6, "  EQ 6  ", "  gain ", 1},
+  { MENU_EQ7, "  EQ 7  ", "  gain ", 1},
+  { MENU_EQ8, "  EQ 8  ", "  gain ", 1},
+  { MENU_EQ9, "  EQ 9  ", "  gain ", 1},
   { MENU_SAM_ZETA, "  SAM  ", "  zeta ", 1},
   { MENU_SAM_OMEGA, "  SAM  ", " omega ", 1},
   { MENU_SAM_CATCH_BW, "  SAM  ", "catchB", 1},
@@ -2522,7 +2576,7 @@ uint8_t ANR_notch = 0;
 // ordinary LMS noise reduction
 #define MAX_LMS_TAPS    96
 #define MAX_LMS_DELAY   256
-float32_t   LMS_errsig1[256 + 10];
+float32_t DMAMEM LMS_errsig1[256 + 10];
 arm_lms_norm_instance_f32  LMS_Norm_instance;
 arm_lms_instance_f32      LMS_instance;
 float32_t                 DMAMEM LMS_StateF32[MAX_LMS_TAPS + MAX_LMS_DELAY];
@@ -2601,7 +2655,6 @@ int NR_VAD_duration = 0; //takes the duration of the last vowel
 // array of squareroot von Hann coefficients [256]
 const float32_t sqrtHann[256] = {0, 0.01231966, 0.024637449, 0.036951499, 0.049259941, 0.061560906, 0.073852527, 0.086132939, 0.098400278, 0.110652682, 0.122888291, 0.135105247, 0.147301698, 0.159475791, 0.171625679, 0.183749518, 0.195845467, 0.207911691, 0.219946358, 0.231947641, 0.24391372, 0.255842778, 0.267733003, 0.279582593, 0.291389747, 0.303152674, 0.314869589, 0.326538713, 0.338158275, 0.349726511, 0.361241666, 0.372701992, 0.384105749, 0.395451207, 0.406736643, 0.417960345, 0.429120609, 0.440215741, 0.451244057, 0.462203884, 0.473093557, 0.483911424, 0.494655843, 0.505325184, 0.515917826, 0.526432163, 0.536866598, 0.547219547, 0.557489439, 0.567674716, 0.577773831, 0.587785252, 0.597707459, 0.607538946, 0.617278221, 0.626923806, 0.636474236, 0.645928062, 0.65528385, 0.664540179, 0.673695644, 0.682748855, 0.691698439, 0.700543038, 0.709281308, 0.717911923, 0.726433574, 0.734844967, 0.743144825, 0.75133189, 0.759404917, 0.767362681, 0.775203976, 0.78292761, 0.790532412, 0.798017227, 0.805380919, 0.812622371, 0.819740483, 0.826734175, 0.833602385, 0.840344072, 0.846958211, 0.853443799, 0.859799851, 0.866025404, 0.872119511, 0.878081248, 0.88390971, 0.889604013, 0.895163291, 0.900586702, 0.905873422, 0.911022649, 0.916033601, 0.920905518, 0.92563766, 0.930229309, 0.934679767, 0.938988361, 0.943154434, 0.947177357, 0.951056516, 0.954791325, 0.958381215, 0.961825643, 0.965124085, 0.968276041, 0.971281032, 0.974138602, 0.976848318, 0.979409768, 0.981822563, 0.984086337, 0.986200747, 0.988165472, 0.989980213, 0.991644696, 0.993158666, 0.994521895, 0.995734176, 0.996795325, 0.99770518, 0.998463604, 0.999070481, 0.99952572, 0.99982925, 0.999981027, 0.999981027, 0.99982925, 0.99952572, 0.999070481, 0.998463604, 0.99770518, 0.996795325, 0.995734176, 0.994521895, 0.993158666, 0.991644696, 0.989980213, 0.988165472, 0.986200747, 0.984086337, 0.981822563, 0.979409768, 0.976848318, 0.974138602, 0.971281032, 0.968276041, 0.965124085, 0.961825643, 0.958381215, 0.954791325, 0.951056516, 0.947177357, 0.943154434, 0.938988361, 0.934679767, 0.930229309, 0.92563766, 0.920905518, 0.916033601, 0.911022649, 0.905873422, 0.900586702, 0.895163291, 0.889604013, 0.88390971, 0.878081248, 0.872119511, 0.866025404, 0.859799851, 0.853443799, 0.846958211, 0.840344072, 0.833602385, 0.826734175, 0.819740483, 0.812622371, 0.805380919, 0.798017227, 0.790532412, 0.78292761, 0.775203976, 0.767362681, 0.759404917, 0.75133189, 0.743144825, 0.734844967, 0.726433574, 0.717911923, 0.709281308, 0.700543038, 0.691698439, 0.682748855, 0.673695644, 0.664540179, 0.65528385, 0.645928062, 0.636474236, 0.626923806, 0.617278221, 0.607538946, 0.597707459, 0.587785252, 0.577773831, 0.567674716, 0.557489439, 0.547219547, 0.536866598, 0.526432163, 0.515917826, 0.505325184, 0.494655843, 0.483911424, 0.473093557, 0.462203884, 0.451244057, 0.440215741, 0.429120609, 0.417960345, 0.406736643, 0.395451207, 0.384105749, 0.372701992, 0.361241666, 0.349726511, 0.338158275, 0.326538713, 0.314869589, 0.303152674, 0.291389747, 0.279582593, 0.267733003, 0.255842778, 0.24391372, 0.231947641, 0.219946358, 0.207911691, 0.195845467, 0.183749518, 0.171625679, 0.159475791, 0.147301698, 0.135105247, 0.122888291, 0.110652682, 0.098400278, 0.086132939, 0.073852527, 0.061560906, 0.049259941, 0.036951499, 0.024637449, 0.01231966, 0};
 
-
 // noise blanker by Michael Wild
 uint8_t NB_on = 0;
 float32_t NB_thresh = 2.5;
@@ -2609,14 +2662,11 @@ int8_t NB_taps = 10;
 int8_t NB_impulse_samples = 7;
 uint8_t NB_test = 0;
 
-
-
 // decimation with FIR lowpass for Zoom FFT
 arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I1;
 arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q1;
 float32_t DMAMEM Fir_Zoom_FFT_Decimate_I1_state [12 + BUFFER_SIZE * N_B - 1];
 float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q1_state [12 + BUFFER_SIZE * N_B - 1];
-
 float32_t DMAMEM Fir_Zoom_FFT_Decimate1_coeffs[12];
 
 // decimation with FIR lowpass for Zoom FFT
@@ -2624,7 +2674,6 @@ arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_I2;
 arm_fir_decimate_instance_f32 Fir_Zoom_FFT_Decimate_Q2;
 float32_t DMAMEM Fir_Zoom_FFT_Decimate_I2_state [12 + BUFFER_SIZE * N_B - 1];
 float32_t DMAMEM Fir_Zoom_FFT_Decimate_Q2_state [12 + BUFFER_SIZE * N_B - 1];
-
 float32_t DMAMEM Fir_Zoom_FFT_Decimate2_coeffs[12];
 
 /****************************************************************************************
@@ -3032,10 +3081,10 @@ void setup() {
   //  sgtl5000_1.lineOutLevel(31);
   sgtl5000_1.lineOutLevel(24);
 
-  sgtl5000_1.audioPostProcessorEnable(); // enables the DAP chain of the codec post audio processing before the headphone out
+  //sgtl5000_1.audioPostProcessorEnable(); // enables the DAP chain of the codec post audio processing before the headphone out
   //  sgtl5000_1.eqSelect (2); // Tone Control
-  sgtl5000_1.eqSelect (3); // five-band-graphic equalizer
-  sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
+  //sgtl5000_1.eqSelect (3); // five-band-graphic equalizer
+  //sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
   //  sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
   //  sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
@@ -3616,7 +3665,14 @@ void setup() {
   /****************************************************************************************
      IQ imbalance correction
   ****************************************************************************************/
-
+  
+  /****************************************************************************************
+     print PSRAM size
+  ****************************************************************************************/
+#if defined (T4)  
+  uint8_t PSRAM_size = external_psram_size;
+  Serial.printf("EXTMEM Memory Test, %d Mbyte\n", PSRAM_size);
+#endif
 
   /****************************************************************************************
      start local oscillator Si5351
@@ -3635,6 +3691,15 @@ void setup() {
    ****************************************************************************************/
   set_band();
 
+  /****************************************************************************************
+     Audio Equalizer FIR filter init (Bob Larkin)
+  ****************************************************************************************/
+  uint8_t Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
+  Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
+  if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
+  else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
+  //delay(10000);
+  
   /****************************************************************************************
       Initialize spectral noise reduction variables
    ****************************************************************************************/
@@ -4077,6 +4142,8 @@ void loop() {
               WFM_is_stereo = 0;
           }
 
+// FIXME !!!          
+WFM_is_stereo = 1;
         if(WFM_is_stereo) 
         { //if pilot tone present, do stereo demuxing
           for(unsigned i = 0; i < BUFFER_SIZE * WFM_BLOCKS; i++)
@@ -4125,6 +4192,13 @@ void loop() {
      //   6   notch filter 19kHz to eliminate pilot tone from audio
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_R, float_buffer_R, float_buffer_L, WFM_DEC_SAMPLES);
             arm_biquad_cascade_df1_f32 (&biquad_WFM_notch_19k_L, FFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
+
+       /**********************************************************************************
+          EXPERIMENTAL: Audio Equalizer
+          by Bob Larkin
+       **********************************************************************************/
+            arm_fir_f32(&AudioEqualizer_FIR_L, float_buffer_L, float_buffer_L, WFM_DEC_SAMPLES);    
+            arm_fir_f32(&AudioEqualizer_FIR_R, iFFT_buffer, iFFT_buffer, WFM_DEC_SAMPLES);
     
           // interpolate-by-4 to 256ksps before sending audio to DAC
             arm_fir_interpolate_f32(&WFM_interpolation_R, float_buffer_L, float_buffer_R, WFM_DEC_SAMPLES);
@@ -5791,6 +5865,12 @@ if(0)
                 float_buffer_R[i] = iFFT_buffer[FFT_length + (i * 2) + 1];
               }
             }
+      /**********************************************************************************
+          EXPERIMENTAL: Audio Equalizer
+          by Bob Larkin
+       **********************************************************************************/
+        arm_fir_f32(&AudioEqualizer_FIR_L, float_buffer_L, float_buffer_L, (uint32_t)(BUFFER_SIZE * N_DEC_B));    
+        arm_fir_f32(&AudioEqualizer_FIR_R, float_buffer_R, float_buffer_R, (uint32_t)(BUFFER_SIZE * N_DEC_B));
 
       /**********************************************************************************
           EXPERIMENTAL: variable-leak LMS algorithm
@@ -7634,7 +7714,7 @@ void Zoom_FFT_exe (uint32_t blockSize)
   static uint32_t high_Zoom_buffer_ptr = 0;
   uint8_t high_Zoom = 0;
   uint32_t high_Zoom_2nd_dec_rounds = (1 << (spectrum_zoom - 11));
-  Serial.print("2nd dec rounds"); Serial.println(high_Zoom_2nd_dec_rounds);
+  //Serial.print("2nd dec rounds"); Serial.println(high_Zoom_2nd_dec_rounds);
   int sample_no = 256;
   // sample_no is 256, in high magnify modes it is smaller!
   // but it must never be > 256
@@ -9224,7 +9304,7 @@ void showFreqBand(void)
       tft.setTextColor(ILI9341_GREEN);
   }
   tft.setFont(Arial_12);
-  //  tft.setCursor(277, 212);
+  tft.fillRect(BAND_INDICATOR_X, BAND_INDICATOR_Y - 1, 320 - BAND_INDICATOR_X, 15, ILI9341_BLACK);
   tft.setCursor(BAND_INDICATOR_X, BAND_INDICATOR_Y); // 277,212
   tft.print(bands[current_band].name);
 }
@@ -10631,39 +10711,76 @@ void show_menu()
       case MENU_SAM_ZETA:
         tft.print(zeta);
         break;
-      case MENU_TREBLE:
+      case MENU_EQ1:
+      update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(treble * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(EQ1_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
-        tft.printf("%2.0f", treble * 100.0);
+        tft.printf("%2.0f", EQ1_gain * 100.0);
 #endif
         break;
-      case MENU_MIDTREBLE:
+      case MENU_EQ2:
+      update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(midtreble * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(EQ2_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
-        tft.printf("%2.0f", midtreble * 100.0);
+        tft.printf("%2.0f", EQ2_gain * 100.0);
 #endif
         break;
-      case MENU_BASS:
+      case MENU_EQ3:
+      update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(bass * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(EQ3_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
-        tft.printf("%2.0f", bass * 100.0);
+        tft.printf("%2.0f", EQ3_gain * 100.0);
 #endif
         break;
-      case MENU_MIDBASS:
+      case MENU_EQ4:
+      update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(midbass * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(EQ4_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
-        tft.printf("%2.0f", midbass * 100.0);
+        tft.printf("%2.0f", EQ4_gain * 100.0);
 #endif
         break;
-      case MENU_MID:
+      case MENU_EQ5:
+      update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(mid * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+        tft.drawNumber(EQ5_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
 #else
-        tft.printf("%2.0f", mid * 100.0);
+        tft.printf("%2.0f", EQ5_gain * 100.0);
+#endif
+        break;
+      case MENU_EQ6:
+      update_EQ_gains();
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(EQ6_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.printf("%2.0f", EQ6_gain * 100.0);
+#endif
+        break;
+      case MENU_EQ7:
+      update_EQ_gains();
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(EQ7_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.printf("%2.0f", EQ7_gain * 100.0);
+#endif
+        break;
+      case MENU_EQ8:
+      update_EQ_gains();
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(EQ8_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.printf("%2.0f", EQ8_gain * 100.0);
+#endif
+        break;
+      case MENU_EQ9:
+      update_EQ_gains();
+#if defined (HARDWARE_DD4WH_T4)
+        tft.drawNumber(EQ9_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
+#else
+        tft.printf("%2.0f", EQ9_gain * 100.0);
 #endif
         break;
       case MENU_SAM_OMEGA:
@@ -12182,53 +12299,142 @@ void encoders () {
       if (stereo_factor < 0) stereo_factor = 0;
       else if (stereo_factor > 400) stereo_factor = 400;
     }
-    else if (Menu2 == MENU_BASS)
+    else if (Menu2 == MENU_EQ1)
     {
-      bass = bass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (bass > 1.0) bass = 1.0;
-      else if (bass < -1.0) bass = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
-      //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
-#endif
+      EQ1_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ1_gain > 1.0) EQ1_gain = 1.0;
+      else if (EQ1_gain < -1.0) EQ1_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[0] = EQ1_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[0] = EQ1_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
     }
-    else if (Menu2 == MENU_MIDBASS)
+    else if (Menu2 == MENU_EQ2)
     {
-      midbass = midbass + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (midbass > 1.0) midbass = 1.0;
-      else if (midbass < -1.0) midbass = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
-#endif
+      EQ2_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ2_gain > 1.0) EQ2_gain = 1.0;
+      else if (EQ2_gain < -1.0) EQ2_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[1] = EQ2_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[1] = EQ2_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
     }
-    else if (Menu2 == MENU_MID)
+    else if (Menu2 == MENU_EQ3)
     {
-      mid = mid + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (mid > 1.0) mid = 1.0;
-      else if (mid < -1.0) mid = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
-#endif
+      EQ3_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ3_gain > 1.0) EQ3_gain = 1.0;
+      else if (EQ3_gain < -1.0) EQ3_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[2] = EQ3_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[2] = EQ3_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
     }
-    else if (Menu2 == MENU_MIDTREBLE)
+    else if (Menu2 == MENU_EQ4)
     {
-      midtreble = midtreble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (midtreble > 1.0) midtreble = 1.0;
-      else if (midtreble < -1.0) midtreble = -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
-#endif      
+      EQ4_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ4_gain > 1.0) EQ4_gain = 1.0;
+      else if (EQ4_gain < -1.0) EQ4_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[3] = EQ4_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[3] = EQ4_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
     }
-    else if (Menu2 == MENU_TREBLE)
+    else if (Menu2 == MENU_EQ5)
     {
-      treble = treble + (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (treble > 1.0) treble = 1.0;
-      else if (treble < -1.0) treble =  -1.0;
-#if (!defined(HARDWARE_DD4WH_T4))
-      sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // (float bass, etc.) in % -100 to +100
-      //      sgtl5000_1.eqBands (bass, treble); // (float bass, float treble) in % -100 to +100
-#endif
+      EQ5_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ5_gain > 1.0) EQ5_gain = 1.0;
+      else if (EQ5_gain < -1.0) EQ5_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[4] = EQ5_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[4] = EQ5_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
     }
+    else if (Menu2 == MENU_EQ6)
+    {
+      EQ6_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ6_gain > 1.0) EQ6_gain = 1.0;
+      else if (EQ6_gain < -1.0) EQ6_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[5] = EQ6_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[5] = EQ6_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
+    }
+    else if (Menu2 == MENU_EQ7)
+    {
+      EQ7_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ7_gain > 1.0) EQ7_gain = 1.0;
+      else if (EQ7_gain < -1.0) EQ7_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[6] = EQ7_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[6] = EQ7_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
+    }
+    else if (Menu2 == MENU_EQ8)
+    {
+      EQ8_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ8_gain > 1.0) EQ8_gain = 1.0;
+      else if (EQ8_gain < -1.0) EQ8_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[7] = EQ8_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[7] = EQ8_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
+    }
+    else if (Menu2 == MENU_EQ9)
+    {
+      EQ9_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
+      if (EQ9_gain > 1.0) EQ9_gain = 1.0;
+      else if (EQ9_gain < -1.0) EQ9_gain = -1.0;
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[8] = EQ9_gain * EQ_DB_MULT;
+      }
+      else 
+      {
+        AudioEqualizer_Standard_dB[8] = EQ9_gain * EQ_DB_MULT;
+      }
+      set_and_display_audio_EQ();
+    }
+
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
       if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change * ENCODER_FACTOR;
@@ -13080,15 +13286,19 @@ struct config_t {
   float32_t omegaN;
   int zeta_help;
   uint8_t rate;
-  float32_t bass;
-  float32_t treble;
   int agc_thresh;
   int agc_decay;
   int agc_slope;
   uint8_t auto_IQ_correction;
-  float32_t midbass;
-  float32_t mid;
-  float32_t midtreble;
+  float32_t EQ1_gain;
+  float32_t EQ2_gain;
+  float32_t EQ3_gain;
+  float32_t EQ4_gain;
+  float32_t EQ5_gain;
+  float32_t EQ6_gain;
+  float32_t EQ7_gain;
+  float32_t EQ8_gain;
+  float32_t EQ9_gain;
   int8_t RF_attenuation;
   uint8_t show_spectrum_flag;
   float32_t stereo_factor;
@@ -13140,15 +13350,19 @@ void EEPROM_LOAD() { //mdrhere
     zeta_help = E.zeta_help;
     zeta = (float32_t) zeta_help / 100.0;
     SAMPLE_RATE = E.rate;
-    bass = E.bass;
-    treble = E.treble;
     agc_thresh = E.agc_thresh;
     agc_decay = E.agc_decay;
     agc_slope = E.agc_slope;
     auto_IQ_correction = E.auto_IQ_correction;
-    midbass = E.midbass;
-    mid = E.mid;
-    midtreble = E.midtreble;
+    EQ1_gain = E.EQ1_gain;
+    EQ2_gain = E.EQ2_gain;
+    EQ3_gain = E.EQ3_gain;
+    EQ4_gain = E.EQ4_gain;
+    EQ5_gain = E.EQ5_gain;
+    EQ6_gain = E.EQ6_gain;
+    EQ7_gain = E.EQ7_gain;
+    EQ8_gain = E.EQ8_gain;
+    EQ9_gain = E.EQ9_gain;
     RF_attenuation = E.RF_attenuation;
     show_spectrum_flag = E.show_spectrum_flag;
     stereo_factor = E.stereo_factor;
@@ -13198,15 +13412,19 @@ void EEPROM_SAVE() {
   E.omegaN = omegaN;
   E.zeta_help = zeta_help;
   E.rate = SAMPLE_RATE;
-  E.bass = bass;
-  E.treble = treble;
   E.agc_thresh = agc_thresh;
   E.agc_decay = agc_decay;
   E.agc_slope = agc_slope;
   E.auto_IQ_correction = auto_IQ_correction;
-  E.midbass = midbass;
-  E.mid = mid;
-  E.midtreble = midtreble;
+  E.EQ1_gain = EQ1_gain; 
+  E.EQ2_gain = EQ2_gain; 
+  E.EQ3_gain = EQ3_gain; 
+  E.EQ4_gain = EQ4_gain; 
+  E.EQ5_gain = EQ5_gain; 
+  E.EQ6_gain = EQ6_gain; 
+  E.EQ7_gain = EQ7_gain; 
+  E.EQ8_gain = EQ8_gain; 
+  E.EQ9_gain = EQ9_gain; 
   E.RF_attenuation = RF_attenuation;
   E.show_spectrum_flag = show_spectrum_flag;
   E.stereo_factor = stereo_factor;
@@ -13377,10 +13595,10 @@ void reset_codec ()
   sgtl5000_1.adcHighPassFilterDisable(); // does not help too much!
   sgtl5000_1.lineInLevel(bands[current_band].RFgain);
   sgtl5000_1.lineOutLevel(24);
-  sgtl5000_1.audioPostProcessorEnable(); // enables the DAP chain of the codec post audio processing before the headphone out
-  sgtl5000_1.eqSelect (3); // Tone Control
-  sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // in % -100 to +100
-  sgtl5000_1.enhanceBassEnable();
+  //sgtl5000_1.audioPostProcessorEnable(); // enables the DAP chain of the codec post audio processing before the headphone out
+  //sgtl5000_1.eqSelect (3); // Tone Control
+  //sgtl5000_1.eqBands (bass, midbass, mid, midtreble, treble); // in % -100 to +100
+  //sgtl5000_1.enhanceBassEnable();
   sgtl5000_1.dacVolumeRamp();
   sgtl5000_1.volume((float32_t)audio_volume / 100.0f); //
   twinpeaks_tested = 3;
@@ -17982,3 +18200,442 @@ void DrawBlockDiagram (void)
     tft.print("Block Diagram Pt.2");
     }
   }
+
+
+/* float i0f(float x)  Returns the modified Bessel function Io(x).
+ * Algorithm is based on Abromowitz and Stegun, Handbook of Mathematical
+ * Functions, and Press, et. al., Numerical Recepies in C.
+ * All in 32-bit floating point
+ */
+float AudioEqualizerBesseli0f(float x) {
+    float af, bf, cf;
+    if( (af=fabsf(x)) < 3.75f ) {
+        cf = x/3.75f;
+        cf = cf*cf;
+        bf=1.0f+cf*(3.515623f+cf*(3.089943f+cf*(1.20675f+cf*(0.265973f+
+             cf*(0.0360768f+cf*0.0045813f)))));
+    }
+    else {
+        cf = 3.75f/af;
+        bf=(expf(af)/sqrtf(af))*(0.3989423f+cf*(0.0132859f+cf*(0.0022532f+
+             cf*(-0.0015756f+cf*(0.0091628f+cf*(-0.0205771f+cf*(0.0263554f+
+             cf*(-0.0164763f+cf*0.0039238f))))))));
+    }
+    return bf;
+    }
+
+  /* equalizerNew() calculates the Equalizer FIR filter coefficients. Works from: 
+ * uint16_t equalizerNew(uint16_t _nBands, float32_t *feq, float32_t *adb,
+                      uint16_t _nFIR, float32_t *_cf32f, float32_t kdb)
+ *   nBands   Number of equalizer bands
+ *   feq      Pointer to array feq[] of nBands breakpoint frequencies, fractions of sample rate, Hz
+ *   adb      Pointer to array aeq[] of nBands levels, in dB, for the feq[] defined frequency bands
+ *   nFIR     The number of FIR coefficients (taps) used in the equalzer
+ *   cf32f    Pointer to an array of float to hold FIR coefficients
+ *   kdb      A parameter that trades off sidelobe levels for sharpness of band transition.
+ *            kdb=30 sharp cutoff, poor sidelobes
+ *            kdb=60 slow cutoff, low sidelobes
+ * 
+ * The arrays, feq[], aeq[] and cf32f[] are supplied by the calling .INO
+ *
+ * Returns: 0 if successful, or an error code if not.
+ * Errors:  1 = Too many bands, 50 max
+ *          2 = sidelobe level out of range, must be > 0
+ *          3 = nFIR out of range
+ *
+ * Note - This function runs at setup time, and there is no need to fret about
+ * processor speed.  Likewise, local arrays are created on the stack and are
+ * available for other use when this function closes.
+ */
+
+uint16_t AudioEqualizerInit(uint16_t _nBands, float32_t *feq, float32_t *adb,
+                      uint16_t _nFIR, float32_t *_cf32f, float32_t kdb, float32_t samplerate)  {
+    uint16_t i, j;
+    uint16_t nHalfFIR;
+    float32_t beta, kbes;
+    float32_t q, xj2, scaleXj2, WindowWt;
+    float32_t fNorm[50];   // Normalized to the sampling frequency
+    float32_t aVolts[50];  // Convert from dB to "quasi-Volts"
+
+    // Make private copies
+    cf32f = _cf32f;
+    AudioEqualizer_nFIR_private = _nFIR;
+    AudioEqualizer_nBands_private = _nBands;
+
+    // Check range of nFIR
+    if (AudioEqualizer_nFIR_private<5 || AudioEqualizer_nFIR_private>EQUALIZER_MAX_COEFFS)
+        return ERR_EQ_NFIR;
+
+    // The number of FIR coefficients needs to be odd
+    if (2*(AudioEqualizer_nFIR_private/2) == AudioEqualizer_nFIR_private)
+        AudioEqualizer_nFIR_private -= 1;  // We just won't use the last element of the array
+    nHalfFIR = (AudioEqualizer_nFIR_private - 1)/2;  // If nFIR=199, nHalfFIR=99
+ 
+    for (int kk = 0; kk<AudioEqualizer_nFIR_private; kk++)  // To be sure, zero the coefficients
+      cf32f[kk] = 0.0f;
+      
+    // Convert dB to Voltage ratios, frequencies to fractions of sampling freq
+    if(AudioEqualizer_nBands_private <2 || AudioEqualizer_nBands_private>50)  return ERR_EQ_BANDS;
+    for (i=0; i<AudioEqualizer_nBands_private; i++)  {
+       aVolts[i]=powf(10.0, (0.05*adb[i]));
+       fNorm[i]=feq[i] / samplerate;
+    }
+
+    /* Find FIR coefficients, the Fourier transform of the frequency
+     * response. This is done by dividing the response into a sequence
+     * of nBands rectangular frequency blocks, each of a different level.
+     * We can precalculate the Fourier transform for each rectangular band.
+     * The linearity of the Fourier transform allows us to sum the transforms
+     * of the individual blocks to get pre-windowed coefficients.  As follows
+     *
+     * Numbering example for nFIR==199:
+     * Subscript 0 to 98 is 99 taps;  100 to 198 is 99 taps;  99+1+99=199 taps
+     * The center coef ( for nFIR=199 taps, nHalfFIR=99 ) is a 
+     * special case that comes from sin(0)/0 and treated first:
+     */
+    cf32f[nHalfFIR] = 2.0f*(aVolts[0]*fNorm[0]);  // Coefficient "99"
+    for(i=1; i<AudioEqualizer_nBands_private; i++) {
+       cf32f[nHalfFIR] += 2.0f*aVolts[i]*(fNorm[i]-fNorm[i-1]);
+    }
+    for (j=1; j<=nHalfFIR; j++) {          // Coefficients "100 to 198"
+        q = MF_PI*(float32_t)j;
+        // First, deal with the zero frequency end band that is "low-pass."
+        cf32f[j+nHalfFIR] = aVolts[0]*sinf(fNorm[0]*2.0*q)/q;
+        //  and then the rest of the bands that have low and high frequencies
+        for(i=1; i<AudioEqualizer_nBands_private; i++)
+           cf32f[j+nHalfFIR] += aVolts[i]*( (sinf(fNorm[i]*2.0*q)/q) - (sinf(fNorm[i-1]*2.0*q)/q) );
+    }
+
+    /* At this point, the cf32f[] coefficients are simply truncated sin(x)/x shapes, creating
+     * very high sidelobe responses. To reduce the sidelobes, a windowing function is applied.
+     * This has the side affect of increasing the rate of cutoff for sharp frequency changes.
+     * The only windowing function available here is that of James Kaiser.  This has a number
+     * of desirable features.  The tradeoff of sidelobe level versus cutoff rate is variable. 
+     * We specify it in terms of kdb, the highest sidelobe, in dB, next to a sharp cutoff. For
+     * calculating the windowing vector, we need a parameter beta, found as follows:
+     */
+    if (kdb<0) return ERR_EQ_SIDELOBES;
+    if (kdb>50)
+        beta = 0.1102*(kdb-8.7);
+    else if  (kdb>20.96 && kdb<=50.0)
+        beta = 0.58417*powf((kdb-20.96), 0.4) + 0.07886*(kdb-20.96);
+    else
+        beta=0.0;
+    // Note: i0f is the floating point in & out zero'th order Bessel function (see mathDSP_F32.h)
+    kbes = 1.0f / AudioEqualizerBesseli0f(beta);      // An additional derived parameter used in loop
+  
+    // Apply the Kaiser window
+    scaleXj2 = 2.0f/(float32_t)AudioEqualizer_nFIR_private;
+    scaleXj2 *= scaleXj2;
+    for (j=0; j<=nHalfFIR; j++) {  // For 199 Taps, this is 0 to 99
+         xj2 = (int16_t)(0.5f+(float32_t)j);
+         xj2 = scaleXj2*xj2*xj2;
+         WindowWt=kbes*(AudioEqualizerBesseli0f(beta*sqrt(1.0-xj2)));
+         cf32f[nHalfFIR + j] *= WindowWt;          // Apply the Kaiser window to upper half
+         cf32f[nHalfFIR - j] = cf32f[nHalfFIR +j]; // and create the lower half
+    }
+    if(bands[current_band].mode == DEMOD_WFM)
+    { // And fill in the members of fir_inst
+      arm_fir_init_f32(&AudioEqualizer_FIR_L, AudioEqualizer_nFIR_private, (float32_t *)cf32f,  &AudioEqualizer_FIR_L_state[0], (uint32_t)WFM_DEC_SAMPLES);
+      arm_fir_init_f32(&AudioEqualizer_FIR_R, AudioEqualizer_nFIR_private, (float32_t *)cf32f,  &AudioEqualizer_FIR_R_state[0], (uint32_t)WFM_DEC_SAMPLES);
+    }
+    else
+    { // And fill in the members of fir_inst
+      arm_fir_init_f32(&AudioEqualizer_FIR_L, AudioEqualizer_nFIR_private, (float32_t *)cf32f,  &AudioEqualizer_FIR_L_state[0], (uint32_t)(FFT_length / 2));
+      arm_fir_init_f32(&AudioEqualizer_FIR_R, AudioEqualizer_nFIR_private, (float32_t *)cf32f,  &AudioEqualizer_FIR_R_state[0], (uint32_t)(FFT_length / 2));
+    }
+    return 0;
+}
+
+/* If you try to make the bands too narrow for the number of FIR coeffficients,
+ * the approximation to the desired curve becomes poor.  This can all be evaluated
+ * by the function getResponse(nPoints, pResponse) which fills an .INO-supplied array
+ * pResponse[nPoints] with the frequency response of the equalizer in dB.  The nPoints
+ * are spread evenly between 0.0 and half of the sample frequency.
+
+ * Calculate response in dB.  Leave nFreq point result in array rdb[] supplied
+ * by the calling .INO  See Parks and Burris, "Digital Filter Design," p27 (Type 1).
+ */
+
+void AudioEqualizer_getResponse(uint16_t nFreq, float32_t *rdb)  {
+  uint16_t i, j;
+  float32_t bt;
+  float32_t piOnNfreq;
+  uint16_t nHalfFIR;
+
+    nHalfFIR = (AudioEqualizer_nFIR - 1)/2;
+    piOnNfreq = MF_PI / (float32_t)nFreq;
+    for (i=0; i<nFreq; i++) {
+        bt = AudioEqualizer_FIR_coeffs[nHalfFIR];//bt = 0.5f*cf32f[nHalfFIR];  // Center coefficient
+        for (j=0; j<nHalfFIR; j++)  // Add in the others twice, as they are symmetric
+            bt += 2.0f*AudioEqualizer_FIR_coeffs[j]*cosf(piOnNfreq*(float32_t)((nHalfFIR-j)*i));
+        rdb[i] = 20.0f*log10f(fabsf(bt));     // Convert to dB
+    }
+}
+
+
+void AudioEqualizer_display_response (uint16_t nFreq, float32_t *rdb)
+{
+  // For Reference
+  //   spectrum_y = 120;       // Upper edge
+  //   spectrum_x = 10;
+  //   spectrum_height = 90;        // Lower edge 210
+  //   spectrum_pos_centre_f = 64;
+  //   pos_x_smeter = 11; //5
+  //   pos_y_smeter = (spectrum_y - 12);    //  94
+  //   s_w = 10;
+  //=========================
+  int16_t y_new, y1_new;
+  int16_t x_log;
+  static int16_t x_log_old = 0;
+  static int16_t y_old = 0;
+  int16_t y1_new_minus = 0;
+  const float32_t pixel_per_logstep = 32.0f; // * AUDIO_EQUALIZER_N_FREQ / 256.0f;
+  int pos_y = BW_indicator_y;
+  float32_t freq_span = 1.0f;
+  //uint16_t base_y = spectrum_y - 1;
+  Serial.print("sepctrum_y = ");
+  Serial.println(spectrum_y);
+  // first delete display
+  tft.fillRect(0, spectrum_y - 1, 320, 241 - spectrum_y, ILI9341_BLACK);
+
+  // set spectrum flag to zero
+  show_spectrum_flag = 0;  
+
+  // Spectrum area top is spectrum_y=120, bottom is 210
+  // Vertical freq markers run 215 to 225
+  // Horizontal is 5 to 5+255
+  // First cut at a plot grid  <PUA>
+  int h = spectrum_height + 3;
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y - 2, 254, ILI9341_MAROON);
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y + 18, 254, ILI9341_MAROON);
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y + 38, 254, ILI9341_MAROON);
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y + 58, 254, ILI9341_MAROON);
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y + 78, 254, ILI9341_MAROON);
+  tft.drawFastHLine (spectrum_x - 1, spectrum_y + h, 254, ILI9341_MAROON);
+
+  tft.drawFastVLine (spectrum_x - 1,   spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 255, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 31, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 63, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 95, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 127, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 159, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 223, spectrum_y, h, ILI9341_MAROON);
+  tft.drawFastVLine (spectrum_x + 191, spectrum_y, h, ILI9341_MAROON);
+
+  // Draw EQ response display
+  for (int16_t x = 0; x < nFreq; x++)
+  {
+    // TODO: automatic scaling of the freq response display
+    y_new = 2.0f * (rdb[x] + 25.0f);
+
+    if (y_new > (spectrum_height - 1))
+      y_new = (spectrum_height - 1);
+    if (y_new < 0)
+      y_new = 0;
+      
+    y1_new  = (spectrum_y + spectrum_height - 1) - y_new;
+
+    if (x == 1)
+    {
+      y1_new_minus = y1_new;
+    }
+    if (x == 254)
+    {
+      y1_new_minus = y1_new;
+    }
+
+    // scale x according to frequency span and sample rate
+    // x[0] = 0Hz and x[255] == sample rate / 8 / 2
+    // we want x[0] == 50 Hz and x[255] == 12.800Hz
+
+    if(bands[current_band].mode == DEMOD_WFM) freq_span = SR[SAMPLE_RATE].rate / 4.0f / 2.0f;
+    else freq_span = SR[SAMPLE_RATE].rate / DF / 2.0f;
+    // scale by number of calculated freq responses
+    float32_t x_scaled = (float32_t)x / ((float32_t)AUDIO_EQUALIZER_N_FREQ / 256.0f);
+    // scale by wanted max. displayed frequency 
+    x_scaled *= freq_span;
+    x_scaled /= AUDIO_EQUALIZER_MAX_DISPLAY_FREQ;
+    // logarithmic scaling of frequency axis, 32 pixel per log-step corrected for no. of calculated response freq points
+    x_log = (log2f(x_scaled + 0.0000001f) * pixel_per_logstep) - 1;
+    //x_log = x_scaled;
+    // DRAW NEW LINE/POINT
+    if (y1_new - y1_new_minus > 1)
+    { // plot line upwards
+//      tft.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
+      tft.drawFastVLine(x_log + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
+    }
+    else if (y1_new - y1_new_minus < -1)
+    { // plot line downwards
+//      tft.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
+      tft.drawFastVLine(x_log + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
+    }
+    else
+    {
+//      tft.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
+      tft.drawPixel(x_log + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
+    }
+    y1_new_minus = y1_new;
+
+    // now draw connecting lines for low frequencies where points are distant from one another
+    if(x_log > (x_log_old + 1) && x != 0)
+    {
+      tft.drawLine(x_log_old + spectrum_x, y_old, x_log + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR);
+    }
+    x_log_old = x_log;
+    y_old = y1_new;
+  } // End for
+
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////
+/*
+    tft.fillRect(12, spectrum_y + 3, 33, 10, ILI9341_BLACK);
+    tft.setCursor(12, spectrum_y + 3);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(Arial_8);
+    tft.print(displayScale[currentScale].dbText);
+  
+    tft.fillRect(240, spectrum_y + 3, 20, 10, ILI9341_BLACK);
+    tft.setTextColor(ILI9341_WHITE);
+    tft.setFont(Arial_8);
+#if defined (HARDWARE_DD4WH_T4)
+  tft.drawNumber(bands[current_band].pixel_offset, 240, spectrum_y + 3);
+#else
+    tft.setCursor(240, spectrum_y + 3);
+    tft.printf("%4d", bands[current_band].pixel_offset);
+#endif
+*/
+
+  ulong   freq_calc;
+  ulong   i;
+  char    txt[16], *c;
+  float   grat;
+  int centerIdx;
+  const int pos_grat_y = 20;
+
+  if(bands[current_band].mode == DEMOD_WFM)
+  {
+    // WFM --> decimation-by-4
+    //freq_calc = SR[SAMPLE_RATE].rate / 4 / 2; // sample rate, decimation by DF and Nyquist (divide-by-2) and divided among 256 values in rdb array 
+    freq_calc = 12800.0f;
+  }
+  else
+  {
+    // other modes --> decimation-by-DF (normally 8)
+    //freq_calc = SR[SAMPLE_RATE].rate / DF / 2; // sample rate, decimation by DF and Nyquist (divide-by-2) and divided among 256 values in rdb array 
+    freq_calc = 12800.0f;
+  }
+
+  //Serial.print(" grat = ");Serial.println(grat);
+  Serial.print(" freq_calc = ");Serial.println(freq_calc);
+   
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setFont(Arial_8);
+  // clear print area for frequency text
+  //    tft.fillRect(0, spectrum_y + spectrum_height + pos_grat_y, 320, 8, ILI9341_BLACK);
+  tft.fillRect(0, spectrum_y + spectrum_WF_height + 5, 320, 240 - spectrum_y - spectrum_height - 5, ILI9341_BLACK);
+
+  centerIdx = -2;
+
+    // remainder of frequency/graticule markings
+    //        const static int idx2pos[2][9] = {{0,26,58,90,122,154,186,218, 242},{0,26,58,90,122,154,186,209, 229} };
+    // positions for graticules: first for spectrum_zoom < 3, then for spectrum_zoom > 2
+    const static int idx2pos[2][9] = {{ -10, 21, 52, 83, 123, 151, 186, 218, 252}, { -10, 21, 50, 86, 123, 154, 178, 218, 252} };
+    const static int centerIdx2pos[] = {62, 94, 140, 160, 192};
+
+    for (int idx = -4; idx < 5; idx++)
+    {
+      int pos_help = idx2pos[0][idx + 4];
+      //freq_calc * powf(2, (idx + 4))  
+     long number_to_print = AUDIO_EQUALIZER_MAX_DISPLAY_FREQ / powf(2.0f, 4.0f - (float32_t)idx); 
+     tft.drawNumber(number_to_print, spectrum_x + pos_help, spectrum_y + spectrum_WF_height + pos_grat_y); 
+//     tft.drawFloat((freq_calc / powf(2.0f, 4.0f - (float32_t)idx)),0, spectrum_x + pos_help, spectrum_y + spectrum_WF_height + pos_grat_y); 
+      //tft.print(txt);
+    }
+
+  tft.setFont(Arial_10);
+
+  //**************************************************************************
+  uint16_t base_y = spectrum_y + spectrum_WF_height + 4;
+
+  // center line
+    tft.drawFastVLine(spectrum_x + 63, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 127, base_y + 1, 10, ILI9341_YELLOW);
+
+  // vertical lines
+    tft.drawFastVLine(spectrum_x, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 255, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 191, base_y + 1, 10, ILI9341_YELLOW);
+
+    tft.drawFastVLine(spectrum_x + 31, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 95, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 159, base_y + 1, 10, ILI9341_YELLOW);
+    tft.drawFastVLine(spectrum_x + 223, base_y + 1, 10, ILI9341_YELLOW);
+ 
+  // first delete freq band indicator
+    tft.fillRect(BAND_INDICATOR_X, BAND_INDICATOR_Y - 1, 320 - BAND_INDICATOR_X, 15, ILI9341_BLACK);
+    tft.setTextColor(ILI9341_GREEN);      // Color for out-of-band tuning
+    tft.setFont(Arial_12);
+    tft.setCursor(BAND_INDICATOR_X, BAND_INDICATOR_Y); // 277,212
+    tft.print(" EQ");
+} // END AudioEqualizer_display_response
+
+void set_and_display_audio_EQ(void)
+{
+  uint8_t Audio_error = 1;
+  if(bands[current_band].mode == DEMOD_WFM)
+  {
+    Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_WFM_feq[0], &AudioEqualizer_WFM_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / 4.0f));
+  }
+  else
+  {
+    Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
+  }
+  Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
+  if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
+  else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
+
+  Serial.print("Sample rate: "); Serial.println(SR[SAMPLE_RATE].rate / DF);
+
+  AudioEqualizer_getResponse(AUDIO_EQUALIZER_N_FREQ, &AudioEqualizer_response[0]);
+
+  Serial.println("This is the AudioEqualizer response:");
+  for(int i = 0; i < AUDIO_EQUALIZER_N_FREQ; i++)
+  {
+//    Serial.println(AudioEqualizer_response[i]);
+  }
+  Serial.println();
+
+  AudioEqualizer_display_response(AUDIO_EQUALIZER_N_FREQ, &AudioEqualizer_response[0]);
+}
+
+void update_EQ_gains(void)
+{
+        if(bands[current_band].mode == DEMOD_WFM)
+        {
+          EQ1_gain = AudioEqualizer_WFM_dB[0] / EQ_DB_MULT;
+          EQ2_gain = AudioEqualizer_WFM_dB[1] / EQ_DB_MULT;
+          EQ3_gain = AudioEqualizer_WFM_dB[2] / EQ_DB_MULT;
+          EQ4_gain = AudioEqualizer_WFM_dB[3] / EQ_DB_MULT;
+          EQ5_gain = AudioEqualizer_WFM_dB[4] / EQ_DB_MULT;
+          EQ6_gain = AudioEqualizer_WFM_dB[5] / EQ_DB_MULT;
+          EQ7_gain = AudioEqualizer_WFM_dB[6] / EQ_DB_MULT;
+          EQ8_gain = AudioEqualizer_WFM_dB[7] / EQ_DB_MULT;
+          EQ9_gain = AudioEqualizer_WFM_dB[8] / EQ_DB_MULT;
+        }
+        else
+        {
+          EQ1_gain = AudioEqualizer_Standard_dB[0] / EQ_DB_MULT;
+          EQ2_gain = AudioEqualizer_Standard_dB[1] / EQ_DB_MULT;
+          EQ3_gain = AudioEqualizer_Standard_dB[2] / EQ_DB_MULT;
+          EQ4_gain = AudioEqualizer_Standard_dB[3] / EQ_DB_MULT;
+          EQ5_gain = AudioEqualizer_Standard_dB[4] / EQ_DB_MULT;
+          EQ6_gain = AudioEqualizer_Standard_dB[5] / EQ_DB_MULT;
+          EQ7_gain = AudioEqualizer_Standard_dB[6] / EQ_DB_MULT;
+          EQ8_gain = AudioEqualizer_Standard_dB[7] / EQ_DB_MULT;
+          EQ9_gain = AudioEqualizer_Standard_dB[8] / EQ_DB_MULT;
+        }
+}
