@@ -1943,7 +1943,7 @@ uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
 #define ERR_EQ_NFIR 3
 #define AUDIO_EQUALIZER_MAX_GAIN  +20.0f
 #define AUDIO_EQUALIZER_MIN_GAIN  -20.0f
-#define AUDIO_EQUALIZER_STEP      -4.0f
+#define AUDIO_EQUALIZER_STEP        2.0f // division factor in the encoder function
         arm_fir_instance_f32 AudioEqualizer_FIR_L;
         arm_fir_instance_f32 AudioEqualizer_FIR_R;
         float32_t DMAMEM AudioEqualizer_FIR_L_state [WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS];  // max, max
@@ -10060,6 +10060,7 @@ void buttons() {
         SAMPLE_RATE = SAMPLE_RATE_234K;
 #endif        
         set_samplerate();
+        set_and_display_audio_EQ();
         show_frequency(bands[current_band].freq, 1);
       }
       else
@@ -10069,6 +10070,7 @@ void buttons() {
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           set_samplerate();
+          set_and_display_audio_EQ();
         }
       }
       //delay(1);
@@ -18688,10 +18690,10 @@ void AudioEqualizer_display_response (uint16_t nFreq, float32_t *rdb)
   tft.drawFastVLine (spectrum_x + 191, spectrum_y, h, ILI9341_MAROON);
 
   // Draw EQ response display
-  for (int16_t x = 0; x < nFreq; x++)
+  for (int16_t x = 1; x < nFreq; x++)
   {
     // TODO: automatic scaling of the freq response display
-    y_new = 2.0f * (rdb[x] + 25.0f);
+    y_new = 2.0f * (rdb[x] + 24.0f);
 
     if (y_new > (spectrum_height - 1))
       y_new = (spectrum_height - 1);
@@ -18722,6 +18724,8 @@ void AudioEqualizer_display_response (uint16_t nFreq, float32_t *rdb)
     x_scaled /= AUDIO_EQUALIZER_MAX_DISPLAY_FREQ;
     // logarithmic scaling of frequency axis, 32 pixel per log-step corrected for no. of calculated response freq points
     x_log = (log2f(x_scaled + 0.0000001f) * pixel_per_logstep) - 1;
+    if(x_log > 255) x_log = 255; // avoid pixels outside of display
+    else if(x_log < -spectrum_x) x_log = -spectrum_x;
     //x_log = x_scaled;
     // DRAW NEW LINE/POINT
     if (y1_new - y1_new_minus > 1)
