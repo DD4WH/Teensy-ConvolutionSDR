@@ -1,5 +1,5 @@
 /*********************************************************************************************
-   (c) Frank DD4WH 2020_09_07
+   (c) Frank DD4WH 2020_09_08
 
    "TEENSY CONVOLUTION SDR"
 
@@ -13570,7 +13570,7 @@ struct config_t {
   int agc_decay;
   int agc_slope;
   uint8_t auto_IQ_correction;
-  float32_t EQ1_gain;
+/*  float32_t EQ1_gain;
   float32_t EQ2_gain;
   float32_t EQ3_gain;
   float32_t EQ4_gain;
@@ -13579,6 +13579,9 @@ struct config_t {
   float32_t EQ7_gain;
   float32_t EQ8_gain;
   float32_t EQ9_gain;
+*/
+  float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands];
+  float32_t AudioEqualizer_Standard_dB[AudioEqualizer_nBands];
   int8_t RF_attenuation;
   uint8_t show_spectrum_flag;
   float32_t stereo_factor;
@@ -13634,7 +13637,7 @@ void EEPROM_LOAD() { //mdrhere
     agc_decay = E.agc_decay;
     agc_slope = E.agc_slope;
     auto_IQ_correction = E.auto_IQ_correction;
-    EQ1_gain = E.EQ1_gain;
+/*    EQ1_gain = E.EQ1_gain;
     EQ2_gain = E.EQ2_gain;
     EQ3_gain = E.EQ3_gain;
     EQ4_gain = E.EQ4_gain;
@@ -13642,7 +13645,12 @@ void EEPROM_LOAD() { //mdrhere
     EQ6_gain = E.EQ6_gain;
     EQ7_gain = E.EQ7_gain;
     EQ8_gain = E.EQ8_gain;
-    EQ9_gain = E.EQ9_gain;
+    EQ9_gain = E.EQ9_gain; */
+    for (unsigned i=0; i < AudioEqualizer_nBands; i++)
+    {
+      AudioEqualizer_WFM_dB[i] = E.AudioEqualizer_WFM_dB[i];
+      AudioEqualizer_Standard_dB[i] = E.AudioEqualizer_Standard_dB[i];
+    }
     RF_attenuation = E.RF_attenuation;
     show_spectrum_flag = E.show_spectrum_flag;
     stereo_factor = E.stereo_factor;
@@ -13696,7 +13704,7 @@ void EEPROM_SAVE() {
   E.agc_decay = agc_decay;
   E.agc_slope = agc_slope;
   E.auto_IQ_correction = auto_IQ_correction;
-  E.EQ1_gain = EQ1_gain; 
+/*  E.EQ1_gain = EQ1_gain; 
   E.EQ2_gain = EQ2_gain; 
   E.EQ3_gain = EQ3_gain; 
   E.EQ4_gain = EQ4_gain; 
@@ -13704,7 +13712,12 @@ void EEPROM_SAVE() {
   E.EQ6_gain = EQ6_gain; 
   E.EQ7_gain = EQ7_gain; 
   E.EQ8_gain = EQ8_gain; 
-  E.EQ9_gain = EQ9_gain; 
+  E.EQ9_gain = EQ9_gain; */
+  for (unsigned i=0; i < AudioEqualizer_nBands; i++)
+  {
+      E.AudioEqualizer_WFM_dB[i] = AudioEqualizer_WFM_dB[i];
+      E.AudioEqualizer_Standard_dB[i] = AudioEqualizer_Standard_dB[i];
+  }
   E.RF_attenuation = RF_attenuation;
   E.show_spectrum_flag = show_spectrum_flag;
   E.stereo_factor = stereo_factor;
