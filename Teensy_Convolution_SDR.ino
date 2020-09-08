@@ -126,7 +126,7 @@
    - menu assistant by tisho makes menu buttons obsolete and makes menu navigation MUCH easier ! Thanks tisho!
    - Zoom FFT now correctly implemented for every zoom step up to 2048x --> now exclusively uses CMSIS decimation function and no more IIR filters, (formerly magnifications > 256x were spoiled, sample rate was fixed and not correctly taken into account for the lowpass filters)
    - bugfix !? NoAudioInterrupts() - AudioInterrupts() should not be used with T4.x --> causes problems because of the spread spectrum adjustments !???
-   - experimental implementation of 9-band audio equalizer [Bob Larkins design, not yet in menu]: variables line 1928, setup: line 3655
+   - experimental implementation of 9-band audio equalizer [Bob Larkins design]: variables line 1928, setup: line 3655
     
    TODO:
    - implement Bob Larkins´ FIR equalizer (https://forum.pjrc.com/threads/60928-Audio-Equalizer-using-FIR?highlight=equalizer) for every hardware and eliminate the SGTL5000 hardware-based equalizer (the latter does not work as it should, at least for the 5-band version)
@@ -1931,8 +1931,8 @@ const float32_t FIR_WFM_Coef[] =
     
  ****************************************************************************************/
 #if defined (T4)
-uint16_t  AudioEqualizer_nFIR  = 197;              // Number of coefficients
-#define EQUALIZER_MAX_COEFFS 199
+uint16_t  AudioEqualizer_nFIR  = 200;              // Number of coefficients
+#define EQUALIZER_MAX_COEFFS 200
 #else
 uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
 #define EQUALIZER_MAX_COEFFS 69
@@ -1941,6 +1941,9 @@ uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
 #define ERR_EQ_BANDS 1
 #define ERR_EQ_SIDELOBES 2
 #define ERR_EQ_NFIR 3
+#define AUDIO_EQUALIZER_MAX_GAIN  +20.0f
+#define AUDIO_EQUALIZER_MIN_GAIN  -20.0f
+#define AUDIO_EQUALIZER_STEP      -4.0f
         arm_fir_instance_f32 AudioEqualizer_FIR_L;
         arm_fir_instance_f32 AudioEqualizer_FIR_R;
         float32_t DMAMEM AudioEqualizer_FIR_L_state [WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS];  // max, max
@@ -1950,14 +1953,15 @@ uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
 
         #define AUDIO_EQUALIZER_N_FREQ 2048 //16384 // no. of dB values that will be calculated evenly divided among the frequency span 
         float32_t DMAMEM AudioEqualizer_response[AUDIO_EQUALIZER_N_FREQ];
-        #define AUDIO_EQUALIZER_MAX_DISPLAY_FREQ 12800.0f
+        #define AUDIO_EQUALIZER_MAX_DISPLAY_FREQ 16000.0f //12800.0f
+//        #define AUDIO_EQUALIZER_MAX_DISPLAY_FREQ 20000.0f
         const uint16_t AudioEqualizer_nBands = 9;
-        uint16_t AudioEqualizer_dBsidelobe = 30;
+        uint16_t AudioEqualizer_dBsidelobe = 60;
         // for samplerate = 100ksps and decimate-by-8 --> max audio frequency is 50 / 8 = 6.25 --> in practice it is 6.2kHz 
-        //float32_t fBand2[] = {    40.0, 80.0, 160.0, 320.0, 640.0, 1280.0, 2560.0, 5120.0, 10240.0, 22058.5};
-        //float32_t dbBand2[] = {   10.0,  6.0, -2.0,  -5.0, -2.0,  -4.0,   -10.0,   6.0,    0.0,    -100};
-        float32_t AudioEqualizer_WFM_feq[AudioEqualizer_nBands] = {50.0,   100.0,   200.0,   400.0,  800.0,  1600.0,  3200.0,  6400.0,  12800.0 };
-        float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands] =  {0.0,    10.0,   10.0,      0.0,    0.0,     3.0,     0.0,     0.0,     0.0 };
+//        float32_t AudioEqualizer_WFM_feq[AudioEqualizer_nBands] = {50.0,   100.0,   200.0,   400.0,  800.0,  1600.0,  3200.0,  6400.0,  12800.0 };
+//        float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands] =  {0.0,    10.0,   10.0,      0.0,    0.0,     3.0,     0.0,     0.0,     0.0 };
+        float32_t AudioEqualizer_WFM_feq[AudioEqualizer_nBands] = {80.0,   160.0,   320.0,   640.0,  1280.0,  2560.0,  5120.0,  10240.0,  22058.5 };
+        float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands] =  {2.0,    -2.0,   -5.0,      -2.0,    -4.0,     -20.0,     6.0,     10.0,     -100.0 };
         float32_t AudioEqualizer_Standard_feq[AudioEqualizer_nBands] = {50.0,   100.0,   200.0,   400.0,  800.0,  1600.0,  2400.0,  3600.0,  6000.0 };
         float32_t AudioEqualizer_Standard_dB[AudioEqualizer_nBands] =  {0.0,    10.0,   10.0,      0.0,    0.0,     3.0,     0.0,     0.0,     0.0  };
         uint16_t AudioEqualizer_nFIR_private = AudioEqualizer_nFIR;
@@ -3694,11 +3698,12 @@ void setup() {
   /****************************************************************************************
      Audio Equalizer FIR filter init (Bob Larkin)
   ****************************************************************************************/
-  uint8_t Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
-  Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
-  if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
-  else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
-  //delay(10000);
+  set_and_display_audio_EQ();
+  //uint8_t Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
+  //Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
+  //if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
+  //else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
+  delay(2000);
   
   /****************************************************************************************
       Initialize spectral noise reduction variables
@@ -10711,7 +10716,7 @@ void show_menu()
       case MENU_SAM_ZETA:
         tft.print(zeta);
         break;
-      case MENU_EQ1:
+/*      case MENU_EQ1:
       update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
         tft.drawNumber(EQ1_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
@@ -10719,7 +10724,126 @@ void show_menu()
         tft.printf("%2.0f", EQ1_gain * 100.0);
 #endif
         break;
+*/
+
+      case MENU_EQ1:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[0]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[0]);
+          }
+      break;
+
       case MENU_EQ2:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[1]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[1]);
+          }
+      break;
+      
+      case MENU_EQ3:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[2]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[2]);
+          }
+      break;
+
+      case MENU_EQ4:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[3]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[3]);
+          }
+      break;
+
+      case MENU_EQ5:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[4]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[4]);
+          }
+      break;
+
+      case MENU_EQ6:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[5]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[5]);
+          }
+      break;
+
+      case MENU_EQ7:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[6]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[6]);
+          }
+      break;
+
+      case MENU_EQ8:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[7]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[7]);
+          }
+      break;
+
+      case MENU_EQ9:
+          tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
+          tft.setFont(Arial_11);
+          if(bands[current_band].mode == DEMOD_WFM)
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_WFM_dB[8]);
+          }
+          else
+          {
+            tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[8]);
+          }
+      break;
+
+/*      case MENU_EQ2:
       update_EQ_gains();
 #if defined (HARDWARE_DD4WH_T4)
         tft.drawNumber(EQ2_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
@@ -10783,6 +10907,7 @@ void show_menu()
         tft.printf("%2.0f", EQ9_gain * 100.0);
 #endif
         break;
+*/        
       case MENU_SAM_OMEGA:
 #if defined (HARDWARE_DD4WH_T4)
         tft.drawNumber(omegaN, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
@@ -12299,7 +12424,8 @@ void encoders () {
       if (stereo_factor < 0) stereo_factor = 0;
       else if (stereo_factor > 400) stereo_factor = 400;
     }
-    else if (Menu2 == MENU_EQ1)
+    
+/*    else if (Menu2 == MENU_EQ1)
     {
       EQ1_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (EQ1_gain > 1.0) EQ1_gain = 1.0;
@@ -12314,7 +12440,144 @@ void encoders () {
       }
       set_and_display_audio_EQ();
     }
+*/
+    else if (Menu2 == MENU_EQ1)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[0] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[0], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[0] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[0], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
     else if (Menu2 == MENU_EQ2)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[1] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[1], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[1] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[1], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ3)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[2] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[2], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[2] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[2], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ4)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[3] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[3], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[3] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[3], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ5)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[4] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[4], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[4] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[4], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ6)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[5] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[5], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[5] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[5], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ7)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[6] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[6], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[6] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[6], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ8)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[7] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[7], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[7] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[7], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    else if (Menu2 == MENU_EQ9)
+    {
+      if (bands[current_band].mode == DEMOD_WFM)
+      {
+        AudioEqualizer_WFM_dB[8] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_WFM_dB[8], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      else
+      {
+        AudioEqualizer_Standard_dB[8] += (float32_t)encoder3_change / AUDIO_EQUALIZER_STEP * ENCODER_FACTOR;
+        clampf(&AudioEqualizer_Standard_dB[8], AUDIO_EQUALIZER_MIN_GAIN, AUDIO_EQUALIZER_MAX_GAIN);
+      }
+      set_and_display_audio_EQ();
+    }
+
+    
+/*    else if (Menu2 == MENU_EQ2)
     {
       EQ2_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
       if (EQ2_gain > 1.0) EQ2_gain = 1.0;
@@ -12434,7 +12697,7 @@ void encoders () {
       }
       set_and_display_audio_EQ();
     }
-
+*/
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
       if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change * ENCODER_FACTOR;
@@ -18397,7 +18660,7 @@ void AudioEqualizer_display_response (uint16_t nFreq, float32_t *rdb)
   Serial.print("sepctrum_y = ");
   Serial.println(spectrum_y);
   // first delete display
-  tft.fillRect(0, spectrum_y - 1, 320, 241 - spectrum_y, ILI9341_BLACK);
+  tft.fillRect(0, spectrum_y - 1, 268, 241 - spectrum_y, ILI9341_BLACK);
 
   // set spectrum flag to zero
   show_spectrum_flag = 0;  
@@ -18463,17 +18726,14 @@ void AudioEqualizer_display_response (uint16_t nFreq, float32_t *rdb)
     // DRAW NEW LINE/POINT
     if (y1_new - y1_new_minus > 1)
     { // plot line upwards
-//      tft.drawFastVLine(x + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
       tft.drawFastVLine(x_log + spectrum_x, y1_new_minus + 1, y1_new - y1_new_minus, SPECTRUM_DRAW_COLOUR);
     }
     else if (y1_new - y1_new_minus < -1)
     { // plot line downwards
-//      tft.drawFastVLine(x + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
       tft.drawFastVLine(x_log + spectrum_x, y1_new, y1_new_minus - y1_new, SPECTRUM_DRAW_COLOUR);
     }
     else
     {
-//      tft.drawPixel(x + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
       tft.drawPixel(x_log + spectrum_x, y1_new, SPECTRUM_DRAW_COLOUR); // write new pixel
     }
     y1_new_minus = y1_new;
@@ -18612,30 +18872,8 @@ void set_and_display_audio_EQ(void)
   AudioEqualizer_display_response(AUDIO_EQUALIZER_N_FREQ, &AudioEqualizer_response[0]);
 }
 
-void update_EQ_gains(void)
+void clampf (float32_t * value, float32_t minimum, float32_t maximum)
 {
-        if(bands[current_band].mode == DEMOD_WFM)
-        {
-          EQ1_gain = AudioEqualizer_WFM_dB[0] / EQ_DB_MULT;
-          EQ2_gain = AudioEqualizer_WFM_dB[1] / EQ_DB_MULT;
-          EQ3_gain = AudioEqualizer_WFM_dB[2] / EQ_DB_MULT;
-          EQ4_gain = AudioEqualizer_WFM_dB[3] / EQ_DB_MULT;
-          EQ5_gain = AudioEqualizer_WFM_dB[4] / EQ_DB_MULT;
-          EQ6_gain = AudioEqualizer_WFM_dB[5] / EQ_DB_MULT;
-          EQ7_gain = AudioEqualizer_WFM_dB[6] / EQ_DB_MULT;
-          EQ8_gain = AudioEqualizer_WFM_dB[7] / EQ_DB_MULT;
-          EQ9_gain = AudioEqualizer_WFM_dB[8] / EQ_DB_MULT;
-        }
-        else
-        {
-          EQ1_gain = AudioEqualizer_Standard_dB[0] / EQ_DB_MULT;
-          EQ2_gain = AudioEqualizer_Standard_dB[1] / EQ_DB_MULT;
-          EQ3_gain = AudioEqualizer_Standard_dB[2] / EQ_DB_MULT;
-          EQ4_gain = AudioEqualizer_Standard_dB[3] / EQ_DB_MULT;
-          EQ5_gain = AudioEqualizer_Standard_dB[4] / EQ_DB_MULT;
-          EQ6_gain = AudioEqualizer_Standard_dB[5] / EQ_DB_MULT;
-          EQ7_gain = AudioEqualizer_Standard_dB[6] / EQ_DB_MULT;
-          EQ8_gain = AudioEqualizer_Standard_dB[7] / EQ_DB_MULT;
-          EQ9_gain = AudioEqualizer_Standard_dB[8] / EQ_DB_MULT;
-        }
+  if(*value < minimum) *value = minimum;
+  else if (*value > maximum) *value = maximum;
 }
