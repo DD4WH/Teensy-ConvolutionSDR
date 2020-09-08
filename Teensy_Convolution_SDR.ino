@@ -3312,6 +3312,17 @@ void setup() {
       LMS_nr_delay[i] = 0.0;
   }
 
+  for(unsigned i = 0; i < (WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS); i++)
+  {
+     AudioEqualizer_FIR_L_state[i] = 0.0f;
+     AudioEqualizer_FIR_R_state[i] = 0.0f;
+  }
+
+  for(unsigned i = 0; i < (EQUALIZER_MAX_COEFFS); i++)
+  {
+    AudioEqualizer_FIR_coeffs[i] = 0.0f;
+  }
+
   /****************************************************************************************
      set filter bandwidth
   ****************************************************************************************/
@@ -10060,7 +10071,7 @@ void buttons() {
         SAMPLE_RATE = SAMPLE_RATE_234K;
 #endif        
         set_samplerate();
-        set_and_display_audio_EQ();
+//        set_and_display_audio_EQ();
         show_frequency(bands[current_band].freq, 1);
       }
       else
@@ -10070,9 +10081,10 @@ void buttons() {
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           set_samplerate();
-          set_and_display_audio_EQ();
+//          set_and_display_audio_EQ();
         }
       }
+      set_and_display_audio_EQ();
       //delay(1);
 #if (!defined(HARDWARE_DD4WH_T4))
       //sgtl5000_1.dacVolume(1.0);
@@ -10117,6 +10129,7 @@ void buttons() {
         SAMPLE_RATE = SAMPLE_RATE_234K;
 #endif        
         set_samplerate();
+        set_and_display_audio_EQ();
         show_frequency(bands[current_band].freq, 1);
       }
       else
@@ -10127,6 +10140,7 @@ void buttons() {
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
+          set_and_display_audio_EQ();
         }
       }
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -10170,6 +10184,7 @@ void buttons() {
         SAMPLE_RATE = SAMPLE_RATE_234K;
 #endif        
         set_samplerate();
+        set_and_display_audio_EQ();        
         show_frequency(bands[current_band].freq, 1);
       }
       else
@@ -10178,8 +10193,8 @@ void buttons() {
         { // switch from WFM to any other mode
           show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
+          set_and_display_audio_EQ();
         }
       }
 
