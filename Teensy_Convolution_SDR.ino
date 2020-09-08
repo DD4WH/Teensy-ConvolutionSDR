@@ -10033,6 +10033,9 @@ void buttons() {
 #endif
     }
     else
+///////////////////////////////////////////////////////////////////////////////////
+/////   BAND --
+///////////////////////////////////////////////////////////////////////////////////
     {
       int last_band = current_band;
       current_band--;
@@ -10069,10 +10072,10 @@ void buttons() {
       {
         if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
-          show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           set_samplerate();
-//          set_and_display_audio_EQ();
+          set_and_display_audio_EQ();
+          show_spectrum_flag = 1;
         }
       }
       set_and_display_audio_EQ();
@@ -10090,6 +10093,9 @@ void buttons() {
       pausetrack();
 #endif
     }
+///////////////////////////////////////////////////////////////////////////////////
+/////   BAND ++
+///////////////////////////////////////////////////////////////////////////////////
     else
     {
       //AudioNoInterrupts();
@@ -10127,11 +10133,10 @@ void buttons() {
       {
         if (bands[last_band].mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
-          show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
-          //setI2SFreq(SAMPLE_RATE);
           set_samplerate();
           set_and_display_audio_EQ();
+          show_spectrum_flag = 1;
         }
       }
 #if (!defined(HARDWARE_DD4WH_T4))
@@ -10182,10 +10187,10 @@ void buttons() {
       {
         if (old_mode == DEMOD_WFM && SAMPLE_RATE != LAST_SAMPLE_RATE)
         { // switch from WFM to any other mode
-          show_spectrum_flag = 1;
           SAMPLE_RATE = LAST_SAMPLE_RATE;
           set_samplerate();
           set_and_display_audio_EQ();
+          show_spectrum_flag = 1;
         }
       }
 
