@@ -1544,17 +1544,6 @@ float32_t LP_Astop = 90;
 
 int audio_volume = 50;
 
-#define EQ_DB_MULT  20.0f 
-float32_t EQ1_gain = 0.0;
-float32_t EQ2_gain = 0.0;
-float32_t EQ3_gain = 0.0;
-float32_t EQ4_gain = 0.0;
-float32_t EQ5_gain = 0.0;
-float32_t EQ6_gain = 0.0;
-float32_t EQ7_gain = 0.0;
-float32_t EQ8_gain = 0.0;
-float32_t EQ9_gain = 0.0;
-
 float32_t stereo_factor = 100.0;
 uint8_t half_clip = 0;
 uint8_t quarter_clip = 0;
@@ -1944,6 +1933,8 @@ uint16_t  AudioEqualizer_nFIR  = 69;              // Number of coefficients
 #define AUDIO_EQUALIZER_MAX_GAIN  +20.0f
 #define AUDIO_EQUALIZER_MIN_GAIN  -20.0f
 #define AUDIO_EQUALIZER_STEP        2.0f // division factor in the encoder function
+#define EQ_DB_MULT  20.0f 
+
         arm_fir_instance_f32 AudioEqualizer_FIR_L;
         arm_fir_instance_f32 AudioEqualizer_FIR_R;
         float32_t DMAMEM AudioEqualizer_FIR_L_state [WFM_BLOCKS * BUFFER_SIZE + EQUALIZER_MAX_COEFFS];  // max, max
@@ -10733,15 +10724,6 @@ void show_menu()
       case MENU_SAM_ZETA:
         tft.print(zeta);
         break;
-/*      case MENU_EQ1:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ1_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ1_gain * 100.0);
-#endif
-        break;
-*/
 
       case MENU_EQ1:
           tft.setCursor(spectrum_x + 256 + 3, spectrum_y + 31 + 31 + 7);
@@ -10859,72 +10841,7 @@ void show_menu()
             tft.printf("%2.1fdB", AudioEqualizer_Standard_dB[8]);
           }
       break;
-
-/*      case MENU_EQ2:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ2_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ2_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ3:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ3_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ3_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ4:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ4_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ4_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ5:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ5_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ5_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ6:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ6_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ6_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ7:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ7_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ7_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ8:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ8_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ8_gain * 100.0);
-#endif
-        break;
-      case MENU_EQ9:
-      update_EQ_gains();
-#if defined (HARDWARE_DD4WH_T4)
-        tft.drawNumber(EQ9_gain * 100.0, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
-#else
-        tft.printf("%2.0f", EQ9_gain * 100.0);
-#endif
-        break;
-*/        
+       
       case MENU_SAM_OMEGA:
 #if defined (HARDWARE_DD4WH_T4)
         tft.drawNumber(omegaN, spectrum_x + 256 + 12, spectrum_y + 31 + 31 + 7); 
@@ -12442,22 +12359,6 @@ void encoders () {
       else if (stereo_factor > 400) stereo_factor = 400;
     }
     
-/*    else if (Menu2 == MENU_EQ1)
-    {
-      EQ1_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ1_gain > 1.0) EQ1_gain = 1.0;
-      else if (EQ1_gain < -1.0) EQ1_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[0] = EQ1_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[0] = EQ1_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-*/
     else if (Menu2 == MENU_EQ1)
     {
       if (bands[current_band].mode == DEMOD_WFM)
@@ -12593,128 +12494,6 @@ void encoders () {
       set_and_display_audio_EQ();
     }
 
-    
-/*    else if (Menu2 == MENU_EQ2)
-    {
-      EQ2_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ2_gain > 1.0) EQ2_gain = 1.0;
-      else if (EQ2_gain < -1.0) EQ2_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[1] = EQ2_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[1] = EQ2_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ3)
-    {
-      EQ3_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ3_gain > 1.0) EQ3_gain = 1.0;
-      else if (EQ3_gain < -1.0) EQ3_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[2] = EQ3_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[2] = EQ3_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ4)
-    {
-      EQ4_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ4_gain > 1.0) EQ4_gain = 1.0;
-      else if (EQ4_gain < -1.0) EQ4_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[3] = EQ4_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[3] = EQ4_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ5)
-    {
-      EQ5_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ5_gain > 1.0) EQ5_gain = 1.0;
-      else if (EQ5_gain < -1.0) EQ5_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[4] = EQ5_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[4] = EQ5_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ6)
-    {
-      EQ6_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ6_gain > 1.0) EQ6_gain = 1.0;
-      else if (EQ6_gain < -1.0) EQ6_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[5] = EQ6_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[5] = EQ6_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ7)
-    {
-      EQ7_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ7_gain > 1.0) EQ7_gain = 1.0;
-      else if (EQ7_gain < -1.0) EQ7_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[6] = EQ7_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[6] = EQ7_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ8)
-    {
-      EQ8_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ8_gain > 1.0) EQ8_gain = 1.0;
-      else if (EQ8_gain < -1.0) EQ8_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[7] = EQ8_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[7] = EQ8_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-    else if (Menu2 == MENU_EQ9)
-    {
-      EQ9_gain += (float32_t)encoder3_change / 20.0f * ENCODER_FACTOR;
-      if (EQ9_gain > 1.0) EQ9_gain = 1.0;
-      else if (EQ9_gain < -1.0) EQ9_gain = -1.0;
-      if (bands[current_band].mode == DEMOD_WFM)
-      {
-        AudioEqualizer_WFM_dB[8] = EQ9_gain * EQ_DB_MULT;
-      }
-      else 
-      {
-        AudioEqualizer_Standard_dB[8] = EQ9_gain * EQ_DB_MULT;
-      }
-      set_and_display_audio_EQ();
-    }
-*/
     else if (Menu2 == MENU_SPECTRUM_DISPLAY_SCALE)
     {
       if (spectrum_display_scale < 100) spectrum_display_scale = spectrum_display_scale + encoder3_change * ENCODER_FACTOR;
@@ -13570,16 +13349,6 @@ struct config_t {
   int agc_decay;
   int agc_slope;
   uint8_t auto_IQ_correction;
-/*  float32_t EQ1_gain;
-  float32_t EQ2_gain;
-  float32_t EQ3_gain;
-  float32_t EQ4_gain;
-  float32_t EQ5_gain;
-  float32_t EQ6_gain;
-  float32_t EQ7_gain;
-  float32_t EQ8_gain;
-  float32_t EQ9_gain;
-*/
   float32_t AudioEqualizer_WFM_dB[AudioEqualizer_nBands];
   float32_t AudioEqualizer_Standard_dB[AudioEqualizer_nBands];
   int8_t RF_attenuation;
@@ -13621,10 +13390,6 @@ void EEPROM_LOAD() { //mdrhere
     for (int i = 0; i < (NUM_BANDS); i++)
       bands[i].pixel_offset = E.pixel_offset[i];
     current_band = E.current_band;
-    //I_help = E.I_ampl;
-    //Q_in_I_help = E.Q_in_I;
-    //I_in_Q_help = E.I_in_Q;
-    //Window_FFT = E.Window_FFT;
     LPF_spectrum = E.LPFcoeff;
     audio_volume = E.audio_volume;
     AGC_mode = E.AGC_mode;
@@ -13637,15 +13402,6 @@ void EEPROM_LOAD() { //mdrhere
     agc_decay = E.agc_decay;
     agc_slope = E.agc_slope;
     auto_IQ_correction = E.auto_IQ_correction;
-/*    EQ1_gain = E.EQ1_gain;
-    EQ2_gain = E.EQ2_gain;
-    EQ3_gain = E.EQ3_gain;
-    EQ4_gain = E.EQ4_gain;
-    EQ5_gain = E.EQ5_gain;
-    EQ6_gain = E.EQ6_gain;
-    EQ7_gain = E.EQ7_gain;
-    EQ8_gain = E.EQ8_gain;
-    EQ9_gain = E.EQ9_gain; */
     for (unsigned i=0; i < AudioEqualizer_nBands; i++)
     {
       AudioEqualizer_WFM_dB[i] = E.AudioEqualizer_WFM_dB[i];
@@ -13657,8 +13413,6 @@ void EEPROM_LOAD() { //mdrhere
     spectrum_display_scale = E.spectrum_display_scale;
     spectrum_zoom = E.spectrum_zoom;
     NR_use_X = E.NR_use_X;
-    //  NR_L_frames = E.NR_L_frames;
-    //  NR_N_frames = E.NR_N_frames;
     NR_PSI = E.NR_PSI;
     NR_alpha = E.NR_alpha;
     NR_beta = E.NR_beta;
@@ -13688,11 +13442,6 @@ void EEPROM_SAVE() {
     E.AGC_thresh[i] = bands[i].AGC_thresh;
   for (int i = 0; i < (NUM_BANDS); i++)
     E.pixel_offset[i] = bands[i].pixel_offset;
-  //      E.I_ampl = I_help;
-  //      E.Q_in_I = Q_in_I_help;
-  //      E.I_in_Q = I_in_Q_help;
-  //      E.Window_FFT = Window_FFT;
-  //      E.LPFcoeff = LPFcoeff;
   E.LPFcoeff = LPF_spectrum;
   E.audio_volume = audio_volume;
   E.AGC_mode = AGC_mode;
@@ -13704,15 +13453,6 @@ void EEPROM_SAVE() {
   E.agc_decay = agc_decay;
   E.agc_slope = agc_slope;
   E.auto_IQ_correction = auto_IQ_correction;
-/*  E.EQ1_gain = EQ1_gain; 
-  E.EQ2_gain = EQ2_gain; 
-  E.EQ3_gain = EQ3_gain; 
-  E.EQ4_gain = EQ4_gain; 
-  E.EQ5_gain = EQ5_gain; 
-  E.EQ6_gain = EQ6_gain; 
-  E.EQ7_gain = EQ7_gain; 
-  E.EQ8_gain = EQ8_gain; 
-  E.EQ9_gain = EQ9_gain; */
   for (unsigned i=0; i < AudioEqualizer_nBands; i++)
   {
       E.AudioEqualizer_WFM_dB[i] = AudioEqualizer_WFM_dB[i];
@@ -13724,8 +13464,6 @@ void EEPROM_SAVE() {
   E.spectrum_display_scale = spectrum_display_scale;
   E.spectrum_zoom = spectrum_zoom;
   E.NR_use_X = NR_use_X;
-  //  E.NR_L_frames = NR_L_frames;
-  //  E.NR_N_frames = NR_N_frames;
   E.NR_PSI = NR_PSI;
   E.NR_alpha = NR_alpha;
   E.NR_beta = NR_beta;
