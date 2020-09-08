@@ -10101,7 +10101,7 @@ void buttons() {
     }
     else
     {
-      AudioNoInterrupts();
+      //AudioNoInterrupts();
       int last_band = current_band;
       current_band++;
       if (current_band > LAST_BAND) current_band = FIRST_BAND; // cycle thru radio bands
@@ -10146,8 +10146,8 @@ void buttons() {
 #if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(1.0);
 #endif
-      delay(1);
-      AudioInterrupts();
+      //delay(1);
+      //AudioInterrupts();
     }
   }
   if ( button3.fallingEdge()) {  // cycle through DEMOD modes
@@ -10161,7 +10161,7 @@ void buttons() {
     { int old_mode = bands[current_band].mode;
       bands[current_band].mode++;
       if (bands[current_band].mode > DEMOD_MAX) bands[current_band].mode = DEMOD_MIN; // cycle thru demod modes
-      AudioNoInterrupts();
+      //AudioNoInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(0.0);
 #endif
@@ -10207,8 +10207,8 @@ void buttons() {
 #endif
 
       //idx_t = 0;
-      delay(10);
-      AudioInterrupts();
+      //delay(10);
+      //AudioInterrupts();
 #if (!defined(HARDWARE_DD4WH_T4))
       sgtl5000_1.dacVolume(1.0);
 #endif      
@@ -11672,10 +11672,10 @@ void autotune() {
       else
       {
         autotune_flag = 0;
-        AudioNoInterrupts();
+        //AudioNoInterrupts();
         Q_in_L.clear();
         Q_in_R.clear();
-        AudioInterrupts();
+        //AudioInterrupts();
       }
     }
     //        Serial.print("DELTA 2 = ");
@@ -11858,7 +11858,7 @@ void setup_mode(int MO) {
 
 void set_samplerate ()
 {
-  AudioNoInterrupts();
+  //AudioNoInterrupts();
   if (SAMPLE_RATE > SAMPLE_RATE_MAX) SAMPLE_RATE = SAMPLE_RATE_MAX;
   if (SAMPLE_RATE < SAMPLE_RATE_MIN) SAMPLE_RATE = SAMPLE_RATE_MIN;
   setI2SFreq (SR[SAMPLE_RATE].rate);
@@ -11884,7 +11884,7 @@ void set_samplerate ()
   set_SAM_PLL();
 
   // NEW: this code is now in set_dec_int_filters() and is called by filter_bandwidth()
-  AudioInterrupts();
+  //AudioInterrupts();
 }
 
 void prepare_WFM(void)
