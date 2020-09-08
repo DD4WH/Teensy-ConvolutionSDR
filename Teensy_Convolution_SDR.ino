@@ -3700,12 +3700,18 @@ void setup() {
   /****************************************************************************************
      Audio Equalizer FIR filter init (Bob Larkin)
   ****************************************************************************************/
-  set_and_display_audio_EQ();
-  //uint8_t Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
-  //Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
-  //if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
-  //else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
-  delay(2000);
+  uint8_t Audio_error = 1;
+  if(bands[current_band].mode == DEMOD_WFM)
+  {
+    Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_WFM_feq[0], &AudioEqualizer_WFM_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / 4.0f));
+  }
+  else
+  {
+    Audio_error = AudioEqualizerInit(AudioEqualizer_nBands, &AudioEqualizer_Standard_feq[0], &AudioEqualizer_Standard_dB[0], AudioEqualizer_nFIR, &AudioEqualizer_FIR_coeffs[0], AudioEqualizer_dBsidelobe, (float32_t) (SR[SAMPLE_RATE].rate / DF));
+  }
+  Serial.print("Audio Equalizer Error code: "); Serial.println(Audio_error);
+  if(!Audio_error) Serial.println("Audio Equalizer successfully initialized");
+  else Serial.println("Audio Equalizer NOT successfully initialized: ERROR"); 
   
   /****************************************************************************************
       Initialize spectral noise reduction variables
